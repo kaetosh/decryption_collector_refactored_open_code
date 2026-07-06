@@ -303,14 +303,23 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         target_dtypes: dict
     ) -> pd.DataFrame:
         """Восстанавливает типы данных после pd.concat."""
+        # Восстанавливаем типы из target_dtypes
         for col, dtype in target_dtypes.items():
             if col not in df.columns:
                 continue
-            
             if pd.api.types.is_string_dtype(dtype):
                 df[col] = df[col].astype('string')
             elif pd.api.types.is_numeric_dtype(dtype):
                 df[col] = df[col].astype(dtype)
+        
+        # ★ ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: явно приводим все текстовые столбцы к string
+        text_cols = [
+            'инвест_договор', 'вид_связи', 'вид_задолженности', 
+            'подвид_задолженности', 'допсубконто', 'субконто'
+        ]
+        for col in text_cols:
+            if col in df.columns and df[col].dtype == 'object':
+                df[col] = df[col].astype('string')
         
         return df
     
@@ -353,15 +362,12 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         self, 
         osv_all_df: pd.DataFrame
     ) -> pd.DataFrame:
-        """
-        Подготавливает строки основной ОСВ, которые НЕ относятся к счету 60.
-        """
+        """Подготавливает строки основной ОСВ, которые НЕ относятся к счету 60."""
         osv_filtered = osv_all_df[
             ~osv_all_df['счет'].str.startswith(self.ACCOUNT_60_PREFIX)
         ].copy()
-        
         osv_filtered['инвест_договор'] = self.UNSPECIFIED
-        
+        osv_filtered['инвест_договор'] = osv_filtered['инвест_договор'].astype('string')  # ← Добавить
         return osv_filtered
     
     def _cast_qualitative_columns(self, df: pd.DataFrame) -> pd.DataFrame:
