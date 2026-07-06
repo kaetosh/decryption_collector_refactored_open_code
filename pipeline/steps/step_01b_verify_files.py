@@ -1,16 +1,12 @@
 """
 Шаг 1b: Проверка наличия всех необходимых файлов выгрузок.
 """
-from datetime import datetime
 from loguru import logger
 import pandas as pd
-from pathlib import Path
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import MissingFilesError
 from config.settings import (
-    ACCOUNTS_OSV_DIR, 
     ACCOUNT_CARDS_DIR,
-    OUTPUT_DATA_DIR,
     REQUIRED_OSV_DIRS,
 )
 from utils import find_missing_files
