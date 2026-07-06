@@ -41,7 +41,8 @@ REQUIRED_OSV_DIRS = [
     },
 ]
 
-# Параметры обработки
+# Параметры обработки ghp_v9KgUifQtN7QIaV1U5MvjtHB1UxAG6k3cmEIt
+
 TOLERANCE = 3000  # Допуск по сходимости ОСВ (тыс.ед.)
 DECIMAL_PLACES = 2  # Количество знаков после запятой
 STRICT_CONTRACTOR_CHECK = False # Если False — неизвестные КА заменяются на '3 лица' (временный режим)

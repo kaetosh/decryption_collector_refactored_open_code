@@ -35,6 +35,7 @@ dist/
 build/
 *.egg
 *.log
+*.parquet
 
 # Файлы среды
 .env

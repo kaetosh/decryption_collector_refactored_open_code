@@ -29,10 +29,6 @@ class Step14BuildOpuFoundationStep(Step):
     # Счета для обработки на этом шаге
     ACCOUNTS_REVENUE_COST = ['90.01', '90.02']
     
-    # Строки ОПУ
-    OPU_LINE_REVENUE = '2110'       # Выручка
-    OPU_LINE_COGS = '2120'          # Себестоимость
-    
     # Допуск для проверки сходимости с ОСВ (в тыс.ед.)
     TOLERANCE_OSV = 1000
     
@@ -51,6 +47,9 @@ class Step14BuildOpuFoundationStep(Step):
         # 1. Загрузка и подготовка данных
         transactions_all_df = self._load_transactions()
         osv_df = self._get_osv_from_context(context)
+        
+        # Сохраним сводный отчет по проводкам для использование в следующих шагах
+        context.data['transactions_all_df'] = transactions_all_df
         
         # 2. Обработка выручки (90.01)
         df9001 = self._process_revenue_9001(transactions_all_df, osv_df)
@@ -77,10 +76,7 @@ class Step14BuildOpuFoundationStep(Step):
         
         # 8. Объединение с переоценкой (df9002_16)
         df_final = self._merge_with_reassessment(df_result, df9002_16)
-        
-        # 9. Финальная проверка на отсутствие 'не_указано'
-        # self._validate_no_unspecified(df_final)
-        
+                
         # Обновляем context
         context.main_df = df_final
         
@@ -669,45 +665,6 @@ class Step14BuildOpuFoundationStep(Step):
         )
         
         return df_final
-    
-    # =========================================================================
-    # ФИНАЛЬНАЯ ВАЛИДАЦИЯ
-    # =========================================================================
-    
-    def _validate_no_unspecified(self, df: pd.DataFrame) -> None:
-        """Проверяет отсутствие 'не_указано' в ключевых столбцах."""
-        cols_to_check = ['вид_дохода_расхода', 'сегмент', 'доход_расход', 'вид_связи']
-        
-        # Проверяем только существующие столбцы
-        existing_cols = [col for col in cols_to_check if col in df.columns]
-        
-        if not existing_cols:
-            logger.warning("Нет столбцов для проверки на 'не_указано'")
-            return
-        
-        # Ищем строки с 'не_указано'
-        unspecified_mask = df[existing_cols].eq('не_указано').any(axis=1)
-        
-        if unspecified_mask.any():
-            problem_data = df.loc[unspecified_mask].copy()
-            
-            # Добавляем столбец с перечислением незаполненных полей
-            problem_data['незаполненные_поля'] = (
-                df.loc[unspecified_mask, existing_cols]
-                .eq('не_указано')
-                .apply(lambda row: ', '.join(row.index[row]), axis=1)
-            )
-            
-            raise MissingMappingError(
-                message=(
-                    f"В справочниках отсутствуют записи для "
-                    f"{unspecified_mask.sum()} строк отчёта по проводкам"
-                ),
-                problem_data=problem_data,
-                reference_name="Справочники ОПУ (mapping_opu, directory_ufr, group_companies)",
-            )
-        
-        logger.debug("✓ Проверка на 'не_указано' пройдена")
 
         
         
