@@ -79,7 +79,7 @@ REFERENCE_CONFIGS = {
 
 
 # Логирование
-LOG_LEVEL = "DEBUG"
+LOG_LEVEL = "INFO"
 LOG_FILE = BASE_DIR / "app.log"
 
 # Параметры вывода

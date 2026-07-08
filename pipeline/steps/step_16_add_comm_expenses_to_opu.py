@@ -1,32 +1,24 @@
-
 # -*- coding: utf-8 -*-
 """
-Шаг 15: Добавление управленческих расходов в расшифровку ОПУ (счет 90.08)
+Шаг 16: Добавление коммерческих расходов в расшифровку ОПУ (счет 90.07)
 """
 from pipeline.steps.base_expenses_step import StepAddExpensesToOpuBase
 
 
-class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
+class Step16AddCommExpensesToOpuStep(StepAddExpensesToOpuBase):
     """
-    Шаг 15: Обработка управленческих расходов (счет 90.08).
+    Шаг 16: Обработка коммерческих расходов (счет 90.07).
     Тонкий наследник базового класса StepAddExpensesToOpuBase.
     """
     
     def __init__(self):
         super().__init__(
-            name="Шаг 15: Управленческие расходы",
-            description="Добавление движений по 90.08 счету, разбивка по видам связи КА и сегментам",
-            account_opu='90.08',
-            account_accumulation='26',
-            opu_line_name='Управленческие расходы',
+            name="Шаг 16: Коммерческие расходы",
+            description="Добавление движений по 90.07 счету, разбивка по видам связи КА и сегментам",
+            account_opu='90.07',
+            account_accumulation='44',
+            opu_line_name='Коммерческие расходы',
         )
-
-
-
-
-
-
-
 
 
 
@@ -36,7 +28,7 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 
 # # -*- coding: utf-8 -*-
 # """
-# Шаг 15: Добавление управленческих расходов в расшифровку ОПУ (счет 90.08)
+# Шаг 15: Добавление коммерческих расходов в расшифровку ОПУ (счет 90.07)
 # """
 # import numpy as np
 # import pandas as pd
@@ -46,56 +38,56 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 # from io_module import DataLoader
 
 
-# class Step15AddAdminExpensesToOpuStep(Step):
+# class Step16AddCommExpensesToOpuStep(Step):
 #     """
-#     Шаг 15: Обработка управленческих расходов (счет 90.08).
+#     Шаг 16: Обработка коммерческих расходов (счет 90.07).
     
 #     Логика:
-#     1. Загружаем проводки Дт 26 Кт 60/76 для определения контрагентов
-#     2. Загружаем проводки Дт 90.08 для определения номенклатурных групп
-#     3. Распределяем расходы с 26 счета на ном_группы пропорционально
+#     1. Загружаем проводки Дт 44 Кт 60/76 для определения контрагентов
+#     2. Загружаем проводки Дт 90.07 для определения номенклатурных групп
+#     3. Распределяем расходы с 44 счета на ном_группы пропорционально
 #     4. Определяем вид_связи для каждой комбинации контрагент-ном_группа
 #     5. Добавляем остаток (расходы без контрагентов) как "Прочие расходы"
 #     6. Объединяем с основной расшифровкой ОПУ
 #     """
     
 #     # Счета для обработки
-#     ACCOUNT_ADMIN = '90.08'
-#     ACCOUNT_COST_ACCUMULATION = '26'
+#     ACCOUNT_COMM = '90.07'
+#     ACCOUNT_COST_ACCUMULATION = '44'
 #     ACCOUNTS_CONTRACTORS = ('60', '76')
     
 #     # Строки ОПУ
-#     OPU_LINE_ADMIN = 'Управленческие расходы'
+#     OPU_LINE_COMM = 'Коммерческие расходы'
     
 #     # Допуск для проверки сходимости с ОСВ (в тыс.ед.)
 #     TOLERANCE_OSV = 1000
     
 #     def __init__(self):
 #         super().__init__(
-#             name="Шаг 15: Управленческие расходы",
-#             description="Добавление движений по 90.08 счету, разбивка по видам связи КА и сегментам"
+#             name="Шаг 15: Коммерческие расходы",
+#             description="Добавление движений по 90.07 счету, разбивка по видам связи КА и сегментам"
 #         )
     
 #     def _process(self, context: ProcessingContext) -> ProcessingContext:
 #         """Основной метод обработки."""
-#         logger.debug("Начало обработки управленческих расходов")
+#         logger.debug("Начало обработки коммерческих расходов")
         
 #         name_company = context.get_metadata('company_name')
         
 #         # 1. Загрузка данных из контекста
 #         osv_df, transactions_all_df = self._load_data_from_context(context)
         
-#         # 2. Обработка проводок Дт 26 Кт 60/76 (контрагенты)
-#         df26_clean = self._process_26_account_transactions(transactions_all_df)
+#         # 2. Обработка проводок Дт 44 Кт 60/76 (контрагенты)
+#         df44_clean = self._process_44_account_transactions(transactions_all_df)
         
-#         # 3. Обработка проводок Дт 90.08 (ном_группы)
-#         df_9008 = self._process_9008_transactions(transactions_all_df)
+#         # 3. Обработка проводок Дт 90.07 (ном_группы)
+#         df_9007 = self._process_9007_transactions(transactions_all_df)
         
 #         # 4. Обогащение ном_групп сегментами из справочника
-#         df_9008 = self._enrich_with_segment(df_9008, name_company)
+#         df_9007 = self._enrich_with_segment(df_9007, name_company)
         
 #         # 5. Распределение расходов на контрагентов
-#         df_result = self._distribute_expenses(df26_clean, df_9008)
+#         df_result = self._distribute_expenses(df44_clean, df_9007)
         
 #         # 6. Проверка сходимости с ОСВ
 #         self._validate_against_osv(df_result, osv_df)
@@ -107,9 +99,11 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #         context.main_df = df_final
         
 #         logger.info(
-#             f"✓ Управленческие расходы добавлены: {len(df_result)} строк "
+#             f"✓ Коммерческие расходы добавлены: {len(df_result)} строк "
 #             f"({df_result['вид_связи'].value_counts().to_dict()})"
 #         )
+        
+#         df_final.to_excel('Comm.xlsx')
         
 #         return context
     
@@ -133,7 +127,7 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #         if transactions_all_df.empty:
 #             raise ValueError(
 #                 "В контексте нет сводного отчета по проводкам. "
-#                 "Убедитесь, что предыдущий шаг (14) выполнен успешно."
+#                 "Убедитесь, что шаг № 14 выполнен успешно."
 #             )
         
 #         logger.debug(
@@ -144,55 +138,55 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #         return osv_df, transactions_all_df
     
 #     # =========================================================================
-#     # ОБРАБОТКА ПРОВОДОК ДТ 26
+#     # ОБРАБОТКА ПРОВОДОК ДТ 44
 #     # =========================================================================
     
-#     def _process_26_account_transactions(
+#     def _process_44_account_transactions(
 #         self, 
 #         transactions_all_df: pd.DataFrame
 #     ) -> pd.DataFrame:
 #         """
-#         Обрабатывает проводки Дт 26 Кт 60/76 для определения контрагентов.
+#         Обрабатывает проводки Дт 44 Кт 60/76 для определения контрагентов.
         
-#         Фильтрует только из файлов отчёта по 26 счету, чтобы избежать дублей
-#         с файлом отчёта по 90.08.
+#         Фильтрует только из файлов отчёта по 44 счету, чтобы избежать дублей
+#         с файлом отчёта по 90.07.
 #         """
-#         logger.debug("Обработка проводок Дт 26 Кт 60/76")
+#         logger.debug("Обработка проводок Дт 44 Кт 60/76")
         
 #         # Фильтруем проводки
 #         mask_account = (
 #             transactions_all_df['Дт'].str.startswith(self.ACCOUNT_COST_ACCUMULATION, na=False) &
 #             transactions_all_df['Кт'].str.startswith(self.ACCOUNTS_CONTRACTORS, na=False)
 #         )
-#         mask_file = transactions_all_df['Имя_файла'].str.contains("_26_", na=False)
+#         mask_file = transactions_all_df['Имя_файла'].str.contains("_44_", na=False)
         
-#         df26 = transactions_all_df.loc[mask_account & mask_file].copy()
+#         df44 = transactions_all_df.loc[mask_account & mask_file].copy()
         
 #         # Оставляем только необходимые столбцы
-#         df26_clean = df26.loc[:, ['Субконто Кт_1', 'Сумма']]
-#         df26_clean = df26_clean.rename(columns={
+#         df44_clean = df44.loc[:, ['Субконто Кт_1', 'Сумма']]
+#         df44_clean = df44_clean.rename(columns={
 #             'Субконто Кт_1': 'контрагент',
 #             'Сумма': 'оборот, тыс.ед.'
 #         })
         
 #         # Переводим в тысячи
-#         df26_clean['оборот, тыс.ед.'] = df26_clean['оборот, тыс.ед.'] / 1000
+#         df44_clean['оборот, тыс.ед.'] = df44_clean['оборот, тыс.ед.'] / 1000
         
 #         # Обогащение данными из справочника ВидСвязиКА
-#         df26_clean = self._enrich_with_contractor_info(df26_clean)
+#         df44_clean = self._enrich_with_contractor_info(df44_clean)
         
 #         # Группируем по контрагенту
-#         df26_clean = df26_clean.groupby(
+#         df44_clean = df44_clean.groupby(
 #             ['группа_ка', 'сегмент_ка', 'контрагент'],
 #             as_index=False
 #         )['оборот, тыс.ед.'].sum()
         
 #         logger.debug(
-#             f"Обработано проводок Дт 26: {len(df26_clean)} уникальных контрагентов, "
-#             f"сумма={df26_clean['оборот, тыс.ед.'].sum():,.2f} тыс.ед."
+#             f"Обработано проводок Дт 44: {len(df44_clean)} уникальных контрагентов, "
+#             f"сумма={df44_clean['оборот, тыс.ед.'].sum():,.2f} тыс.ед."
 #         )
         
-#         return df26_clean
+#         return df44_clean
     
 #     def _enrich_with_contractor_info(
 #         self, 
@@ -215,47 +209,47 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #         return df
     
 #     # =========================================================================
-#     # ОБРАБОТКА ПРОВОДОК ДТ 90.08
+#     # ОБРАБОТКА ПРОВОДОК ДТ 90.07
 #     # =========================================================================
     
-#     def _process_9008_transactions(
+#     def _process_9007_transactions(
 #         self, 
 #         transactions_all_df: pd.DataFrame
 #     ) -> pd.DataFrame:
 #         """
-#         Обрабатывает проводки Дт 90.08 для определения номенклатурных групп.
+#         Обрабатывает проводки Дт 90.07 для определения номенклатурных групп.
         
-#         Фильтрует только из файлов отчёта по 90.08, чтобы избежать дублей.
+#         Фильтрует только из файлов отчёта по 90.07, чтобы избежать дублей.
 #         """
-#         logger.debug("Обработка проводок Дт 90.08")
+#         logger.debug("Обработка проводок Дт 90.07")
         
 #         # Фильтруем проводки
-#         mask_account = transactions_all_df['Дт'].str.startswith(self.ACCOUNT_ADMIN, na=False)
-#         mask_file = transactions_all_df['Имя_файла'].str.contains("_90.08_", na=False)
+#         mask_account = transactions_all_df['Дт'].str.startswith(self.ACCOUNT_COMM, na=False)
+#         mask_file = transactions_all_df['Имя_файла'].str.contains("_90.07_", na=False)
         
-#         df_9008 = transactions_all_df.loc[mask_account & mask_file].copy()
+#         df_9007 = transactions_all_df.loc[mask_account & mask_file].copy()
         
 #         # Оставляем только необходимые столбцы
-#         df_9008 = df_9008.loc[:, ['Субконто Дт_1', 'Сумма']]
-#         df_9008 = df_9008.rename(columns={'Субконто Дт_1': 'ном_группа'})
+#         df_9007 = df_9007.loc[:, ['Субконто Дт_1', 'Сумма']]
+#         df_9007 = df_9007.rename(columns={'Субконто Дт_1': 'ном_группа'})
         
 #         # Группируем по ном_группе
-#         df_9008 = df_9008.groupby('ном_группа', as_index=False)['Сумма'].sum()
+#         df_9007 = df_9007.groupby('ном_группа', as_index=False)['Сумма'].sum()
         
 #         # Переводим в тысячи
-#         df_9008['оборот, тыс.ед.'] = df_9008['Сумма'] / 1000
-#         df_9008 = df_9008.loc[:, ['ном_группа', 'оборот, тыс.ед.']]
+#         df_9007['оборот, тыс.ед.'] = df_9007['Сумма'] / 1000
+#         df_9007 = df_9007.loc[:, ['ном_группа', 'оборот, тыс.ед.']]
         
 #         logger.debug(
-#             f"Обработано проводок Дт 90.08: {len(df_9008)} ном_групп, "
-#             f"сумма={df_9008['оборот, тыс.ед.'].sum():,.2f} тыс.ед."
+#             f"Обработано проводок Дт 90.07: {len(df_9007)} ном_групп, "
+#             f"сумма={df_9007['оборот, тыс.ед.'].sum():,.2f} тыс.ед."
 #         )
         
-#         return df_9008
+#         return df_9007
     
 #     def _enrich_with_segment(
 #         self, 
-#         df_9008: pd.DataFrame,
+#         df_9007: pd.DataFrame,
 #         name_company: str
 #     ) -> pd.DataFrame:
 #         """Обогащает ном_группы сегментами из справочника УФР."""
@@ -277,12 +271,12 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #             .set_index('ном_группа_1с')['сегмент']
 #         )
         
-#         df_9008['сегмент'] = df_9008['ном_группа'].map(mapping_segment).astype('string')
+#         df_9007['сегмент'] = df_9007['ном_группа'].map(mapping_segment).astype('string')
         
 #         # Проверка: все ли ном_группы замапились
-#         unmapped_mask = df_9008['сегмент'].isna()
+#         unmapped_mask = df_9007['сегмент'].isna()
 #         if unmapped_mask.any():
-#             unmapped_groups = df_9008.loc[unmapped_mask, 'ном_группа'].unique()
+#             unmapped_groups = df_9007.loc[unmapped_mask, 'ном_группа'].unique()
             
 #             problem_data = pd.DataFrame({
 #                 'ном_группа_без_сегмента': unmapped_groups,
@@ -301,9 +295,9 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #                 reference_name="Справочник УФР (directory_ufr)",
 #             )
         
-#         logger.debug(f"Сегменты добавлены: {df_9008['сегмент'].value_counts().to_dict()}")
+#         logger.debug(f"Сегменты добавлены: {df_9007['сегмент'].value_counts().to_dict()}")
         
-#         return df_9008
+#         return df_9007
     
 #     # =========================================================================
 #     # РАСПРЕДЕЛЕНИЕ РАСХОДОВ
@@ -311,11 +305,11 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
     
 #     def _distribute_expenses(
 #         self,
-#         df26_clean: pd.DataFrame,
-#         df_9008: pd.DataFrame
+#         df44_clean: pd.DataFrame,
+#         df_9007: pd.DataFrame
 #     ) -> pd.DataFrame:
 #         """
-#         Распределяет расходы с 26 счета на ном_группы пропорционально.
+#         Распределяет расходы с 44 счета на ном_группы пропорционально.
         
 #         Логика:
 #         1. Рассчитываем долю каждой ном_группы в общих расходах
@@ -326,12 +320,12 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #         logger.debug("Распределение расходов на контрагентов")
         
 #         # 1. Расчёт долей ном_групп
-#         total_9008 = df_9008['оборот, тыс.ед.'].sum()
-#         df_9008['доля_ном_группы'] = df_9008['оборот, тыс.ед.'] / total_9008
+#         total_9007 = df_9007['оборот, тыс.ед.'].sum()
+#         df_9007['доля_ном_группы'] = df_9007['оборот, тыс.ед.'] / total_9007
         
-#         # 2. Cross-join: каждая строка df26_clean × каждая ном_группа
-#         df_cross = df26_clean.assign(key=1).merge(
-#             df_9008[['ном_группа', 'сегмент', 'доля_ном_группы']].assign(key=1),
+#         # 2. Cross-join: каждая строка df44_clean × каждая ном_группа
+#         df_cross = df44_clean.assign(key=1).merge(
+#             df_9007[['ном_группа', 'сегмент', 'доля_ном_группы']].assign(key=1),
 #             on='key'
 #         ).drop('key', axis=1)
         
@@ -342,15 +336,15 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #         df_cross['вид_связи'] = self._calculate_connection_type(df_cross)
         
 #         # 5. Добавление остатка (расходы без контрагентов)
-#         total_26_clean = df26_clean['оборот, тыс.ед.'].sum()
-#         remainder = total_9008 - total_26_clean
+#         total_44_clean = df44_clean['оборот, тыс.ед.'].sum()
+#         remainder = total_9007 - total_44_clean
         
 #         if remainder > 0:
-#             df_remainder = self._create_remainder_rows(df_9008, remainder)
+#             df_remainder = self._create_remainder_rows(df_9007, remainder)
 #             df_result = pd.concat([df_cross, df_remainder], ignore_index=True)
 #             logger.debug(
 #                 f"Добавлен остаток: {remainder:,.2f} тыс.ед. "
-#                 f"({remainder/total_9008:.1%} от общей суммы)"
+#                 f"({remainder/total_9007:.1%} от общей суммы)"
 #             )
 #         else:
 #             df_result = df_cross
@@ -388,11 +382,11 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
     
 #     def _create_remainder_rows(
 #         self,
-#         df_9008: pd.DataFrame,
+#         df_9007: pd.DataFrame,
 #         remainder: float
 #     ) -> pd.DataFrame:
 #         """Создаёт строки для остатка (расходы без контрагентов)."""
-#         df_remainder = df_9008[['ном_группа', 'сегмент', 'доля_ном_группы']].copy()
+#         df_remainder = df_9007[['ном_группа', 'сегмент', 'доля_ном_группы']].copy()
 #         df_remainder['контрагент'] = 'Прочие расходы'
 #         df_remainder['группа_ка'] = '3 лица'
 #         df_remainder['сегмент_ка'] = '3 лица'
@@ -402,9 +396,9 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
     
 #     def _add_service_columns(self, df: pd.DataFrame) -> pd.DataFrame:
 #         """Добавляет служебные столбцы для соответствия структуре main_df."""
-#         df['счет'] = pd.Series([self.ACCOUNT_ADMIN] * len(df), dtype='string')
-#         df['доход_расход'] = pd.Series([self.OPU_LINE_ADMIN] * len(df), dtype='string')
-#         df['вид_дохода_расхода'] = pd.Series([self.OPU_LINE_ADMIN] * len(df), dtype='string')
+#         df['счет'] = pd.Series([self.ACCOUNT_COMM] * len(df), dtype='string')
+#         df['доход_расход'] = pd.Series([self.OPU_LINE_COMM] * len(df), dtype='string')
+#         df['вид_дохода_расхода'] = pd.Series([self.OPU_LINE_COMM] * len(df), dtype='string')
 #         return df
     
 #     # =========================================================================
@@ -416,23 +410,23 @@ class Step15AddAdminExpensesToOpuStep(StepAddExpensesToOpuBase):
 #         df_result: pd.DataFrame,
 #         osv_df: pd.DataFrame
 #     ) -> None:
-#         """Проверяет сходимость управленческих расходов с общей ОСВ."""
-#         expenses_osv_9008 = osv_df.loc[
-#             osv_df['Счет'].str.startswith(self.ACCOUNT_ADMIN), 'Дебет_оборот'
+#         """Проверяет сходимость коммерческих расходов с общей ОСВ."""
+#         expenses_osv_9007 = osv_df.loc[
+#             osv_df['Счет'].str.startswith(self.ACCOUNT_COMM), 'Дебет_оборот'
 #         ].sum() / 1000
         
 #         expenses_from_df_result = df_result['оборот, тыс.ед.'].sum()
-#         difference = abs(expenses_osv_9008 - expenses_from_df_result)
+#         difference = abs(expenses_osv_9007 - expenses_from_df_result)
         
 #         if difference > self.TOLERANCE_OSV:
 #             raise ValueError(
-#                 f"Управленческие расходы из отчёта по проводкам ({expenses_from_df_result:,.2f} тыс.ед.) "
-#                 f"отличаются от общей ОСВ ({expenses_osv_9008:,.2f} тыс.ед.) "
+#                 f"Коммерческие расходы из отчёта по проводкам ({expenses_from_df_result:,.2f} тыс.ед.) "
+#                 f"отличаются от общей ОСВ ({expenses_osv_9007:,.2f} тыс.ед.) "
 #                 f"на {difference:,.2f} тыс.ед. (допуск: {self.TOLERANCE_OSV})"
 #             )
         
 #         logger.debug(
-#             f"✓ Сходимость упр.расходов: ОСВ={expenses_osv_9008:,.2f}, "
+#             f"✓ Сходимость комм.расходов: ОСВ={expenses_osv_9007:,.2f}, "
 #             f"отчёт={expenses_from_df_result:,.2f}, разница={difference:,.2f}"
 #         )
     

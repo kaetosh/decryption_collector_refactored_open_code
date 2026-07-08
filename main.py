@@ -41,7 +41,8 @@ from pipeline.steps import (
     Step12Split84AccountBalanceStep,
     Step13BuildBalanceBreakdownStep,
     Step14BuildOpuFoundationStep,
-    Step15AddAdminExpensesToOpuStep
+    Step15AddAdminExpensesToOpuStep,
+    Step16AddCommExpensesToOpuStep
 )
 
 from io_module import DataLoader, DataSaver
@@ -98,6 +99,7 @@ def create_main_pipeline() -> Pipeline:
     # ЭТАП 5: Добавление классификационных столбцов опу
     pipeline.add_step(Step14BuildOpuFoundationStep())
     pipeline.add_step(Step15AddAdminExpensesToOpuStep())
+    pipeline.add_step(Step16AddCommExpensesToOpuStep())
     
     return pipeline
 
