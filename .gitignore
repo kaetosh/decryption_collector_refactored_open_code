@@ -37,6 +37,8 @@ build/
 *.log
 *.parquet
 *.xlsx
+*.json
+*.md
 
 # Файлы среды
 .env
