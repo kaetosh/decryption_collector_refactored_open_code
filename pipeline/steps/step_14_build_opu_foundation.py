@@ -129,10 +129,10 @@ class Step14BuildOpuFoundationStep(Step):
         """Обрабатывает выручку по счету 90.01."""
         logger.debug("Обработка выручки (90.01)")
         
-        # Фильтруем кредитовые обороты по 90.01
-        df9001 = transactions_all_df.loc[
-            transactions_all_df['Кт'].str.startswith("90.01")
-        ].copy()
+        # Фильтруем кредитовые обороты по 90.01 только из файлов отчёта по 90.01
+        mask_account = transactions_all_df['Кт'].str.startswith("90.01", na=False)
+        mask_file = transactions_all_df['Имя_файла'].str.contains("_90.01_", na=False)
+        df9001 = transactions_all_df.loc[mask_account & mask_file].copy()
         
         # Переименование столбцов
         df9001 = df9001.rename(columns={
@@ -221,10 +221,10 @@ class Step14BuildOpuFoundationStep(Step):
         """
         logger.debug("Обработка себестоимости (90.02)")
         
-        # Фильтруем дебетовые обороты по 90.02
-        df9002 = transactions_all_df.loc[
-            transactions_all_df['Дт'].str.startswith("90.02")
-        ].copy()
+        # Фильтруем дебетовые обороты по 90.02 только из файлов отчёта по 90.02
+        mask_account = transactions_all_df['Дт'].str.startswith("90.02", na=False)
+        mask_file = transactions_all_df['Имя_файла'].str.contains("_90.02_", na=False)
+        df9002 = transactions_all_df.loc[mask_account & mask_file].copy()
         
         df9002 = df9002.rename(columns={
             'Субконто Дт_1': 'ном_группа',
