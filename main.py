@@ -116,16 +116,19 @@ def pause_for_1c_export(context: ProcessingContext) -> None:
     expected_count = len(context.data.get('expected_filenames', []))
     
     print("\n" + "=" * 80)
-    print(f"📋 Сформирован список из {expected_count} регистров к выгрузке.")
-    print("📂 Список сохранен в папке OUTPUT_DATA.")
+    print(f"[LIST] Сформирован список из {expected_count} регистров к выгрузке.")
+    print("[FOLDER] Список сохранен в папке OUTPUT_DATA.")
     print()
-    print("👉 ВАШИ ДЕЙСТВИЯ:")
+    print("[>>] ВАШИ ДЕЙСТВИЯ:")
     print("   1. Откройте файл 'Выгрузить_*.xlsx' в папке OUTPUT_DATA")
     print("   2. Выгрузите указанные регистры из 1С")
     print("   3. Положите все файлы в папку INPUT_DATA")
     print("=" * 80)
     
-    input("\n⏸️  Когда файлы будут готовы, нажмите Enter для продолжения...")
+    try:
+        input("\n[PAUSE] Когда файлы будут готовы, нажмите Enter для продолжения...")
+    except EOFError:
+        pass
     print("=" * 80 + "\n")
 
 
@@ -315,7 +318,7 @@ def ask_user_about_traceback() -> bool:
     """
     try:
         print("\n" + "=" * 80)
-        print("🔧 Режим диагностики")
+        print("[DIAG] Режим диагностики")
         print("=" * 80)
         print("Хотите выводить полную трассировку стека при ошибках?")
         print("  [enter] - нет (по умолчанию, чистый вывод)")
