@@ -36,6 +36,7 @@ build/
 *.egg
 *.log
 *.parquet
+*.xlsx
 
 # Файлы среды
 .env

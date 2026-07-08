@@ -18,6 +18,8 @@ from pipeline.steps.step_11a_check_contractor_similarity import Step11aCheckCont
 from pipeline.steps.step_12_split_84 import Step12Split84AccountBalanceStep
 from pipeline.steps.step_13_build_balance import Step13BuildBalanceBreakdownStep
 from pipeline.steps.step_14_build_opu_foundation import Step14BuildOpuFoundationStep
+from pipeline.steps.step_15_add_admin_expenses_to_opu import Step15AddAdminExpensesToOpuStep
+
 
 __all__ = [
     'Step1aListExpectedRegistersStep',
@@ -35,5 +37,6 @@ __all__ = [
     'Step11aCheckContractorSimilarityStep',
     'Step12Split84AccountBalanceStep',
     'Step13BuildBalanceBreakdownStep',
-    'Step14BuildOpuFoundationStep'
+    'Step14BuildOpuFoundationStep',
+    'Step15AddAdminExpensesToOpuStep'
 ]

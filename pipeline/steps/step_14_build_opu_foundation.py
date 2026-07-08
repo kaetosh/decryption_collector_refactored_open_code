@@ -79,6 +79,7 @@ class Step14BuildOpuFoundationStep(Step):
                 
         # Обновляем context
         context.main_df = df_final
+        df_final.to_parquet('df_final.parquet', engine='pyarrow')
         
         logger.info(
             f"✓ Основа ОПУ сформирована: {len(df_final)} строк "

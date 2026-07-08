@@ -40,7 +40,8 @@ from pipeline.steps import (
     Step11aCheckContractorSimilarityStep,
     Step12Split84AccountBalanceStep,
     Step13BuildBalanceBreakdownStep,
-    Step14BuildOpuFoundationStep
+    Step14BuildOpuFoundationStep,
+    Step15AddAdminExpensesToOpuStep
 )
 
 from io_module import DataLoader, DataSaver
@@ -74,28 +75,29 @@ def create_main_pipeline() -> Pipeline:
     
     # ЭТАП 1: Загрузка и подготовка данных (баланс и опу)
     pipeline.add_step(Step1bVerifyFilesStep())
-    pipeline.add_step(Step2FlatSummaryOSVStep())
+    # pipeline.add_step(Step2FlatSummaryOSVStep())
     
     # ЭТАП 2: Добавление классификационных столбцов баланс
-    pipeline.add_step(Step3AddAccountColumnStep())
-    pipeline.add_step(Step4AddReceivableTypeStep())
-    pipeline.add_step(Step5AddReceivableSubtypeStep())
-    pipeline.add_step(Step6AddOSGroupColumnStep())
-    pipeline.add_step(Step7AddLongShortTermColumnStep())
-    pipeline.add_step(Step8AddBioactiveSegmentColumnStep())
-    pipeline.add_step(Step9AddRelatedPartyTypeColumnStep())
+    # pipeline.add_step(Step3AddAccountColumnStep())
+    # pipeline.add_step(Step4AddReceivableTypeStep())
+    # pipeline.add_step(Step5AddReceivableSubtypeStep())
+    # pipeline.add_step(Step6AddOSGroupColumnStep())
+    # pipeline.add_step(Step7AddLongShortTermColumnStep())
+    # pipeline.add_step(Step8AddBioactiveSegmentColumnStep())
+    # pipeline.add_step(Step9AddRelatedPartyTypeColumnStep())
     
     # ЭТАП 3: Специальные расчеты и классификации баланс
-    pipeline.add_step(Step10ClassifyLeaseSourceStep())
-    pipeline.add_step(Step11Split60AccountDebtByOSStatusStep())
-    pipeline.add_step(Step11aCheckContractorSimilarityStep())
-    pipeline.add_step(Step12Split84AccountBalanceStep())
+    # pipeline.add_step(Step10ClassifyLeaseSourceStep())
+    # pipeline.add_step(Step11Split60AccountDebtByOSStatusStep())
+    # pipeline.add_step(Step11aCheckContractorSimilarityStep())
+    # pipeline.add_step(Step12Split84AccountBalanceStep())
     
     # ЭТАП 4: Финальная сборка расшифровки баланса
-    pipeline.add_step(Step13BuildBalanceBreakdownStep())
+    # pipeline.add_step(Step13BuildBalanceBreakdownStep())
     
     # ЭТАП 5: Добавление классификационных столбцов опу
     pipeline.add_step(Step14BuildOpuFoundationStep())
+    pipeline.add_step(Step15AddAdminExpensesToOpuStep())
     
     return pipeline
 
