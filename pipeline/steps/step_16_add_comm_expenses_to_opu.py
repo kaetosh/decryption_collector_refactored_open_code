@@ -103,7 +103,7 @@ class Step16AddCommExpensesToOpuStep(StepAddExpensesToOpuBase):
 #             f"({df_result['вид_связи'].value_counts().to_dict()})"
 #         )
         
-#         df_final.to_excel('Comm.xlsx')
+
         
 #         return context
     
