@@ -42,7 +42,9 @@ from pipeline.steps import (
     Step13BuildBalanceBreakdownStep,
     Step14BuildOpuFoundationStep,
     Step15AddAdminExpensesToOpuStep,
-    Step16AddCommExpensesToOpuStep
+    Step16AddCommExpensesToOpuStep,
+    Step17AddOtherIncomeExpensesToOpuStep,
+    Step18AddTaskAndOtherMovementsStep
 )
 
 from io_module import DataLoader, DataSaver
@@ -100,6 +102,8 @@ def create_main_pipeline() -> Pipeline:
     pipeline.add_step(Step14BuildOpuFoundationStep())
     pipeline.add_step(Step15AddAdminExpensesToOpuStep())
     pipeline.add_step(Step16AddCommExpensesToOpuStep())
+    pipeline.add_step(Step17AddOtherIncomeExpensesToOpuStep())
+    pipeline.add_step(Step18AddTaskAndOtherMovementsStep())
     
     return pipeline
 

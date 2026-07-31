@@ -48,26 +48,26 @@ class Step14BuildOpuFoundationStep(Step):
         transactions_all_df = self._load_transactions()
         osv_df = self._get_osv_from_context(context)
         
+        # 2. Загрузка и сохранение справочников в context
+        mapping_opu_df, directory_ufr_df, group_companies_df, company_directory_df = self._load_reference_data(name_company)
+        context.data['mapping_opu'] = mapping_opu_df
+        
         # Сохраним сводный отчет по проводкам для использование в следующих шагах
         context.data['transactions_all_df'] = transactions_all_df
         
-        # 2. Обработка выручки (90.01)
+        # 3. Обработка выручки (90.01)
         df9001 = self._process_revenue_9001(transactions_all_df, osv_df)
         
-        # 3. Обработка себестоимости (90.02) с выделением переоценки
+        # 4. Обработка себестоимости (90.02) с выделением переоценки
         df9002, df9002_16 = self._process_cost_9002(
-            transactions_all_df, osv_df, name_company
+            transactions_all_df, osv_df, name_company, company_directory_df
         )
         
-        # 4. Распределение себестоимости на контрагентов
+        # 5. Распределение себестоимости на контрагентов
         df_result = self._distribute_cost_to_buyers(df9001, df9002)
         
-        # 5. Преобразование в длинный формат (melt)
+        # 6. Преобразование в длинный формат (melt)
         df_result = self._reshape_to_long_format(df_result)
-        
-        # 6. Загрузка и сохранение справочников в context
-        mapping_opu_df, directory_ufr_df, group_companies_df = self._load_reference_data(name_company)
-        context.data['mapping_opu'] = mapping_opu_df
         
         # 7. Обогащение данными из справочников
         df_result = self._enrich_with_mappings(
@@ -209,7 +209,8 @@ class Step14BuildOpuFoundationStep(Step):
         self,
         transactions_all_df: pd.DataFrame,
         osv_df: pd.DataFrame,
-        name_company: str
+        name_company: str,
+        company_directory_df: pd.DataFrame
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Обрабатывает себестоимость по счету 90.02.
@@ -235,7 +236,7 @@ class Step14BuildOpuFoundationStep(Step):
         mask_16 = df9002['Кт'].astype(str).str.startswith('16', na=False)
         
         if mask_16.any():
-            df9002_16 = self._process_reassessment(df9002[mask_16].copy(), name_company)
+            df9002_16 = self._process_reassessment(df9002[mask_16].copy(), name_company, company_directory_df)
             df9002 = df9002[~mask_16].copy()
             turn_df9002_16 = df9002_16['оборот, тыс.ед.'].sum()
         else:
@@ -263,29 +264,11 @@ class Step14BuildOpuFoundationStep(Step):
     def _process_reassessment(
         self, 
         df9002_16: pd.DataFrame, 
-        name_company: str
+        name_company: str,
+        company_directory_df: pd.DataFrame
     ) -> pd.DataFrame:
         """Обрабатывает переоценку активов (Дт 90.02 Кт 16)."""
         logger.debug("Обработка переоценки активов (Дт 90.02 Кт 16)")
-        
-        # Расчёт оборота
-        df9002_16['оборот, тыс.ед.'] = df9002_16.loc[:, 'Сумма'] / 1000
-        df9002_16 = df9002_16.groupby(['ном_группа'], as_index=False)['оборот, тыс.ед.'].sum()
-        
-        # Установка признаков
-        for col_name, value in [
-            ('счет', '90.02'),
-            ('доход_расход', 'Изменение в оценке'),
-            ('сегмент', 'не_указано'),
-            ('вид_связи', 'не_указано'),
-        ]:
-            df9002_16[col_name] = pd.Series([value] * len(df9002_16), dtype='string')
-        
-        # Загрузка справочника для определения вида_дохода_расхода
-        company_directory_df = DataLoader.load_reference_data(
-            sheet_name='КомпанииГруппы',
-            strings=['вид_продукции_переоценки', 'сокращенное_наименование_компании']
-        )
         
         matching_rows = company_directory_df[
             company_directory_df['сокращенное_наименование_компании'] == name_company
@@ -316,6 +299,30 @@ class Step14BuildOpuFoundationStep(Step):
                 reference_name="КомпанииГруппы",
                 duplicate_count=len(matching_rows),
             )
+        
+        # Расчёт оборота
+        df9002_16['оборот, тыс.ед.'] = df9002_16.loc[:, 'Сумма'] / 1000
+        df9002_16 = df9002_16.groupby(['ном_группа'], as_index=False)['оборот, тыс.ед.'].sum()
+        
+        #сегмент по умолчанию
+        segment = matching_rows['сегмент'].iloc[0]
+        
+        # Установка признаков
+        for col_name, value in [
+            ('счет', '90.02'),
+            ('доход_расход', 'Изменение в оценке'),
+            ('сегмент', segment),
+            ('вид_связи', 'не_указано'),
+        ]:
+            df9002_16[col_name] = pd.Series([value] * len(df9002_16), dtype='string')
+        
+        # Загрузка справочника для определения вида_дохода_расхода
+        # company_directory_df = DataLoader.load_reference_data(
+        #     sheet_name='КомпанииГруппы',
+        #     strings=['вид_продукции_переоценки', 'сокращенное_наименование_компании']
+        # )
+        
+        
         
         # Установка вида_дохода_расхода
         products_reassessment_type = matching_rows['вид_продукции_переоценки'].iloc[0]
@@ -480,13 +487,20 @@ class Step14BuildOpuFoundationStep(Step):
             strings=['ВидСвязиКА', 'сегмент', 'ВариантыНазвания']
         )
 
+        # 4. Загрузка справочника для определения вида_дохода_расхода
+        company_directory_df = DataLoader.load_reference_data(
+            sheet_name='КомпанииГруппы',
+            strings=['вид_продукции_переоценки', 'сокращенное_наименование_компании']
+        )
+
         logger.debug(
             f"Загружено: УФР={len(directory_ufr_df)}, "
             f"МеппингОПУ={len(mapping_opu_df)}, "
-            f"ВидСвязиКА={len(group_companies_df)}"
+            f"ВидСвязиКА={len(group_companies_df)}, "
+            f"КомпанииГруппы={len(company_directory_df)}"
         )
         
-        return mapping_opu_df, directory_ufr_df, group_companies_df
+        return mapping_opu_df, directory_ufr_df, group_companies_df, company_directory_df
     
     # =========================================================================
     # ОБОГАЩЕНИЕ ДАННЫМИ ИЗ СПРАВОЧНИКОВ
@@ -633,7 +647,7 @@ class Step14BuildOpuFoundationStep(Step):
     def _merge_with_reassessment(
                 self,
                 df_result: pd.DataFrame,
-                df9002_16: pd.DataFrame
+                df9002_16: pd.DataFrame,
             ) -> pd.DataFrame:
         """Объединяет основной результат с переоценкой."""
         logger.debug("Объединение с переоценкой")

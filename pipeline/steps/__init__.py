@@ -20,6 +20,8 @@ from pipeline.steps.step_13_build_balance import Step13BuildBalanceBreakdownStep
 from pipeline.steps.step_14_build_opu_foundation import Step14BuildOpuFoundationStep
 from pipeline.steps.step_15_add_admin_expenses_to_opu import Step15AddAdminExpensesToOpuStep
 from pipeline.steps.step_16_add_comm_expenses_to_opu import Step16AddCommExpensesToOpuStep
+from pipeline.steps.step_17_add_other_income_and_expenses import Step17AddOtherIncomeExpensesToOpuStep
+from pipeline.steps.step_18_add_task_and_other_movements import Step18AddTaskAndOtherMovementsStep
 
 
 __all__ = [
@@ -40,5 +42,7 @@ __all__ = [
     'Step13BuildBalanceBreakdownStep',
     'Step14BuildOpuFoundationStep',
     'Step15AddAdminExpensesToOpuStep',
-    'Step16AddCommExpensesToOpuStep'
+    'Step16AddCommExpensesToOpuStep',
+    'Step17AddOtherIncomeExpensesToOpuStep',
+    'Step18AddTaskAndOtherMovementsStep'
 ]

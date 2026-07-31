@@ -112,7 +112,7 @@ class StepAddExpensesToOpuBase(Step):
             f"✓ {self.OPU_LINE_NAME} добавлены: {len(df_result)} строк "
             f"(виды связи: {df_result['вид_связи'].value_counts().to_dict()})"
         )
-        
+
         return context
     
     # =========================================================================
@@ -415,10 +415,10 @@ class StepAddExpensesToOpuBase(Step):
     ) -> pd.DataFrame:
         """Создаёт строки для остатка (расходы без контрагентов)."""
         df_remainder = df_opu[['ном_группа', 'сегмент', 'доля_ном_группы']].copy()
-        df_remainder['контрагент'] = 'Прочие расходы'
-        df_remainder['группа_ка'] = '3 лица'
-        df_remainder['сегмент_ка'] = '3 лица'
-        df_remainder['вид_связи'] = '3 лица'
+        df_remainder['контрагент'] = 'не_указано'
+        df_remainder['группа_ка'] = 'не_указано'
+        df_remainder['сегмент_ка'] = 'не_указано'
+        df_remainder['вид_связи'] = 'не_указано'
         df_remainder['оборот_распределенный'] = remainder * df_remainder['доля_ном_группы']
         return df_remainder
     
