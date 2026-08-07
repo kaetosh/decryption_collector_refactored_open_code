@@ -23,6 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from loguru import logger
 from logging_handling.logger_config import setup_logger
 from pipeline.base import Pipeline, ProcessingContext
+from config.settings import REFERENCE_CONFIGS
+from pipeline.base import Step
+from pipeline.errors import ReferenceMismatchError
 
 from pipeline.steps import (
     Step1aListExpectedRegistersStep,
@@ -44,7 +47,8 @@ from pipeline.steps import (
     Step15AddAdminExpensesToOpuStep,
     Step16AddCommExpensesToOpuStep,
     Step17AddOtherIncomeExpensesToOpuStep,
-    Step18AddTaskAndOtherMovementsStep
+    Step18AddTaskAndOtherMovementsStep,
+    Step19BuildOpuStep
 )
 
 from io_module import DataLoader, DataSaver
@@ -78,25 +82,25 @@ def create_main_pipeline() -> Pipeline:
     
     # ЭТАП 1: Загрузка и подготовка данных (баланс и опу)
     pipeline.add_step(Step1bVerifyFilesStep())
-    # pipeline.add_step(Step2FlatSummaryOSVStep())
+    pipeline.add_step(Step2FlatSummaryOSVStep())
     
     # ЭТАП 2: Добавление классификационных столбцов баланс
-    # pipeline.add_step(Step3AddAccountColumnStep())
-    # pipeline.add_step(Step4AddReceivableTypeStep())
-    # pipeline.add_step(Step5AddReceivableSubtypeStep())
-    # pipeline.add_step(Step6AddOSGroupColumnStep())
-    # pipeline.add_step(Step7AddLongShortTermColumnStep())
-    # pipeline.add_step(Step8AddBioactiveSegmentColumnStep())
-    # pipeline.add_step(Step9AddRelatedPartyTypeColumnStep())
+    pipeline.add_step(Step3AddAccountColumnStep())
+    pipeline.add_step(Step4AddReceivableTypeStep())
+    pipeline.add_step(Step5AddReceivableSubtypeStep())
+    pipeline.add_step(Step6AddOSGroupColumnStep())
+    pipeline.add_step(Step7AddLongShortTermColumnStep())
+    pipeline.add_step(Step8AddBioactiveSegmentColumnStep())
+    pipeline.add_step(Step9AddRelatedPartyTypeColumnStep())
     
     # ЭТАП 3: Специальные расчеты и классификации баланс
-    # pipeline.add_step(Step10ClassifyLeaseSourceStep())
-    # pipeline.add_step(Step11Split60AccountDebtByOSStatusStep())
-    # pipeline.add_step(Step11aCheckContractorSimilarityStep())
-    # pipeline.add_step(Step12Split84AccountBalanceStep())
+    pipeline.add_step(Step10ClassifyLeaseSourceStep())
+    pipeline.add_step(Step11Split60AccountDebtByOSStatusStep())
+    pipeline.add_step(Step11aCheckContractorSimilarityStep())
+    pipeline.add_step(Step12Split84AccountBalanceStep())
     
     # ЭТАП 4: Финальная сборка расшифровки баланса
-    # pipeline.add_step(Step13BuildBalanceBreakdownStep())
+    pipeline.add_step(Step13BuildBalanceBreakdownStep())
     
     # ЭТАП 5: Добавление классификационных столбцов опу
     pipeline.add_step(Step14BuildOpuFoundationStep())
@@ -104,6 +108,9 @@ def create_main_pipeline() -> Pipeline:
     pipeline.add_step(Step16AddCommExpensesToOpuStep())
     pipeline.add_step(Step17AddOtherIncomeExpensesToOpuStep())
     pipeline.add_step(Step18AddTaskAndOtherMovementsStep())
+    
+    # ЭТАП 6: Финальная сборка расшифровки опу
+    pipeline.add_step(Step19BuildOpuStep())
     
     return pipeline
 
@@ -137,40 +144,212 @@ def pause_for_1c_export(context: ProcessingContext) -> None:
 
 
 def initialize_context() -> ProcessingContext:
-    """
-    Инициализировать контекст обработки.
-    
-    Загружает исходные данные и устанавливает начальное состояние.
-    
-    Returns:
-        Инициализированный ProcessingContext
-    """
-    context = ProcessingContext()
-    
     logger.debug("Инициализация контекста обработки")
-    
+
     try:
-        # Загружаем общую ОСВ в сыром виде
+        context = ProcessingContext()
+
         osv_df, osv_filename = DataLoader.load_general_osv()
-        
-        context.main_df = osv_df # перезапишится на сводную осв по счетам, а пока для проверки сходимости 
-        context.data['osv'] = osv_df
-        context.set_metadata('osv_filename', osv_filename)
-        
-        # Извлекаем метаданные из имени файла
-        # Формат: CompanyName_Register_Account_Period_.xlsx
-        parts = osv_filename.replace('.xlsx', '').split('_')
-        if len(parts) >= 3:
-            context.set_metadata('company_name', parts[0])
-            context.set_metadata('period', parts[-2])
-        
-        logger.debug(f"Контекст инициализирован: {len(osv_df)} строк данных")
-        logger.debug(f"Загружена общая осв по компании {context.get_metadata('company_name')} за период {context.get_metadata('period')}")
-    except Exception as e:
-        logger.error(f"Ошибка при инициализации контекста: {e}")
+
+        if osv_df.empty:
+            raise ValueError("Загруженная общая ОСВ пуста")
+
+        context.common_osv_df = osv_df
+        context.name_file_general_osv = osv_filename
+
+        stem = Path(osv_filename).stem
+        parts = [part.strip() for part in stem.split("_") if part.strip()]
+
+        if len(parts) < 3:
+            raise ValueError(
+                f"Некорректное имя файла '{osv_filename}'. "
+                "Ожидается формат: CompanyName_Register_Account_Period_.xlsx"
+            )
+
+        context.company = parts[0].strip()
+        context.period = parts[-1].strip()
+
+        context.references["план_счетов_фо"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="ПланСчетов",
+                strings=["РСБУ Код отчетности", "Итоговый номер счета"],
+            )
+        )
+
+        context.references["меппинг_баланс"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="Меппинг",
+                **REFERENCE_CONFIGS["Меппинг"],
+            )
+        )
+
+        context.references["меппинг_опу"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="Меппинг_опу",
+                **REFERENCE_CONFIGS["Меппинг_опу"],
+            )
+        )
+
+        context.references["компании_группы"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="КомпанииГруппы",
+                strings=[
+                    "сокращенное_наименование_компании",
+                    "название_файла_расшифровки",
+                ],
+            )
+        )
+
+        context.references["выгрузки"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(sheet_name="Выгрузки")
+        )
+
+        context.references["план_счетов_бу"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="ПланСчетовБУ",
+                strings=[
+                    "компания",
+                    "код",
+                    "наименование",
+                    "субконто_1",
+                    "субконто_2",
+                    "субконто_3",
+                ],
+            )
+        )
+
+        context.references["справочник_уфр"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="СправочникУФР",
+                strings=[
+                    "строка_уфр",
+                    "сегмент",
+                    "сокращенное_наименование_компании",
+                    "ном_группа_1с",
+                ],
+            )
+        )
+
+        context.references["справочник_ппа"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="ППА",
+                strings=[
+                    "группа_ос",
+                    "вид_взаиморасчетов",
+                    "наименование_компании",
+                    "рбп",
+                    "ос_ппа",
+                    "ос_после_перехода_в_собственность",
+                    "договор_аренды",
+                    "контрагент",
+                ],
+            )
+        )
+
+        context.references["кредит_обслуж"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="КредитОбслуж",
+                strings=["компания", "рбп_кредитные_линии", "контрагент"],
+            )
+        )
+
+        context.references["вид_связи_ка"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="ВидСвязиКА",
+                strings=["ВидСвязиКА", "сегмент", "ВариантыНазвания"],
+            )
+        )
+
+        context.references["прочие_доходы_ндс"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="ПрочиеДоходыНДС",
+                strings=["прочие_доходы_ндс"],
+            )
+        )
+
+        context.references["виды_рбп_аренда_лизинг"] = Step.clean_whitespace(
+            DataLoader.load_reference_data(
+                sheet_name="ВидыРБП_АрендаЛизинг",
+                strings=["виды_рбп_аренда_лизинг"],
+            )
+        )
+
+        company_directory_df = context.references["компании_группы"]
+
+        required_columns = {"сокращенное_наименование_компании", "сегмент"}
+        missing_columns = required_columns - set(company_directory_df.columns)
+
+        if missing_columns:
+            raise ValueError(
+                "В справочнике 'компании_группы' отсутствуют обязательные колонки: "
+                f"{sorted(missing_columns)}"
+            )
+
+        company_values = (
+            company_directory_df["сокращенное_наименование_компании"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        matching_rows = company_directory_df[company_values == context.company]
+
+        if matching_rows.empty:
+            problem_data = (
+                company_directory_df[["сокращенное_наименование_компании"]]
+                .drop_duplicates()
+                .rename(
+                    columns={
+                        "сокращенное_наименование_компании": "компания_в_справочнике"
+                    }
+                )
+            )
+
+            raise ReferenceMismatchError(
+                message=f"Компания '{context.company}' не найдена в справочнике",
+                problem_data=problem_data,
+                reference_name="КомпанииГруппы",
+                searched_company=context.company,
+            )
+
+        if len(matching_rows) > 1:
+            raise ReferenceMismatchError(
+                message=(
+                    f"У компании '{context.company}' найдено "
+                    f"{len(matching_rows)} записей. Ожидается одна."
+                ),
+                problem_data=matching_rows.copy(),
+                reference_name="КомпанииГруппы",
+                duplicate_count=len(matching_rows),
+            )
+
+        row = matching_rows.iloc[0]
+        segment = row["сегмент"]
+
+        if pd.isna(segment) or not str(segment).strip():
+            raise ReferenceMismatchError(
+                message=f"У компании '{context.company}' не заполнен сегмент",
+                problem_data=matching_rows.copy(),
+                reference_name="КомпанииГруппы",
+                searched_company=context.company,
+            )
+
+        context.company = str(row["сокращенное_наименование_компании"]).strip()
+        context.segment = str(segment).strip()
+
+        logger.debug(
+            "Контекст инициализирован: компания=%s, период=%s, строк в ОСВ=%s, справочников=%s",
+            context.company,
+            context.period,
+            len(osv_df),
+            len(context.references),
+        )
+
+        return context
+
+    except Exception:
+        logger.exception("Ошибка при инициализации контекста")
         raise
-    
-    return context
 
 def save_results(context: ProcessingContext) -> None:
     """
@@ -186,42 +365,50 @@ def save_results(context: ProcessingContext) -> None:
     logger.info("Сохранение результатов")
     
     try:
-        company_name = context.get_metadata('company_name', 'unknown')
-        period = context.get_metadata('period', 'unknown')
+        company_name = context.company
+        period = context.period
         
         # 1. Получаем имя файла из справочника
-        filename = _get_output_filename(company_name, period)
+        filename = _get_output_filename(company_name, period, context)
         
         # 2. Проверяем наличие данных
-        final_report = context.data.get('final_report')
-        main_df = context.main_df
+        balance_df = context.balance_df
+        summary_osv_df = context.summary_osv_df
         
-        if final_report is None and main_df is None:
+        pnl_df = context.pnl_df
+        journal_df = context.journal_df
+        
+        if(balance_df is None
+           and summary_osv_df is None
+           and pnl_df is None
+           and journal_df is None):
             logger.warning("Нет данных для сохранения")
             return
         
         # 3. Если есть оба DataFrame — сохраняем комбинированный отчёт
-        if final_report is not None and main_df is not None:
+        else:
             DataSaver.save_combined_report(
-                final_report=final_report,
-                main_df=main_df,
-                filename=filename
+                balance_df,
+                summary_osv_df,
+                pnl_df,
+                journal_df,
+                filename
             )
             logger.info(f"Комбинированный отчёт сохранён: {filename}")
-        # 4. Если есть только финальный отчёт
-        elif final_report is not None:
-            DataSaver.save_to_excel(final_report, filename)
-            logger.info(f"Сохранён только финальный отчёт: {filename}")
-        # 5. Если есть только main_df
-        elif main_df is not None:
-            DataSaver.save_to_excel(main_df, filename, subfolder="intermediate")
-            logger.info(f"Сохранён только основной DataFrame: {filename}")
+        # # 4. Если есть только финальный отчёт
+        # elif final_report is not None:
+        #     DataSaver.save_to_excel(final_report, filename)
+        #     logger.info(f"Сохранён только финальный отчёт: {filename}")
+        # # 5. Если есть только main_df
+        # elif main_df is not None:
+        #     DataSaver.save_to_excel(main_df, filename, subfolder="intermediate")
+        #     logger.info(f"Сохранён только основной DataFrame: {filename}")
             
     except Exception as e:
         logger.error(f"Ошибка при сохранении результатов: {e}")
         raise
 
-def _get_output_filename(company_name: str, period: str) -> str:
+def _get_output_filename(company_name: str, period: str, context: ProcessingContext) -> str:
     """
     Получает имя файла из справочника КомпанииГруппы.
     
@@ -236,10 +423,7 @@ def _get_output_filename(company_name: str, period: str) -> str:
         Имя файла (например, "Расшифровка_ББЛ_ББ_2025.xlsx")
     """
     try:
-        companies_df = DataLoader.load_reference_data(
-            sheet_name='КомпанииГруппы',
-            strings=['сокращенное_наименование_компании', 'название_файла_расшифровки']
-        )
+        companies_df = context.references['компании_группы']
         
         # Ищем компанию
         matching = companies_df[

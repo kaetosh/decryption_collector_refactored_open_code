@@ -180,7 +180,7 @@ class Step1aListExpectedRegistersStep(Step):
         
         df = pd.DataFrame(reports)
         df = df.rename(columns={'шаблон': 'Имя файла для сохранения'})
-        # df['Обязательность'] = 'Необязательно (улучшает детализацию)'
+
         df['Куда класть'] = '_INPUT_DATA/special_reports/'
         
         # Переупорядочиваем колонки для удобства бухгалтера
@@ -199,15 +199,12 @@ class Step1aListExpectedRegistersStep(Step):
         logger.debug("Проверка наличия всех счетов в справочнике")
         
         # 1. Извлечение данных
-        df = context.data['osv'].copy()
+        df = context.common_osv_df.copy()
         
         # сохраняем ссылку на оригинал для анализа оборотов (ОПУ)
         # (позже df будет очищен от столбцов оборотов)
         self._original_osv_df = df.copy()
-        
-        name_file = context.get_metadata('osv_filename')
-        name_company = context.get_metadata('company_name')
-        period = context.get_metadata('period')
+
         
         # 2. Расчёт сальдо и фильтрация
         df['Сальдо, тыс.ед.'] = (
@@ -230,7 +227,7 @@ class Step1aListExpectedRegistersStep(Step):
         df = df.set_index('Счет')
         
         # 4. Проверка наличия счетов в справочнике
-        all_loads_df = DataLoader.load_reference_data('Выгрузки')
+        all_loads_df = context.references['выгрузки']
         
         osv_codes_set = set(df.index.str[:2].unique())
         ref_codes_set = set(all_loads_df['счет'].str[:2].unique())
@@ -248,20 +245,19 @@ class Step1aListExpectedRegistersStep(Step):
             
             raise ReferenceMismatchError(
                 message=(
-                    f"Счета из общей ОСВ (файл {name_file}), "
+                    f"Счета из общей ОСВ (файл {context.name_file_general_osv}), "
                     f"которых нет в Справочники.xlsx (лист 'Выгрузки')"
                 ),
                 problem_data=problem_data,
                 reference_name="Выгрузки",
-                file_name=name_file,
+                file_name=context.name_file_general_osv,
                 missing_codes=sorted(missing_codes)
             )
         
-        logger.debug(f"Все счета из общей ОСВ (файл {name_file}) присутствуют в справочнике.")
+        logger.debug(f"Все счета из общей ОСВ (файл {context.name_file_general_osv}) присутствуют в справочнике.")
         
         # 5. Сопоставление счетов (логика префиксов) - ТОЛЬКО ДЛЯ БАЛАНСА
-        mapping_df = DataLoader.load_reference_data('Меппинг', **REFERENCE_CONFIGS['Меппинг'])
-        # mapping_df = mapping_df[mapping_df['отчетность'] == "Баланс"]
+        mapping_df = context.references['меппинг_баланс']
         
         osv_codes = df.index.unique()
         mapping_codes_set = set(mapping_df['счет'].unique())
@@ -338,8 +334,8 @@ class Step1aListExpectedRegistersStep(Step):
             (all_loads_df['регистр'].str.lower() == 'осв')
         ].copy()
         
-        filtered_loads_balance['Сокращенное Наименование компании'] = name_company
-        filtered_loads_balance['Период Отчетности'] = period
+        filtered_loads_balance['Сокращенное Наименование компании'] = context.company
+        filtered_loads_balance['Период Отчетности'] = context.period
         filtered_loads_balance['Тип регистра'] = 'осв'  # Маркер для Excel
         
         logger.debug(
@@ -376,8 +372,8 @@ class Step1aListExpectedRegistersStep(Step):
                 
                 filtered_loads = filtered_loads_balance
             else:
-                filtered_loads_opu['Сокращенное Наименование компании'] = name_company
-                filtered_loads_opu['Период Отчетности'] = period
+                filtered_loads_opu['Сокращенное Наименование компании'] = context.company
+                filtered_loads_opu['Период Отчетности'] = context.period
                 filtered_loads_opu['Тип регистра'] = 'отчет по проводкам'  # Маркер для Excel
                 
                 # Формируем имена файлов для карточек
@@ -420,12 +416,12 @@ class Step1aListExpectedRegistersStep(Step):
         # =========================================================================
         # 9. ФОРМИРОВАНИЕ СПИСКА СПЕЦОТЧЕТОВ (НЕОБЯЗАТЕЛЬНЫЕ)
         # =========================================================================
-        special_reports_df = self._build_special_reports_list(name_company, period)
+        special_reports_df = self._build_special_reports_list(context.company, context.period)
         
         # =========================================================================
         # 10. СОХРАНЕНИЕ В EXCEL (один лист для ОСВ + карточек + спецотчёты)
         # =========================================================================
-        output_filename = f'Выгрузить_{name_company}_{period}.xlsx'
+        output_filename = f'Выгрузить_{context.company}_{context.period}.xlsx'
         output_path = OUTPUT_DATA_DIR / output_filename
         
         try:

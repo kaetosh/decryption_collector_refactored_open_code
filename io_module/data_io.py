@@ -544,20 +544,24 @@ class DataSaver:
     
     @staticmethod
     def save_combined_report(
-        final_report: pd.DataFrame,
-        main_df: pd.DataFrame,
+        balance_df: pd.DataFrame,
+        summary_osv_df: pd.DataFrame,
+        pnl_df: pd.DataFrame,
+        journal_df: pd.DataFrame,
         filename: str,
         subfolder: str = None
     ) -> Path:
         """
-        Сохраняет два DataFrame в один Excel-файл на разных листах.
-        
+        Сохраняет четыре DataFrame в один Excel-файл на разных листах.
+    
         Args:
-            final_report: DataFrame для листа "Расшифровка_ББЛ"
-            main_df: DataFrame для листа "исходники"
+            balance_df: DataFrame для листа "Расшифровка_ББЛ" (собранный баланс)
+            summary_osv_df: DataFrame для листа "исходники ББЛ" (данные для баланса)
+            pnl_df: DataFrame для листа "Расшифровка_ОПУ" (собранный ОПУ)
+            journal_df: DataFrame для листа "исходники ОПУ" (данные для ОПУ)
             filename: Имя выходного файла
             subfolder: Подпапка в OUTPUT_DATA (опционально)
-            
+    
         Returns:
             Путь к сохранённому файлу
         """
@@ -565,82 +569,128 @@ class DataSaver:
         if subfolder:
             output_dir = output_dir / subfolder
             output_dir.mkdir(parents=True, exist_ok=True)
-        
+    
         output_path = output_dir / filename
-        
+    
         # =========================================================================
-        # ПОДГОТОВКА final_report: сброс индекса и перемещение столбца
+        # ПОДГОТОВКА ДАТАФРЕЙМОВ К ЭКСПОРТУ
         # =========================================================================
-        
-        # Сбрасываем индекс, чтобы он стал обычным столбцом
-        final_report_reset = final_report.reset_index()
-        
-        # Перемещаем столбец "Итоговый номер счета" на второе место
-        # (между "РСБУ Код отчетности" и "1 уровень")
-        if 'Итоговый номер счета' in final_report_reset.columns:
-            cols = final_report_reset.columns.tolist()
-            cols.remove('Итоговый номер счета')
-            
-            # Находим позицию для вставки (после "РСБУ Код отчетности")
-            if 'РСБУ Код отчетности' in cols:
-                insert_idx = cols.index('РСБУ Код отчетности') + 1
-            else:
-                insert_idx = 1  # Если "РСБУ Код отчетности" нет, вставляем на второе место
-            
-            cols.insert(insert_idx, 'Итоговый номер счета')
-            final_report_reset = final_report_reset[cols]
-        
+        balance_reset = DataSaver._prepare_balance_df(balance_df)
+        pnl_reset = DataSaver._prepare_pnl_df(pnl_df)
+    
         # =========================================================================
         # ОПРЕДЕЛЕНИЕ ЧИСЛОВЫХ СТОЛБЦОВ ДЛЯ ФОРМАТИРОВАНИЯ
+        # (открытые столбцы в openpyxl нумеруются с 1, поэтому i + 1)
         # =========================================================================
-        
-        # Для final_report: исключаем индексный столбец из числового форматирования
-        final_numeric_cols = [
-            i + 1 for i, col in enumerate(final_report_reset.columns)
-            if pd.api.types.is_numeric_dtype(final_report_reset[col])
-            and col != 'Итоговый номер счета'  # ← Исключаем индекс
-        ]
-        
-        # Для main_df: все числовые столбцы
-        main_numeric_cols = [
-            i + 1 for i, col in enumerate(main_df.columns)
-            if pd.api.types.is_numeric_dtype(main_df[col])
-        ]
-        
+        def _get_numeric_col_indices(df: pd.DataFrame, exclude_cols: list = None) -> list:
+            exclude_cols = exclude_cols or []
+            return [
+                i + 1 for i, col in enumerate(df.columns)
+                if pd.api.types.is_numeric_dtype(df[col]) and col not in exclude_cols
+            ]
+    
+        balance_numeric_cols = _get_numeric_col_indices(balance_reset, ['Итоговый номер счета'])
+        summary_numeric_cols = _get_numeric_col_indices(summary_osv_df)
+        pnl_numeric_cols = _get_numeric_col_indices(pnl_reset, ['Итоговый номер счета'])
+        journal_numeric_cols = _get_numeric_col_indices(journal_df)
+    
         # =========================================================================
         # СОХРАНЕНИЕ В EXCEL
         # =========================================================================
         try:
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                # Лист 1: Расшифровка ББЛ
-                final_report_reset.to_excel(
-                    writer, 
-                    sheet_name='Расшифровка_ББЛ', 
-                    index=False  # ← Индекс уже сброшен, не дублируем
-                )
-                DataSaver._apply_excel_formatting(
-                    writer.sheets['Расшифровка_ББЛ'], 
-                    final_numeric_cols
-                )
-                
-                # Лист 2: Исходники
-                main_df.to_excel(
-                    writer, 
-                    sheet_name='исходники', 
+                # Лист 1: Расшифровка баланса
+                balance_reset.to_excel(
+                    writer,
+                    sheet_name='Расшифровка_ББЛ',
                     index=False
                 )
                 DataSaver._apply_excel_formatting(
-                    writer.sheets['исходники'], 
-                    main_numeric_cols
+                    writer.sheets['Расшифровка_ББЛ'],
+                    balance_numeric_cols
+                )
+    
+                # Лист 2: Исходники для баланса
+                summary_osv_df.to_excel(
+                    writer,
+                    sheet_name='исходники ББЛ',
+                    index=False
+                )
+                DataSaver._apply_excel_formatting(
+                    writer.sheets['исходники ББЛ'],
+                    summary_numeric_cols
+                )
+    
+                # Лист 3: Расшифровка ОПУ
+                pnl_reset.to_excel(
+                    writer,
+                    sheet_name='Расшифровка_ОПУ',
+                    index=False
+                )
+                DataSaver._apply_excel_formatting(
+                    writer.sheets['Расшифровка_ОПУ'],
+                    pnl_numeric_cols
+                )
+    
+                # Лист 4: Исходники для ОПУ
+                journal_df.to_excel(
+                    writer,
+                    sheet_name='исходники ОПУ',
+                    index=False
+                )
+                DataSaver._apply_excel_formatting(
+                    writer.sheets['исходники ОПУ'],
+                    journal_numeric_cols
                 )
         except PermissionError:
             raise PermissionError(
                 f"❌ Не удалось сохранить результат в '{output_path.name}': "
                 f"файл открыт в Excel. Закройте файл и перезапустите программу."
             )
-        
+    
         logger.info(f"Комбинированный отчёт сохранён в {output_path.name}")
         return output_path
+
+
+    # =========================================================================
+    # ВСПОМОГАТЕЛЬНЫЕ СТАТИЧЕСКИЕ МЕТОДЫ ДЛЯ ПОДГОТОВКИ ДАТАФРЕЙМОВ
+    # =========================================================================
+    
+    @staticmethod
+    def _prepare_balance_df(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Подготавливает DataFrame баланса к экспорту:
+        - сбрасывает индекс;
+        - перемещает столбец 'Итоговый номер счета' на позицию сразу
+          после столбца 'РСБУ Код отчетности'.
+        """
+        df_reset = df.reset_index()
+    
+        if 'Итоговый номер счета' not in df_reset.columns:
+            return df_reset
+    
+        cols = df_reset.columns.tolist()
+        cols.remove('Итоговый номер счета')
+    
+        if 'РСБУ Код отчетности' in cols:
+            insert_idx = cols.index('РСБУ Код отчетности') + 1
+        else:
+            insert_idx = 1  # fallback: на второе место
+    
+        cols.insert(insert_idx, 'Итоговый номер счета')
+        return df_reset[cols]
+    
+    
+    @staticmethod
+    def _prepare_pnl_df(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Подготавливает DataFrame ОПУ к экспорту.
+        TODO: реализовать логику перемещения/переименования столбцов,
+        специфичную для ОПУ, аналогично _prepare_balance_df.
+        """
+        df_reset = df.reset_index()
+        # TODO: здесь будет логика обработки столбцов для ОПУ
+        return df_reset
     
     # =========================================================================
     # СТАРЫЕ МЕТОДЫ (для обратной совместимости)

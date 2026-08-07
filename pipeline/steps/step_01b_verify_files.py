@@ -96,8 +96,8 @@ class Step1bVerifyFilesStep(Step):
             # Формируем problem_data для Excel
             problem_data = self._build_missing_files_report(
                 missing_by_dir,
-                context.get_metadata('company_name', 'unknown'),
-                context.get_metadata('period', 'unknown')
+                context.company,
+                context.period
             )
             
             raise MissingFilesError(

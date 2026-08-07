@@ -344,78 +344,6 @@ class Step7AddLongShortTermColumnStep(Step):
         
         return result_df
     
-    # def _split_long_short_debt(self, df_long: pd.DataFrame, 
-    #                            osv_all_df: pd.DataFrame) -> pd.DataFrame:
-    #     """
-    #     Разбивает долгую и короткую части задолженности на дебиторку и кредиторку.
-    #     """
-    #     # Фильтруем osv_all_df
-    #     mask_filter = (
-    #         osv_all_df['подвид_задолженности'].isin(['Аренда', 'Лизинг']) &
-    #         osv_all_df['счет'].str.startswith('76')
-    #     )
-    #     osv_filtered = osv_all_df[mask_filter].copy()
-        
-    #     if osv_filtered.empty:
-    #         logger.warning("Нет строк для разбивки по счетам 76")
-    #         return df_long
-        
-    #     # ВЕКТОРИЗИРОВАННЫЙ РАСЧЕТ ДОЛЕЙ
-    #     group_sums = osv_filtered.groupby('договор')['сальдо, тыс.ед.'].transform('sum')
-    #     abs_sums = osv_filtered['сальдо, тыс.ед.'].abs().groupby(osv_filtered['договор']).transform('sum')
-        
-    #     denominator = np.where(group_sums != 0, group_sums, abs_sums)
-    #     denominator = np.where(denominator != 0, denominator, 1)
-        
-    #     osv_filtered['доля'] = osv_filtered['сальдо, тыс.ед.'] / denominator
-        
-    #     # Создаем словарь долей
-    #     contract_shares = (
-    #                         osv_filtered[['договор', 'счет', 'доля', 'сальдо, тыс.ед.']]
-    #                         .groupby('договор')
-    #                         .apply(
-    #                             lambda x: x[['счет', 'доля', 'сальдо, тыс.ед.']].to_dict('records'),
-    #                             include_groups=False  # ← ДОБАВЛЕНО
-    #                         )
-    #                         .to_dict()
-    #                     )
-        
-    #     # ВЕКТОРИЗИРОВАННАЯ РАЗБИВКА
-    #     result_rows = []
-        
-    #     for idx, row in df_long.iterrows():
-    #         contract = row['договор']
-    #         saldo = row['сальдо, тыс.ед.']
-    #         group_account = row['группа_счетов']
-            
-    #         if group_account == "76" and contract in contract_shares:
-    #             for share_info in contract_shares[contract]:
-    #                 new_row = row.to_dict()
-    #                 new_row['счет'] = share_info['счет']
-    #                 new_row['доля'] = share_info['доля']
-    #                 new_row['сальдо, тыс.ед.'] = saldo * share_info['доля']
-    #                 new_row['тип_задолженности'] = (
-    #                     'Кредиторская' if share_info['сальдо, тыс.ед.'] < 0 else 'Дебиторская'
-    #                 )
-    #                 result_rows.append(new_row)
-    #         else:
-    #             new_row = row.to_dict()
-    #             if group_account != "76":
-    #                 new_row['счет'] = group_account
-    #                 new_row['доля'] = 1.0
-    #                 new_row['тип_задолженности'] = 'Не применимо'
-    #             else:
-    #                 new_row['счет'] = 'Не определен'
-    #                 new_row['доля'] = np.nan
-    #                 new_row['тип_задолженности'] = 'Не определен'
-    #             result_rows.append(new_row)
-        
-    #     result_df = pd.DataFrame(result_rows)
-    #     result_df = result_df.sort_values(
-    #         ['договор', 'долгая_короткая_часть', 'счет']
-    #     ).reset_index(drop=True)
-        
-    #     return result_df
     
     def _replace_long_short_split(self, osv_all_df: pd.DataFrame, 
                                   decoded_lease_report: pd.DataFrame) -> pd.DataFrame:
@@ -619,10 +547,10 @@ class Step7AddLongShortTermColumnStep(Step):
         """Основной метод обработки шага 7."""
         logger.debug("Добавление признака долгая/короткая часть")
         
-        osv_all_df = context.main_df.copy()
-        name_company = context.get_metadata('company_name')
-        period = context.get_metadata('period')
-        mapping_df = context.data.get('mapping')
+        osv_all_df = context.summary_osv_df.copy()
+        name_company = context.company
+        period = context.period
+        mapping_df = context.references["меппинг_баланс"]
         
         # 1. Инициализация столбца долгая/короткая часть из mapping
         osv_all_df = self._initialize_long_short_column(osv_all_df, mapping_df)
@@ -650,7 +578,7 @@ class Step7AddLongShortTermColumnStep(Step):
         
         # Финальная очистка
         osv_all_df = osv_all_df.reset_index(drop=True)
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         
         return context
     

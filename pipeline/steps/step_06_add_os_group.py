@@ -317,8 +317,8 @@ class Step6AddOSGroupColumnStep(Step):
     
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Добавление группы ОС")
-        osv_all_df = context.main_df.copy()
-        name_company = context.get_metadata('company_name')
+        osv_all_df = context.summary_osv_df.copy()
+        name_company = context.company
         
         # 1. Загрузка и обработка детализации по 76 аренда
         logger.debug("Этап 1: Загрузка ОСВ 76.07/76.05.3 по договорам аренды/лизинга")
@@ -328,20 +328,12 @@ class Step6AddOSGroupColumnStep(Step):
 
         # 2. Загрузка и фильтрация справочника ППА
         logger.debug("Этап 2: Загрузка справочника ППА")
-        lease_df = DataLoader.load_reference_data(
-            sheet_name='ППА',
-            strings=['группа_ос', 'вид_взаиморасчетов',
-                    'наименование_компании', 'рбп', 'ос_ппа',
-                    'ос_после_перехода_в_собственность', 'договор_аренды', 'контрагент'],
-        )
+        lease_df = context.references['справочник_ппа']
         lease_df = lease_df[lease_df['наименование_компании'] == name_company]
         if lease_df.empty:
             # ★ Формируем problem_data — список всех компаний в справочнике ППА
             # чтобы бухгалтер видел, какие компании есть, и мог понять, в чём проблема
-            all_companies_df = DataLoader.load_reference_data(
-                sheet_name='ППА',
-                strings=['наименование_компании']
-            )
+            all_companies_df = context.references['справочник_ппа']
             problem_data = (
                 all_companies_df[['наименование_компании']]
                 .drop_duplicates()
@@ -357,7 +349,6 @@ class Step6AddOSGroupColumnStep(Step):
         logger.debug(f"Справочник ППА для {name_company}: {len(lease_df)} строк")
         
         # Очистка пробелов
-        lease_df = self.clean_whitespace(lease_df)
         osv_all_df = self.clean_whitespace(osv_all_df)
 
         # 3. Создание маппингов
@@ -456,7 +447,7 @@ class Step6AddOSGroupColumnStep(Step):
             logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: После всех обработок осталось {final_nan_count} NaN!")
             raise ValueError(f"Столбец 'группа_ос_аренды_лизинга' содержит {final_nan_count} пустых значений")
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         logger.debug(f"Шаг 6 завершен: {len(osv_all_df)} строк, {len(unique_groups)} групп ОС")
         
         return context

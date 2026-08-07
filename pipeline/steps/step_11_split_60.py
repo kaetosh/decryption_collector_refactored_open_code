@@ -389,9 +389,9 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         """Основной метод обработки шага 11."""
         logger.debug("Разбиение счета 60")
         
-        osv_all_df = context.main_df.copy()
-        name_company = context.get_metadata('company_name')
-        period = context.get_metadata('period')
+        osv_all_df = context.summary_osv_df.copy()
+        name_company = context.company
+        period = context.period
         
         # 1. Загрузка спецотчета 60 Инвест
         df = self._load_and_process_60_invest(name_company, period)
@@ -418,7 +418,7 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         df = ReceivableClassifier.map_accounts_to_mapping(df, partially_matching_accounts_df)
         accounts_with_debt_type = ReceivableClassifier.get_accounts_with_debt_type(mapping_df)
         df = ReceivableClassifier.classify_debt_type(df, accounts_with_debt_type)
-        df = ReceivableClassifier.handle_special_cases(df)
+        df = ReceivableClassifier.handle_special_cases(df, context)
         df = ReceivableClassifier.clean_subaccounts(df, mapping_df)
         
         # 4. Добавление подвида задолженности
@@ -477,5 +477,5 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         
         logger.debug(f"Разбиение счета 60 завершено. Добавлено {len(df)} строк.")
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         return context

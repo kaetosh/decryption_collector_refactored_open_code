@@ -40,7 +40,7 @@ class Step11aCheckContractorSimilarityStep(Step):
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Проверка похожих названий контрагентов")
         
-        osv_all_df = context.main_df
+        osv_all_df = context.summary_osv_df.copy()
         
         # 1. Загружаем справочник своих компаний (с кэшированием)
         group_companies_df = self._get_group_companies_df(context)
@@ -101,10 +101,7 @@ class Step11aCheckContractorSimilarityStep(Step):
             return context.data[cache_key]
         
         # Загрузка справочника
-        group_companies_df = DataLoader.load_reference_data(
-            sheet_name='ВидСвязиКА',
-            strings=['ВидСвязиКА', 'сокращенное_наименование_компании']
-        )
+        group_companies_df = context.references['вид_связи_ка']
         
         # Кэшируем в контексте
         context.data[cache_key] = group_companies_df
@@ -360,8 +357,8 @@ class Step11aCheckContractorSimilarityStep(Step):
         
         Это предупреждение — не прерывает работу пайплайна.
         """
-        name_company = context.get_metadata('company_name', 'unknown')
-        period = context.get_metadata('period', 'unknown')
+        name_company = context.company
+        period = context.period
         
         filename = f'WARNING_similar_contractors_{name_company}_{period}.xlsx'
         

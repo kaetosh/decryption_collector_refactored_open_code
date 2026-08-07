@@ -254,9 +254,9 @@ class Step12Split84AccountBalanceStep(Step):
         """Основной метод обработки шага 12."""
         logger.debug("Разбиение счета 84")
         
-        osv_all_df = context.main_df.copy()
-        name_company = context.get_metadata('company_name')
-        period = context.get_metadata('period')
+        osv_all_df = context.summary_osv_df.copy()
+        name_company = context.company
+        period = context.period
         
         # 1. Загрузка анализа по счёту 84
         df_analysis = self._load_and_process_84_analysis(name_company, period)
@@ -273,6 +273,6 @@ class Step12Split84AccountBalanceStep(Step):
         
         logger.debug("Разбиение счёта 84 завершено.")
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         
         return context

@@ -27,7 +27,7 @@ import pandas as pd
 from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
-from io_module import DataLoader
+# from io_module import DataLoader
 
 
 class StepAddExpensesToOpuBase(Step):
@@ -66,13 +66,13 @@ class StepAddExpensesToOpuBase(Step):
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         """Основной метод обработки."""
         logger.debug(f"Начало обработки: {self.OPU_LINE_NAME}")
-        name_company = context.get_metadata('company_name')
+        name_company = context.company
         
         # 1. Загрузка данных из контекста
         osv_df, transactions_all_df = self._load_data_from_context(context)
         
         # 2. Обработка проводок с накопительного счета (контрагенты)
-        df_accum_clean = self._process_accumulation_transactions(transactions_all_df)
+        df_accum_clean = self._process_accumulation_transactions(transactions_all_df, context)
         
         # ★ Защита от отсутствия расходов на накопительном счете
         if df_accum_clean.empty:
@@ -94,7 +94,7 @@ class StepAddExpensesToOpuBase(Step):
             return context
         
         # 4. Обогащение ном_групп сегментами из справочника
-        df_opu = self._enrich_with_segment(df_opu, name_company)
+        df_opu = self._enrich_with_segment(df_opu, name_company, context)
         
         # 5. Распределение расходов на контрагентов
         df_result = self._distribute_expenses(df_accum_clean, df_opu)
@@ -103,10 +103,10 @@ class StepAddExpensesToOpuBase(Step):
         self._validate_against_osv(df_result, osv_df)
         
         # 7. Объединение с основной расшифровкой ОПУ
-        df_final = self._merge_with_main_df(context.main_df, df_result)
+        df_final = self._merge_with_main_df(context.journal_df, df_result)
         
         # Обновляем context
-        context.main_df = df_final
+        context.journal_df = df_final
         
         logger.info(
             f"✓ {self.OPU_LINE_NAME} добавлены: {len(df_result)} строк "
@@ -124,7 +124,7 @@ class StepAddExpensesToOpuBase(Step):
         context: ProcessingContext
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Загружает необходимые данные из контекста."""
-        osv_df = context.data.get('osv', pd.DataFrame())
+        osv_df = context.common_osv_df
         if osv_df.empty:
             raise ValueError(
                 "В контексте нет общей ОСВ. "
@@ -151,7 +151,8 @@ class StepAddExpensesToOpuBase(Step):
     
     def _process_accumulation_transactions(
         self,
-        transactions_all_df: pd.DataFrame
+        transactions_all_df: pd.DataFrame,
+        context: ProcessingContext
     ) -> pd.DataFrame:
         """
         Обрабатывает проводки Дт [26/44] Кт 60/76 для определения контрагентов.
@@ -190,7 +191,7 @@ class StepAddExpensesToOpuBase(Step):
         df_accum_clean['оборот, тыс.ед.'] = df_accum_clean['оборот, тыс.ед.'] / 1000
         
         # Обогащение данными из справочника ВидСвязиКА
-        df_accum_clean = self._enrich_with_contractor_info(df_accum_clean)
+        df_accum_clean = self._enrich_with_contractor_info(df_accum_clean, context)
         
         # Группируем по контрагенту
         df_accum_clean = df_accum_clean.groupby(
@@ -208,13 +209,11 @@ class StepAddExpensesToOpuBase(Step):
     
     def _enrich_with_contractor_info(
         self,
-        df: pd.DataFrame
+        df: pd.DataFrame,
+        context: ProcessingContext
     ) -> pd.DataFrame:
         """Обогащает DataFrame информацией о контрагентах из справочника."""
-        group_companies_df = DataLoader.load_reference_data(
-            sheet_name='ВидСвязиКА',
-            strings=['ВидСвязиКА', 'сегмент', 'ВариантыНазвания']
-        )
+        group_companies_df = context.references['вид_связи_ка']
         
         group_unique = group_companies_df.drop_duplicates(subset='ВариантыНазвания')
         
@@ -278,20 +277,18 @@ class StepAddExpensesToOpuBase(Step):
     def _enrich_with_segment(
         self,
         df_opu: pd.DataFrame,
-        name_company: str
+        name_company: str,
+        context: ProcessingContext
     ) -> pd.DataFrame:
         """Обогащает ном_группы сегментами из справочника УФР."""
         logger.debug("Обогащение ном_групп сегментами")
         
-        directory_ufr_df = DataLoader.load_reference_data(
-            sheet_name='СправочникУФР',
-            strings=['строка_уфр', 'сегмент', 'сокращенное_наименование_компании', 'ном_группа_1с']
-        )
+        directory_ufr_df = context.references['справочник_уфр']
         
         directory_ufr_df = directory_ufr_df.loc[
             directory_ufr_df["сокращенное_наименование_компании"] == name_company
         ]
-        directory_ufr_df = self.clean_whitespace(directory_ufr_df)
+
         
         mapping_segment = (
             directory_ufr_df

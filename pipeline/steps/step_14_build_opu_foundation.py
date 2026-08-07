@@ -42,15 +42,15 @@ class Step14BuildOpuFoundationStep(Step):
         """Основной метод обработки."""
         logger.debug("Начало формирования основы расшифровки ОПУ")
         
-        name_company = context.get_metadata('company_name')
+        name_company = context.company
         
         # 1. Загрузка и подготовка данных
         transactions_all_df = self._load_transactions()
-        osv_df = self._get_osv_from_context(context)
+        osv_df = context.common_osv_df
         
-        # 2. Загрузка и сохранение справочников в context
-        mapping_opu_df, directory_ufr_df, group_companies_df, company_directory_df = self._load_reference_data(name_company)
-        context.data['mapping_opu'] = mapping_opu_df
+        # 2. Загрузка справочников
+        mapping_opu_df, directory_ufr_df, group_companies_df, company_directory_df = self._load_reference_data(name_company, context)
+
         
         # Сохраним сводный отчет по проводкам для использование в следующих шагах
         context.data['transactions_all_df'] = transactions_all_df
@@ -78,7 +78,7 @@ class Step14BuildOpuFoundationStep(Step):
         df_final = self._merge_with_reassessment(df_result, df9002_16)
                 
         # Обновляем context
-        context.main_df = df_final
+        context.journal_df = df_final
         # df_final.to_parquet('df_final.parquet', engine='pyarrow')
         
         logger.info(
@@ -316,14 +316,6 @@ class Step14BuildOpuFoundationStep(Step):
         ]:
             df9002_16[col_name] = pd.Series([value] * len(df9002_16), dtype='string')
         
-        # Загрузка справочника для определения вида_дохода_расхода
-        # company_directory_df = DataLoader.load_reference_data(
-        #     sheet_name='КомпанииГруппы',
-        #     strings=['вид_продукции_переоценки', 'сокращенное_наименование_компании']
-        # )
-        
-        
-        
         # Установка вида_дохода_расхода
         products_reassessment_type = matching_rows['вид_продукции_переоценки'].iloc[0]
         df9002_16['вид_дохода_расхода'] = products_reassessment_type
@@ -459,39 +451,27 @@ class Step14BuildOpuFoundationStep(Step):
     
     def _load_reference_data(
         self, 
-        name_company: str
+        name_company: str,
+        context: ProcessingContext
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Загружает все необходимые справочники."""
         logger.debug("Загрузка справочников")
         
         # 1. Справочник УФР
-        directory_ufr_df = DataLoader.load_reference_data(
-            sheet_name='СправочникУФР',
-            strings=['строка_уфр', 'сегмент',
-                    'сокращенное_наименование_компании', 'ном_группа_1с']
-        )
+        directory_ufr_df = context.references['справочник_уфр']
+        
         directory_ufr_df = directory_ufr_df.loc[
             directory_ufr_df["сокращенное_наименование_компании"] == name_company
         ]
-        directory_ufr_df = self.clean_whitespace(directory_ufr_df)
-        
+
         # 2. Меппинг ОПУ
-        mapping_opu_df = DataLoader.load_reference_data(
-            'Меппинг_опу', 
-            **REFERENCE_CONFIGS['Меппинг_опу']
-        )
+        mapping_opu_df = context.references['меппинг_опу']
         
         # 3. Виды связей КА
-        group_companies_df = DataLoader.load_reference_data(
-            sheet_name='ВидСвязиКА',
-            strings=['ВидСвязиКА', 'сегмент', 'ВариантыНазвания']
-        )
+        group_companies_df = context.references['вид_связи_ка']
 
         # 4. Загрузка справочника для определения вида_дохода_расхода
-        company_directory_df = DataLoader.load_reference_data(
-            sheet_name='КомпанииГруппы',
-            strings=['вид_продукции_переоценки', 'сокращенное_наименование_компании']
-        )
+        company_directory_df = context.references['компании_группы']
 
         logger.debug(
             f"Загружено: УФР={len(directory_ufr_df)}, "
@@ -525,13 +505,14 @@ class Step14BuildOpuFoundationStep(Step):
         df_result['доход_расход'] = df_result['счет'].map(mapping_account).astype('string')
         
         # 2. вид_дохода_расхода (из directory_ufr_df по составному ключу счет+ном_группа)
-        directory_ufr_df['_key'] = (
-            directory_ufr_df['счет'].astype(str) + '_' +
-            directory_ufr_df['ном_группа_1с'].astype(str)
+        directory_ufr_df = directory_ufr_df.copy()
+        directory_ufr_df.loc[:,'_key'] = (
+            directory_ufr_df.loc[:, 'счет'].astype(str) + '_' +
+            directory_ufr_df.loc[:, 'ном_группа_1с'].astype(str)
         )
-        df_result['_key'] = (
-            df_result['счет'].astype(str) + '_' +
-            df_result['ном_группа'].astype(str)
+        df_result.loc[:, '_key'] = (
+            df_result.loc[:, 'счет'].astype(str) + '_' +
+            df_result.loc[:, 'ном_группа'].astype(str)
         )
         
         mapping_revenue = (

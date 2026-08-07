@@ -63,6 +63,6 @@ class Step2FlatSummaryOSVStep(Step):
         osv_all_df.columns = osv_all_df.columns.str.lower()
         
         # Сохраняем в контекст
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         
         return context

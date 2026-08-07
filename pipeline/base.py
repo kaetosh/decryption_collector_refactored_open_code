@@ -24,26 +24,29 @@ class ProcessingStepError(Exception):
     pass
 
 class ProcessingContext:
-    """
-    Контекст для передачи данных между шагами конвейера.
-    
-    Атрибуты:
-        main_df: Основной DataFrame для обработки
-        data: Словарь для хранения вспомогательных данных (справочники, метаданные)
-        metadata: Метаданные о процессе (имя компании, период, и т.д.)
-    """
     def __init__(self):
-        self.main_df: Optional[pd.DataFrame] = None
+        # Параметры
+        self.company: Optional[str] = None # сокращенное
+        self.segment: Optional[str] = None
+        self.period: Optional[str] = None
+        self.name_file_general_osv: Optional[str] = None
+
+        # общая осв для списка выгрузок и сверки
+        self.common_osv_df: Optional[pd.DataFrame] = None
+
+        # Справочники
+        self.references: Dict[str, pd.DataFrame] = {}
+
+        # Рабочие таблицы для передачи данных между шагами конвейера
+        self.summary_osv_df: Optional[pd.DataFrame] = None
+        self.journal_df: Optional[pd.DataFrame] = None
+
+        # Результаты
+        self.balance_df: Optional[pd.DataFrame] = None
+        self.pnl_df: Optional[pd.DataFrame] = None
+        
+        #Прочие данные для временного хранения
         self.data: Dict[str, Any] = {}
-        self.metadata: Dict[str, Any] = {}
-    
-    def set_metadata(self, key: str, value: Any):
-        """Установить метаданные."""
-        self.metadata[key] = value
-    
-    def get_metadata(self, key: str, default: Any = None) -> Any:
-        """Получить метаданные."""
-        return self.metadata.get(key, default)
 
 class Step(ABC):
     """
@@ -138,36 +141,70 @@ class Step(ABC):
     def _validate_output(self, context: 'ProcessingContext'):
         """
         Универсальная валидация выхода для всех шагов.
-        Проверяет:
-        1. Сходимость сальдо (если есть столбец 'сальдо, тыс.ед.')
+    
+        Проверяет для context.common_osv_df, context.summary_osv_df, context.journal_df:
+        1. Сходимость сальдо, если есть столбец 'сальдо, тыс.ед.'
         2. Отсутствие столбцов с типом object
         """
-        df = context.main_df
-        
-        # 1. Проверяем наличие данных ДО любых действий
-        if df is None or df.empty:
-            logger.warning(f"Этап '{self.name}': main_df пуст, пропускаем валидацию")
-            return
-        
-        # 2. Проверка сходимости сальдо
-        # ★ ИСПРАВЛЕНИЕ: используем правильное имя столбца (в нижнем регистре)
         balance_col = 'сальдо, тыс.ед.'
-        if balance_col in df.columns:
-            balance_sum = df[balance_col].sum()
-            if abs(balance_sum) > TOLERANCE:
-                raise ValueError(
-                    f"После этапа '{self.name}' ОСВ не сошлась: "
-                    f"сумма сальдо = {balance_sum:.2f} тыс.ед. (допуск: {TOLERANCE})"
+    
+        def validate_single_df(df: pd.DataFrame, df_name: str) -> None:
+            # 1. Проверяем наличие данных ДО любых действий
+            if df is None:
+                logger.debug(f"Этап '{self.name}': {df_name} is None, пропускаем валидацию")
+                return
+    
+            if df.empty:
+                logger.warning(
+                    f"Этап '{self.name}': {df_name} пуст, пропускаем валидацию"
                 )
-            logger.debug(f"Сходимость сальдо: {balance_sum:.2f} тыс.ед.")
-        
-        # 3. Проверка отсутствия object типов
-        object_cols = [col for col, dtype in df.dtypes.items() if dtype == 'object']
-        if object_cols:
-            raise TypeError(
-                f"После этапа '{self.name}' обнаружены столбцы с типом 'object': {object_cols}. "
-                f"Используйте 'string' или числовые типы."
-            )
+                return
+    
+            # 2. Проверка отсутствия object типов
+            # Лучше выполнять до суммирования сальдо, чтобы не пытаться
+            # сложить строки, если колонка случайно осталась в object.
+            object_cols = [
+                col for col, dtype in df.dtypes.items()
+                if dtype == 'object'
+            ]
+    
+            if object_cols:
+                raise TypeError(
+                    f"После этапа '{self.name}' в {df_name} обнаружены столбцы "
+                    f"с типом 'object': {object_cols}. "
+                    f"Используйте 'string' или числовые типы."
+                )
+    
+            # 3. Проверка сходимости сальдо
+            if balance_col in df.columns:
+                try:
+                    # pd.to_numeric дополнительно страхует от случаев,
+                    # когда тип не object, но значения не числовые.
+                    balance_values = pd.to_numeric(df[balance_col], errors='raise')
+                except (ValueError, TypeError) as exc:
+                    raise TypeError(
+                        f"После этапа '{self.name}' в {df_name} столбец "
+                        f"'{balance_col}' содержит нечисловые значения."
+                    ) from exc
+    
+                balance_sum = balance_values.sum()
+    
+                if abs(balance_sum) > TOLERANCE:
+                    raise ValueError(
+                        f"После этапа '{self.name}' в {df_name} ОСВ не сошлась: "
+                        f"сумма сальдо = {balance_sum:.2f} тыс.ед. "
+                        f"(допуск: {TOLERANCE})"
+                    )
+    
+                logger.debug(
+                    f"Этап '{self.name}', {df_name}: "
+                    f"сходимость сальдо = {balance_sum:.2f} тыс.ед."
+                )
+    
+        # Обрабатываем те же датафреймы, что и в предыдущих методах
+        for attr_name in ('common_osv_df', 'summary_osv_df', 'journal_df'):
+            df = getattr(context, attr_name, None)
+            validate_single_df(df, attr_name)
     
     @staticmethod
     def clean_whitespace(df: pd.DataFrame) -> pd.DataFrame:
@@ -292,41 +329,62 @@ class Step(ABC):
         )
         
     def _clean_whitespace(self, context: 'ProcessingContext') -> 'ProcessingContext':
-        """Обертка для очистки context.main_df."""
-        context.main_df = self.clean_whitespace(context.main_df)
+        """Обертка для очистки context"""
+        if context.summary_osv_df is not None:
+            context.summary_osv_df = self.clean_whitespace(context.summary_osv_df)
+    
+        if context.journal_df is not None:
+            context.journal_df = self.clean_whitespace(context.journal_df)
+    
         return context
     
     def _move_and_sort_level_columns(self, context: 'ProcessingContext') -> 'ProcessingContext':
         """
         Переносит столбцы Level_* в конец DataFrame и сортирует их по возрастанию.
+        Обрабатывает common_osv_df, summary_osv_df и journal_df, если они не None.
         """
-        df = context.main_df.copy()
         
-        if df.empty:
-            return context
-        
-        # Находим столбцы Level_* (регистронезависимо)
-        level_cols = [
-            col for col in df.columns 
-            if str(col).lower().startswith('level_')
-        ]
-        
-        if not level_cols:
-            return context
-        
-        # Сортируем level_* по числовому суффиксу
-        def extract_level_number(col_name: str) -> int:
+        # Функция для извлечения номера уровня (определяем один раз вне цикла)
+        def extract_level_number(col_name: str) -> float:
             try:
                 suffix = str(col_name).split('_', 1)[1]
                 return int(suffix)
             except (IndexError, ValueError):
                 return float('inf')
-        
-        level_cols_sorted = sorted(level_cols, key=extract_level_number)
-        regular_cols = [col for col in df.columns if col not in level_cols]
-        new_order = regular_cols + level_cols_sorted
-        
-        context.main_df = df[new_order]
+    
+        # Внутренняя функция для обработки одного DataFrame
+        def process_single_df(df: pd.DataFrame) -> pd.DataFrame:
+            if df is None or df.empty:
+                return df
+    
+            # Находим столбцы Level_* (регистронезависимо)
+            level_cols = [
+                col for col in df.columns 
+                if str(col).lower().startswith('level_')
+            ]
+            
+            if not level_cols:
+                return df
+            
+            # Сортируем level_* по числовому суффиксу
+            level_cols_sorted = sorted(level_cols, key=extract_level_number)
+            regular_cols = [col for col in df.columns if col not in level_cols]
+            new_order = regular_cols + level_cols_sorted
+            
+            # df[new_order] и так возвращает новый DataFrame, 
+            # поэтому явный .copy() здесь не обязателен
+            return df[new_order]
+    
+        # Список атрибутов контекста, которые нужно обработать
+        attrs_to_process = ['common_osv_df', 'summary_osv_df', 'journal_df']
+    
+        for attr in attrs_to_process:
+            df = getattr(context, attr, None)
+            # Проверяем, что датафрейм существует (не None)
+            if df is not None:
+                # Сохраняем результат обратно в тот же атрибут
+                setattr(context, attr, process_single_df(df))
+    
         return context
     
     # =========================================================================

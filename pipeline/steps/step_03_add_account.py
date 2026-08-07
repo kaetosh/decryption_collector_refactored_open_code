@@ -26,7 +26,7 @@ class Step3AddAccountColumnStep(Step):
         logger.debug("Добавление столбца счета")
         
         # Делаем копию, чтобы не модифицировать оригинал в контексте
-        osv_all_df = context.main_df.copy()
+        osv_all_df = context.summary_osv_df.copy()
         
         # Поиск столбца содержащего только счета
         name_col_with_all_account = find_target_column(
@@ -60,6 +60,6 @@ class Step3AddAccountColumnStep(Step):
         logger.debug(f"Переименованы столбцы: {rename_dict}")
         
         # Сохраняем результат
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         
         return context

@@ -62,7 +62,8 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
     
     def _refine_third_party_by_directory(
         self, 
-        osv_all_df: pd.DataFrame
+        osv_all_df: pd.DataFrame,
+        context: ProcessingContext
     ) -> pd.DataFrame:
         """
         Уточняет вид связи для '3 лица' на основе справочника ВидСвязиКА.
@@ -75,13 +76,7 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
             return osv_all_df
         
         # Загрузка справочника
-        group_companies_df = DataLoader.load_reference_data(
-            sheet_name='ВидСвязиКА',
-            strings=['ВидСвязиКА', 'сокращенное_наименование_компании']
-        )
-        
-        # Очистка пробелов
-        group_companies_df = self.clean_whitespace(group_companies_df)
+        group_companies_df = context.references['вид_связи_ка']
         
         # Создаём словарь маппинга
         mapping_dict = dict(zip(
@@ -150,8 +145,8 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
         logger.debug("Добавление вида связи")
         
         # Делаем копию, чтобы не модифицировать оригинал
-        osv_all_df = context.main_df.copy()
-        mapping_df = context.data.get('mapping')
+        osv_all_df = context.summary_osv_df.copy()
+        mapping_df = context.references["меппинг_баланс"]
         
         # 1. Создаём маппинг из справочника
         mapping_dict = self._get_related_party_mapping(mapping_df)
@@ -181,7 +176,7 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
             osv_all_df['вид_связи'] = osv_all_df['вид_связи'].mask(empty_mask, temp_col)
         
         # 4. Уточняем '3 лица' по справочнику ВидСвязиКА
-        osv_all_df = self._refine_third_party_by_directory(osv_all_df)
+        osv_all_df = self._refine_third_party_by_directory(osv_all_df, context)
         
         # 5. Удаляем технические столбцы
         osv_all_df = osv_all_df.drop(
@@ -199,5 +194,5 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
         classified_count = (osv_all_df['вид_связи'] != self.UNSPECIFIED).sum()
         logger.debug(f"Классифицировано видов связи: {classified_count}")
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         return context

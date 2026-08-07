@@ -147,7 +147,7 @@ class Step13BuildBalanceBreakdownStep(Step):
                 f"Найдено {len(unmapped_unique)} уникальных незамапленных комбинаций"
             ),
             problem_data=problem_data,
-            reference_name="Меппинг",
+            reference_name="Меппинг баланс",
             unique_combinations_count=len(unmapped_unique),
             total_unmapped_rows=len(problem_data),
         )
@@ -156,7 +156,7 @@ class Step13BuildBalanceBreakdownStep(Step):
     # ФОРМИРОВАНИЕ БАЛАНСА
     # =========================================================================
     
-    def _build_balance_sheet(self, osv_all_df: pd.DataFrame) -> pd.DataFrame:
+    def _build_balance_sheet(self, osv_all_df: pd.DataFrame, context: ProcessingContext) -> pd.DataFrame:
         """
         Формирует итоговый баланс на основе плана счетов и сальдо ОСВ.
         
@@ -168,10 +168,7 @@ class Step13BuildBalanceBreakdownStep(Step):
         """
         # 1. Загрузка плана счетов
         # ★ ИСПРАВЛЕНИЕ: используем имена столбцов вместо usecols с индексами
-        chart_accounts_df = DataLoader.load_reference_data(
-            sheet_name='ПланСчетов',
-            strings=['РСБУ Код отчетности', 'Итоговый номер счета']
-        )
+        chart_accounts_df = context.references['план_счетов_фо']
         
         # 2. Фильтрация только статей баланса
         balance_transcripts = chart_accounts_df[
@@ -241,8 +238,8 @@ class Step13BuildBalanceBreakdownStep(Step):
         """
         logger.debug("Сборка расшифровки баланса")
         
-        osv_all_df = context.main_df.copy()
-        mapping_df = context.data.get('mapping')
+        osv_all_df = context.summary_osv_df.copy()
+        mapping_df = context.references["меппинг_баланс"]
         
         if mapping_df is None:
             raise ValueError("Справочник Меппинг отсутствует в контексте")
@@ -263,11 +260,11 @@ class Step13BuildBalanceBreakdownStep(Step):
         
         # 4. Формирование итогового баланса
         logger.debug("Этап 4: Формирование баланса")
-        balance_sheet = self._build_balance_sheet(osv_all_df)
+        balance_sheet = self._build_balance_sheet(osv_all_df, context)
         
         # 5. Сохранение результатов в контекст
-        context.data['final_report'] = balance_sheet
-        context.main_df = osv_all_df.loc[:, ~osv_all_df.columns.str.startswith('level_')]
+        context.balance_df = balance_sheet
+        context.summary_osv_df = osv_all_df.loc[:, ~osv_all_df.columns.str.startswith('level_')]
         
         logger.debug(
             f"Расшифровка баланса готова: "

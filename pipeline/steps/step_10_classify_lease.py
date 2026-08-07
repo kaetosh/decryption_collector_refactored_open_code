@@ -56,14 +56,8 @@ class Step10ClassifyLeaseSourceStep(Step):
             return context.data[cache_key]
         
         # Загрузка справочника
-        group_companies_df = DataLoader.load_reference_data(
-            sheet_name=self.RELATED_PARTIES_SHEET,
-            strings=['ВидСвязиКА', 'ВариантыНазвания']
-        )
-        
-        # Очистка пробелов
-        group_companies_df = self.clean_whitespace(group_companies_df)
-        
+        group_companies_df = context.references['вид_связи_ка']
+
         # Создание маппинга
         mapping_dict = dict(zip(
             group_companies_df['ВариантыНазвания'],
@@ -438,10 +432,10 @@ class Step10ClassifyLeaseSourceStep(Step):
         """Основной метод обработки шага 10."""
         logger.debug("Классификация источника аренды")
         
-        osv_all_df = context.main_df.copy()
+        osv_all_df = context.summary_osv_df.copy()
         
-        name_company = context.get_metadata('company_name')
-        period = context.get_metadata('period')
+        name_company = context.company
+        period = context.period
         
         # 1. Загрузка ведомости амортизации
         depreciation_df = self._process_depreciation_statement_decoding(
@@ -510,6 +504,6 @@ class Step10ClassifyLeaseSourceStep(Step):
         
         logger.debug(f"Классификация источника аренды завершена. Добавлено {len(to_add)} строк.")
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         return context
 

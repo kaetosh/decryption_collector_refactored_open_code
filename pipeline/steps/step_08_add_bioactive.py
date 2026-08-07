@@ -29,17 +29,14 @@ class Step8AddBioactiveSegmentColumnStep(Step):
             description="Для счетов 01 и 02 определяет сегмент биоактивов"
         )
     
-    def _get_company_bioactive_type(self, name_company: str) -> str:
+    def _get_company_bioactive_type(self, name_company: str, context: ProcessingContext) -> str:
         """
         Получает тип биоактивов для компании из справочника.
         
         При несоответствии выбрасывает ReferenceMismatchError с problem_data.
         Базовый класс Step сам сохранит проблемные данные в Excel.
         """
-        company_directory_df = DataLoader.load_reference_data(
-            sheet_name='КомпанииГруппы',
-            strings=['биоактивы', 'сокращенное_наименование_компании']
-        )
+        company_directory_df = context.references['компании_группы']
         
         matching_rows = company_directory_df[
             company_directory_df['сокращенное_наименование_компании'] == name_company
@@ -142,16 +139,16 @@ class Step8AddBioactiveSegmentColumnStep(Step):
         """Основной метод обработки шага 8."""
         logger.debug("Добавление сегмента биоактивов")
         
-        osv_all_df = context.main_df.copy()
-        name_company = context.get_metadata('company_name')
-        mapping_df = context.data.get('mapping')
+        osv_all_df = context.summary_osv_df.copy()
+        name_company = context.company
+        mapping_df = context.references["меппинг_баланс"]
         
         # 1. Получаем тип биоактивов для компании
-        bioact_type = self._get_company_bioactive_type(name_company)
+        bioact_type = self._get_company_bioactive_type(name_company, context)
         
         # 2. Добавляем столбец сегмента биоактивов
         osv_all_df = self._map_bioactive_segment(osv_all_df, mapping_df, bioact_type)
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         return context
 

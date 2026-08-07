@@ -19,8 +19,8 @@ class Step5AddReceivableSubtypeStep(Step):
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Добавление подвида задолженности")
         
-        osv_all_df = context.main_df.copy()
-        mapping_df = context.data.get('mapping')
+        osv_all_df = context.summary_osv_df.copy()
+        mapping_df = context.references["меппинг_баланс"]
         
         if mapping_df is None:
             raise ValueError("Меппинг отсутствует в контексте")
@@ -31,5 +31,5 @@ class Step5AddReceivableSubtypeStep(Step):
         osv_all_df = ReceivableClassifier.handle_missing_subtypes(osv_all_df)  # ← Здесь может всплыть MissingSubtypeError
         osv_all_df = ReceivableClassifier.apply_categorical_subtype(osv_all_df, mapping_df)
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         return context

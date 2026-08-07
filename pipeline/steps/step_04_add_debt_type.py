@@ -18,7 +18,7 @@ class Step4AddReceivableTypeStep(Step):
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Классификация задолженности")
         
-        osv_all_df = context.main_df.copy()
+        osv_all_df = context.summary_osv_df.copy()
         partially_matching_accounts_df = context.data.get('partially_matching_accounts_df')
         mapping_df = context.data.get('mapping')
         
@@ -29,9 +29,9 @@ class Step4AddReceivableTypeStep(Step):
         osv_all_df = ReceivableClassifier.map_accounts_to_mapping(osv_all_df, partially_matching_accounts_df)
         accounts_with_debt_type = ReceivableClassifier.get_accounts_with_debt_type(mapping_df)
         osv_all_df = ReceivableClassifier.classify_debt_type(osv_all_df, accounts_with_debt_type)
-        osv_all_df = ReceivableClassifier.handle_special_cases(osv_all_df)
+        osv_all_df = ReceivableClassifier.handle_special_cases(osv_all_df, context)
         osv_all_df = ReceivableClassifier.clean_subaccounts(osv_all_df, mapping_df)
         
-        context.main_df = osv_all_df
+        context.summary_osv_df = osv_all_df
         return context
 

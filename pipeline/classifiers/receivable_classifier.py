@@ -7,8 +7,9 @@
 import pandas as pd
 from loguru import logger
 
-from io_module import DataLoader
-from pipeline.errors import MissingMappingError, MissingSubtypeError
+# from io_module import DataLoader
+from pipeline.errors import MissingSubtypeError
+from pipeline.base import ProcessingContext
 
 
 class ReceivableClassifier:
@@ -71,12 +72,9 @@ class ReceivableClassifier:
         
         return df
     @staticmethod
-    def handle_special_cases(df: pd.DataFrame) -> pd.DataFrame:
+    def handle_special_cases(df: pd.DataFrame, context: ProcessingContext) -> pd.DataFrame:
         """Обрабатывает специальные случаи (РБП для аренды/лизинга)"""
-        types_rbp_df = DataLoader.load_reference_data(
-            sheet_name='ВидыРБП_АрендаЛизинг',
-            strings=['виды_рбп_аренда_лизинг']
-        )
+        types_rbp_df = context.references['виды_рбп_аренда_лизинг']
         valid_rbp_types = set(types_rbp_df['виды_рбп_аренда_лизинг'].tolist())
         
         mask = (
