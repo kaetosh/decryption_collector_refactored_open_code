@@ -45,13 +45,12 @@ class Step14BuildOpuFoundationStep(Step):
         name_company = context.company
         
         # 1. Загрузка и подготовка данных
-        transactions_all_df = self._load_transactions()
+        transactions_all_df = context.journal_df.copy()
         osv_df = context.common_osv_df
         
         # 2. Загрузка справочников
         mapping_opu_df, directory_ufr_df, group_companies_df, company_directory_df = self._load_reference_data(name_company, context)
 
-        
         # Сохраним сводный отчет по проводкам для использование в следующих шагах
         context.data['transactions_all_df'] = transactions_all_df
         

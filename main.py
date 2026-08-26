@@ -15,6 +15,8 @@ import pandas as pd
 from pathlib import Path
 import argparse
 import warnings
+from dataclasses import dataclass, field
+from typing import Any
 warnings.filterwarnings('ignore', message='Data Validation extension is not supported')
 
 # Добавляем корневую директорию в путь для импортов
@@ -30,6 +32,7 @@ from pipeline.errors import ReferenceMismatchError
 from pipeline.steps import (
     Step1aListExpectedRegistersStep,
     Step1bVerifyFilesStep,
+    Step1cReconcileTotalsStep,
     Step2FlatSummaryOSVStep,
     Step3AddAccountColumnStep,
     Step4AddReceivableTypeStep,
@@ -52,6 +55,12 @@ from pipeline.steps import (
 )
 
 from io_module import DataLoader, DataSaver
+
+class ColumnNames:
+    SHORT_COMPANY_NAME = "сокращенное_наименование_компании"
+    SEGMENT = "сегмент"
+    PERIOD_TYPE = "тип_периода"
+    DECRYPTION_FILENAME = "название_файла_расшифровки"
 
 def create_preparation_pipeline() -> Pipeline:
     """
@@ -78,10 +87,11 @@ def create_main_pipeline() -> Pipeline:
     Returns:
         Объект Pipeline с шагами 2-13
     """
-    pipeline = Pipeline(name="Основной конвейер сборки расшифровки баланса")
+    pipeline = Pipeline(name="Основной конвейер сборки расшифровки ББ и ОПУ")
     
     # ЭТАП 1: Загрузка и подготовка данных (баланс и опу)
     pipeline.add_step(Step1bVerifyFilesStep())
+    pipeline.add_step(Step1cReconcileTotalsStep())
     pipeline.add_step(Step2FlatSummaryOSVStep())
     
     # ЭТАП 2: Добавление классификационных столбцов баланс
@@ -114,6 +124,29 @@ def create_main_pipeline() -> Pipeline:
     
     return pipeline
 
+def pause_for_osv_general_export() -> None:
+    """
+    Приостанавливает выполнение и ждет, пока бухгалтер выгрузит Общую ОСВ из 1С.
+    
+    Returns
+    -------
+    None
+    """
+    
+    print("\n" + "=" * 80)
+    print()
+    print("[>>] ВАШИ ДЕЙСТВИЯ:")
+    print("   1. Убедитесь, что файл с актуальной Общей ОСВ расположен в папке INPUT_DATA.")
+    print("   2. Убедитесь, что имя файла с Общей ОСВ имеет следующий формат:")
+    print("      СокрНаименованиеКомпании_общаяосв_нд_Период_.xlsx, например, РЗК_общаяосв_нд_2025_.xlsx")
+    print("   3. Убедитесь, что наименование компании соотвествует данным на листе КомпанииГруппы файла Справочники.xlsx из папки _REFERENCE_DATA")
+    print("=" * 80)
+    
+    try:
+        input("\n[PAUSE] Когда файл с Общей ОСВ будет готов, нажмите Enter для продолжения...")
+    except EOFError:
+        pass
+    print("=" * 80 + "\n")
 
 def pause_for_1c_export(context: ProcessingContext) -> None:
     """
@@ -133,7 +166,7 @@ def pause_for_1c_export(context: ProcessingContext) -> None:
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
     print("   1. Откройте файл 'Выгрузить_*.xlsx' в папке OUTPUT_DATA")
     print("   2. Выгрузите указанные регистры из 1С")
-    print("   3. Положите все файлы в папку INPUT_DATA")
+    print("   3. Положите все файлы в папку INPUT_DATA в подпапки, указанные в поле 'куда класть' файла 'Выгрузить_*.xlsx'")
     print("=" * 80)
     
     try:
@@ -143,213 +176,245 @@ def pause_for_1c_export(context: ProcessingContext) -> None:
     print("=" * 80 + "\n")
 
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Единый реестр справочников — единственная точка правды
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class ReferenceSpec:
+    """Спецификация справочника: что и как загружать."""
+    sheet_name: str
+    strings: tuple[str, ...] = ()
+    extra_kwargs: dict[str, Any] = field(default_factory=dict)
+    usecols: tuple[int, ...] | None = None
+
+
+REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
+    "план_счетов_фо": ReferenceSpec(
+        sheet_name="ПланСчетов",
+        strings=("РСБУ Код отчетности", "Итоговый номер счета"),
+    ),
+    "меппинг_баланс": ReferenceSpec(
+        sheet_name="Меппинг",
+        **REFERENCE_CONFIGS["Меппинг"],
+    ),
+    "меппинг_опу": ReferenceSpec(
+        sheet_name="Меппинг_опу",
+        **REFERENCE_CONFIGS["Меппинг_опу"],
+    ),
+    "компании_группы": ReferenceSpec(
+        sheet_name="КомпанииГруппы",
+        strings=(
+            ColumnNames.SHORT_COMPANY_NAME,
+            ColumnNames.DECRYPTION_FILENAME,
+            ColumnNames.PERIOD_TYPE,
+        ),
+    ),
+    "выгрузки": ReferenceSpec(sheet_name="Выгрузки"),
+    "план_счетов_бу": ReferenceSpec(
+        sheet_name="ПланСчетовБУ",
+        strings=(
+            "компания", "код", "наименование",
+            "субконто_1", "субконто_2", "субконто_3",
+        ),
+    ),
+    "справочник_уфр": ReferenceSpec(
+        sheet_name="СправочникУФР",
+        strings=("строка_уфр", ColumnNames.SEGMENT, ColumnNames.SHORT_COMPANY_NAME, "ном_группа_1с"),
+    ),
+    "справочник_ппа": ReferenceSpec(
+        sheet_name="ППА",
+        strings=(
+            "группа_ос", "вид_взаиморасчетов", "наименование_компании",
+            "рбп", "ос_ппа", "ос_после_перехода_в_собственность",
+            "договор_аренды", "контрагент",
+        ),
+    ),
+    "кредит_обслуж": ReferenceSpec(
+        sheet_name="КредитОбслуж",
+        strings=("компания", "рбп_кредитные_линии", "контрагент"),
+    ),
+    "вид_связи_ка": ReferenceSpec(
+        sheet_name="ВидСвязиКА",
+        strings=("ВидСвязиКА", ColumnNames.SEGMENT, "ВариантыНазвания"),
+    ),
+    "прочие_доходы_ндс": ReferenceSpec(
+        sheet_name="ПрочиеДоходыНДС",
+        strings=("прочие_доходы_ндс",),
+    ),
+    "виды_рбп_аренда_лизинг": ReferenceSpec(
+        sheet_name="ВидыРБП_АрендаЛизинг",
+        strings=("виды_рбп_аренда_лизинг",),
+    ),
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Вспомогательные функции — каждая отвечает за одну задачу
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_osv_filename(filename: str) -> tuple[str, str]:
+    """Извлекает компанию и период из имени файла ОСВ.
+
+    Ожидается формат: CompanyName_Register_Account_Period_.xlsx
+    """
+    stem = Path(filename).stem
+    parts = [p.strip() for p in stem.split("_") if p.strip()]
+
+    if len(parts) < 3:
+        raise ValueError(
+            f"Некорректное имя файла '{filename}'. "
+            "Ожидается формат: CompanyName_Register_Account_Period_.xlsx"
+        )
+
+    return parts[0], parts[-1]
+
+
+def _load_all_references() -> dict[str, pd.DataFrame]:
+    """Загружает все справочники согласно REFERENCE_REGISTRY."""
+    references: dict[str, pd.DataFrame] = {}
+
+    for key, spec in REFERENCE_REGISTRY.items():
+        logger.debug("Загрузка справочника '{}' (лист '{}')", key, spec.sheet_name)
+        df = DataLoader.load_reference_data(
+            sheet_name=spec.sheet_name,
+            strings=list(spec.strings),
+            **spec.extra_kwargs,
+        )
+        references[key] = Step.clean_whitespace(df)
+
+    return references
+
+
+def _get_required_field(row: pd.Series, field_name: str, company: str) -> str:
+    """
+    Извлекает обязательное поле из строки справочника.
+    
+    Args:
+        row: Строка из справочника (pd.Series)
+        field_name: Название поля для извлечения
+        company: Название компании (для сообщения об ошибке)
+    
+    Returns:
+        Значение поля в виде строки с удалёнными пробелами
+    
+    Raises:
+        ReferenceMismatchError: Если поле пустое или отсутствует
+    """
+    value = row[field_name]
+    if pd.isna(value) or not str(value).strip():
+        raise ReferenceMismatchError(
+            message=f"У компании '{company}' не заполнено поле '{field_name}'",
+            problem_data=row.to_frame().T,
+            reference_name="КомпанииГруппы",
+            searched_company=company,
+        )
+    return str(value).strip()
+
+
+def _validate_and_enrich_company_info(context: ProcessingContext) -> None:
+    """
+    Валидирует наличие компании в справочнике и обогащает контекст данными о компании.
+    
+    Args:
+        context: Контекст обработки с загруженными справочниками
+    
+    Raises:
+        ValueError: Если в справочнике отсутствуют обязательные колонки
+        ReferenceMismatchError: Если компания не найдена, найдено несколько записей,
+                                или не заполнены обязательные поля
+    """
+    directory = context.references["компании_группы"]
+    
+    # Проверка наличия обязательных колонок
+    required_columns = {ColumnNames.SHORT_COMPANY_NAME, ColumnNames.SEGMENT, ColumnNames.PERIOD_TYPE}
+    missing = required_columns - set(directory.columns)
+    if missing:
+        raise ValueError(
+            "В справочнике 'компании_группы' отсутствуют обязательные колонки: "
+            f"{sorted(missing)}"
+        )
+    
+    # Нормализация имён компаний для поиска
+    normalized_names = (
+        directory[ColumnNames.SHORT_COMPANY_NAME]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    
+    # Поиск компании в справочнике
+    matches = directory[normalized_names == context.company]
+    
+    if matches.empty:
+        problem_data = (
+            directory[[ColumnNames.SHORT_COMPANY_NAME]]
+            .drop_duplicates()
+            .rename(columns={ColumnNames.SHORT_COMPANY_NAME: "компания_в_справочнике"})
+        )
+        raise ReferenceMismatchError(
+            message=f"Компания '{context.company}' не найдена в справочнике",
+            problem_data=problem_data,
+            reference_name="КомпанииГруппы",
+            searched_company=context.company,
+        )
+    
+    if len(matches) > 1:
+        raise ReferenceMismatchError(
+            message=(
+                f"У компании '{context.company}' найдено "
+                f"{len(matches)} записей. Ожидается одна."
+            ),
+            problem_data=matches.copy(),
+            reference_name="КомпанииГруппы",
+            duplicate_count=len(matches),
+        )
+    
+    # Получаем единственную запись компании
+    row = matches.iloc[0]
+    context.company = _get_required_field(row, ColumnNames.SHORT_COMPANY_NAME, context.company)
+    
+    # Извлекаем и валидируем обязательные поля через вспомогательную функцию
+    context.segment = _get_required_field(row, ColumnNames.SEGMENT, context.company)
+    context.type_period = _get_required_field(row, ColumnNames.PERIOD_TYPE, context.company)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Оркестратор — теперь читается как план действий
+# ─────────────────────────────────────────────────────────────────────────────
 def initialize_context() -> ProcessingContext:
     logger.debug("Инициализация контекста обработки")
 
-    try:
-        context = ProcessingContext()
+    context = ProcessingContext()
 
-        osv_df, osv_filename = DataLoader.load_general_osv()
+    # Шаг 1. Загрузка общей ОСВ
+    osv_df, osv_filename = DataLoader.load_general_osv()
+    
+    if osv_df.empty:
+        raise ValueError("Загруженная общая ОСВ пуста")
 
-        if osv_df.empty:
-            raise ValueError("Загруженная общая ОСВ пуста")
+    context.common_osv_df = osv_df
+    context.name_file_general_osv = osv_filename
 
-        context.common_osv_df = osv_df
-        context.name_file_general_osv = osv_filename
+    # Шаг 2. Извлечение метаданных из имени файла
+    context.company, context.period = _parse_osv_filename(osv_filename)
 
-        stem = Path(osv_filename).stem
-        parts = [part.strip() for part in stem.split("_") if part.strip()]
+    # Шаг 3. Загрузка всех справочников
+    context.references = _load_all_references()
 
-        if len(parts) < 3:
-            raise ValueError(
-                f"Некорректное имя файла '{osv_filename}'. "
-                "Ожидается формат: CompanyName_Register_Account_Period_.xlsx"
-            )
+    # Шаг 4. Валидация компании и обогащение контекста
+    _validate_and_enrich_company_info(context)
 
-        context.company = parts[0].strip()
-        context.period = parts[-1].strip()
-
-        context.references["план_счетов_фо"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="ПланСчетов",
-                strings=["РСБУ Код отчетности", "Итоговый номер счета"],
-            )
-        )
-
-        context.references["меппинг_баланс"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="Меппинг",
-                **REFERENCE_CONFIGS["Меппинг"],
-            )
-        )
-
-        context.references["меппинг_опу"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="Меппинг_опу",
-                **REFERENCE_CONFIGS["Меппинг_опу"],
-            )
-        )
-
-        context.references["компании_группы"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="КомпанииГруппы",
-                strings=[
-                    "сокращенное_наименование_компании",
-                    "название_файла_расшифровки",
-                ],
-            )
-        )
-
-        context.references["выгрузки"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(sheet_name="Выгрузки")
-        )
-
-        context.references["план_счетов_бу"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="ПланСчетовБУ",
-                strings=[
-                    "компания",
-                    "код",
-                    "наименование",
-                    "субконто_1",
-                    "субконто_2",
-                    "субконто_3",
-                ],
-            )
-        )
-
-        context.references["справочник_уфр"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="СправочникУФР",
-                strings=[
-                    "строка_уфр",
-                    "сегмент",
-                    "сокращенное_наименование_компании",
-                    "ном_группа_1с",
-                ],
-            )
-        )
-
-        context.references["справочник_ппа"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="ППА",
-                strings=[
-                    "группа_ос",
-                    "вид_взаиморасчетов",
-                    "наименование_компании",
-                    "рбп",
-                    "ос_ппа",
-                    "ос_после_перехода_в_собственность",
-                    "договор_аренды",
-                    "контрагент",
-                ],
-            )
-        )
-
-        context.references["кредит_обслуж"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="КредитОбслуж",
-                strings=["компания", "рбп_кредитные_линии", "контрагент"],
-            )
-        )
-
-        context.references["вид_связи_ка"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="ВидСвязиКА",
-                strings=["ВидСвязиКА", "сегмент", "ВариантыНазвания"],
-            )
-        )
-
-        context.references["прочие_доходы_ндс"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="ПрочиеДоходыНДС",
-                strings=["прочие_доходы_ндс"],
-            )
-        )
-
-        context.references["виды_рбп_аренда_лизинг"] = Step.clean_whitespace(
-            DataLoader.load_reference_data(
-                sheet_name="ВидыРБП_АрендаЛизинг",
-                strings=["виды_рбп_аренда_лизинг"],
-            )
-        )
-
-        company_directory_df = context.references["компании_группы"]
-
-        required_columns = {"сокращенное_наименование_компании", "сегмент"}
-        missing_columns = required_columns - set(company_directory_df.columns)
-
-        if missing_columns:
-            raise ValueError(
-                "В справочнике 'компании_группы' отсутствуют обязательные колонки: "
-                f"{sorted(missing_columns)}"
-            )
-
-        company_values = (
-            company_directory_df["сокращенное_наименование_компании"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
-
-        matching_rows = company_directory_df[company_values == context.company]
-
-        if matching_rows.empty:
-            problem_data = (
-                company_directory_df[["сокращенное_наименование_компании"]]
-                .drop_duplicates()
-                .rename(
-                    columns={
-                        "сокращенное_наименование_компании": "компания_в_справочнике"
-                    }
-                )
-            )
-
-            raise ReferenceMismatchError(
-                message=f"Компания '{context.company}' не найдена в справочнике",
-                problem_data=problem_data,
-                reference_name="КомпанииГруппы",
-                searched_company=context.company,
-            )
-
-        if len(matching_rows) > 1:
-            raise ReferenceMismatchError(
-                message=(
-                    f"У компании '{context.company}' найдено "
-                    f"{len(matching_rows)} записей. Ожидается одна."
-                ),
-                problem_data=matching_rows.copy(),
-                reference_name="КомпанииГруппы",
-                duplicate_count=len(matching_rows),
-            )
-
-        row = matching_rows.iloc[0]
-        segment = row["сегмент"]
-
-        if pd.isna(segment) or not str(segment).strip():
-            raise ReferenceMismatchError(
-                message=f"У компании '{context.company}' не заполнен сегмент",
-                problem_data=matching_rows.copy(),
-                reference_name="КомпанииГруппы",
-                searched_company=context.company,
-            )
-
-        context.company = str(row["сокращенное_наименование_компании"]).strip()
-        context.segment = str(segment).strip()
-
-        logger.debug(
-            "Контекст инициализирован: компания=%s, период=%s, строк в ОСВ=%s, справочников=%s",
-            context.company,
-            context.period,
-            len(osv_df),
-            len(context.references),
-        )
-
-        return context
-
-    except Exception:
-        logger.exception("Ошибка при инициализации контекста")
-        raise
+    logger.debug(
+        "Контекст инициализирован: компания={}, период={}, строк в ОСВ={}, справочников={}",
+        context.company,
+        context.period,
+        len(osv_df),
+        len(context.references)
+        
+        
+    )
+    return context
 
 def save_results(context: ProcessingContext) -> None:
     """
@@ -378,34 +443,15 @@ def save_results(context: ProcessingContext) -> None:
         pnl_df = context.pnl_df
         journal_df = context.journal_df
         
-        if(balance_df is None
-           and summary_osv_df is None
-           and pnl_df is None
-           and journal_df is None):
+        if all(df is None for df in [balance_df, summary_osv_df, pnl_df, journal_df]):
             logger.warning("Нет данных для сохранения")
             return
         
-        # 3. Если есть оба DataFrame — сохраняем комбинированный отчёт
-        else:
-            DataSaver.save_combined_report(
-                balance_df,
-                summary_osv_df,
-                pnl_df,
-                journal_df,
-                filename
-            )
-            logger.info(f"Комбинированный отчёт сохранён: {filename}")
-        # # 4. Если есть только финальный отчёт
-        # elif final_report is not None:
-        #     DataSaver.save_to_excel(final_report, filename)
-        #     logger.info(f"Сохранён только финальный отчёт: {filename}")
-        # # 5. Если есть только main_df
-        # elif main_df is not None:
-        #     DataSaver.save_to_excel(main_df, filename, subfolder="intermediate")
-        #     logger.info(f"Сохранён только основной DataFrame: {filename}")
-            
+        DataSaver.save_combined_report(balance_df, summary_osv_df, pnl_df, journal_df, filename)
+        logger.info("Комбинированный отчёт сохранён: {}", filename)
+
     except Exception as e:
-        logger.error(f"Ошибка при сохранении результатов: {e}")
+        logger.error("Ошибка при сохранении результатов: {}", e)
         raise
 
 def _get_output_filename(company_name: str, period: str, context: ProcessingContext) -> str:
@@ -427,44 +473,40 @@ def _get_output_filename(company_name: str, period: str, context: ProcessingCont
         
         # Ищем компанию
         matching = companies_df[
-            companies_df['сокращенное_наименование_компании'] == company_name
+            companies_df[ColumnNames.SHORT_COMPANY_NAME] == company_name
         ]
         
         if matching.empty:
             logger.warning(
-                f"Компания '{company_name}' не найдена в справочнике. "
-                f"Используем стандартное имя файла."
+                "Компания '{}' не найдена в справочнике. Используем стандартное имя файла.",
+                company_name
             )
             return f"balance_breakdown_{company_name}_{period}.xlsx"
         
         # Получаем шаблон имени файла
-        filename_template = matching.iloc[0]['название_файла_расшифровки']
+        filename_template = matching.iloc[0][ColumnNames.DECRYPTION_FILENAME]
         
         if pd.isna(filename_template) or not filename_template:
             logger.warning(
-                f"Столбец 'название_файла_расшифровки' пуст для '{company_name}'. "
-                f"Используем стандартное имя файла."
+                "Столбец 'название_файла_расшифровки' пуст для '{}'. Используем стандартное имя файла.",
+                company_name
             )
             return f"balance_breakdown_{company_name}_{period}.xlsx"
         
         # Подставляем период, если в шаблоне есть плейсхолдер
         filename = filename_template
-        if '{period}' in filename:
-            filename = filename.replace('{period}', str(period))
-        elif '{период}' in filename:
-            filename = filename.replace('{период}', str(period))
+        filename = filename.replace('{period}', str(period)).replace('{период}', str(period))
         
         # Добавляем расширение, если его нет
         if not filename.endswith('.xlsx'):
             filename = f"{filename}.xlsx"
         
-        logger.debug(f"Имя файла из справочника: {filename}")
+        logger.debug("Имя файла из справочника: {}", filename)
         return filename
         
-    except Exception as e:
+    except (KeyError, IndexError, AttributeError) as e:
         logger.warning(
-            f"Не удалось получить имя файла из справочника: {e}. "
-            f"Используем стандартное имя файла."
+            "Не удалось получить имя файла из справочника: {}. Используем стандартное имя файла.", e
         )
         return f"balance_breakdown_{company_name}_{period}.xlsx"
 
@@ -513,8 +555,9 @@ def ask_user_about_traceback() -> bool:
         print("  [y]   - да (полный traceback для отладки)")
         print("=" * 80)
         
+        POSITIVE_RESPONSES = {'y', 'yes', 'д', 'да'}
         response = input("Ваш выбор: ").strip().lower()
-        return response in ('y', 'yes', 'д', 'да')
+        return response in POSITIVE_RESPONSES
     except (EOFError, KeyboardInterrupt):
         # Если stdin недоступен (например, при запуске из cron)
         return False
@@ -539,12 +582,16 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
         setup_logger()
     
     logger.info("=" * 80)
-    logger.info("Запуск приложения Decryption Collector v2.0")
+    logger.info("Запуск приложения --СОБИРАТЕЛЬ РАСШИФРОВОК--")
     if show_traceback:
         logger.info("Режим: с полной трассировкой стека")
     logger.info("=" * 80)
     
     try:
+        # ФАЗА 0
+        logger.info("ФАЗА 0: Ожидаем общую ОСВ в INPUT DATA")
+        pause_for_osv_general_export()
+        
         context = initialize_context()
         
         # ФАЗА 1
@@ -570,13 +617,13 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
         
     except FileNotFoundError as e:
         logger.error("✗ Ошибка: не найдены файлы выгрузок")
-        logger.error(f"  {e}")
+        logger.error("  {}", e)
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1
         
     except Exception as e:
-        logger.critical(f"✗ Неожиданная ошибка: {e}")
+        logger.critical("✗ Неожиданная ошибка: {}", e)
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1
@@ -585,19 +632,43 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
 if __name__ == "__main__":
     args = parse_arguments()
     
-    # Определяем, нужно ли спрашивать пользователя
-    # Если аргументы переданы явно (через командную строку), используем их
-    # Если нет (запуск через F5 в Spyder) - спрашиваем
-    was_args_passed = len(sys.argv) > 1
-    
-    if was_args_passed:
-        # Аргументы переданы - используем их
+    # Определяем режим работы
+    # Если передан --no-interactive или любые другие аргументы - не спрашиваем
+    if args.no_interactive or len(sys.argv) > 1:
         show_traceback = args.traceback
         verbose = args.verbose
     else:
-        # Аргументы не переданы - спрашиваем пользователя
+        # Запуск без аргументов (например, через F5 в IDE) - спрашиваем
         show_traceback = ask_user_about_traceback()
-        verbose = False  # По умолчанию не verbose
+        verbose = False
     
     exit_code = main(show_traceback=show_traceback, verbose=verbose)
     sys.exit(exit_code)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

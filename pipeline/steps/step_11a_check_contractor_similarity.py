@@ -81,6 +81,7 @@ class Step11aCheckContractorSimilarityStep(Step):
         # 5. Сохраняем отчёт с предупреждениями
         self._save_similarity_report(similarity_df, context)
         
+        
         return context
 
     # =========================================================================
@@ -370,10 +371,7 @@ class Step11aCheckContractorSimilarityStep(Step):
             )
             
             logger.warning(
-                f"⚠️ Найдено {len(similarity_df)} потенциальных совпадений "
-                f"контрагентов со своими компаниями!\n"
-                f"📁 Подробности в: {output_path.parent.name}/{output_path.name}\n"
-                f"🔍 Проверьте, не являются ли '3 лица' на самом деле аффилированными."
+                f"⚠️ Найдено {len(similarity_df)} потенциальных совпадений контрагентов со своими компаниями! 📁 Подробности в: {output_path.parent.name}/{output_path.name}"
             )
             
         except PermissionError as e:

@@ -356,6 +356,8 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
             f"{(~mask_60).sum()} строк со значением '{self.UNSPECIFIED}'"
         )
         
+        
+        
         return df
     
     def _prepare_non_60_rows(
@@ -404,7 +406,7 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
                 "Добавляем столбец 'инвест_договор' с дефолтными значениями."
             )
             osv_all_df = self._ensure_invest_contract_column(osv_all_df)
-            context.main_df = osv_all_df
+            context.summary_osv_df = osv_all_df
             return context
         
         # 2. Получение данных из контекста

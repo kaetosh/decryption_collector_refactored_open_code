@@ -6,7 +6,6 @@
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from io_module import DataLoader
 from utils import find_target_column
 
 class Step2FlatSummaryOSVStep(Step):
@@ -25,7 +24,7 @@ class Step2FlatSummaryOSVStep(Step):
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Объединение данных из выгруженных регистров")
         
-        osv_all_df = DataLoader.load_account_osv()
+        osv_all_df = context.summary_osv_df.copy()
         
         # 1. Считаем сальдо (ДО удаления столбцов!)
         osv_all_df['Сальдо, тыс.ед.'] = (

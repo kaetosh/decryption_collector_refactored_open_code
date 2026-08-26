@@ -4,8 +4,9 @@
 Реализуют паттерны Command и Chain of Responsibility.
 """
 
-
+import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime
 import pandas as pd
 from typing import Any, Dict, Optional
@@ -16,44 +17,67 @@ from config.settings import (TOLERANCE,
 from pipeline.errors import (
     ReferenceMismatchError,
     MissingFilesError,
-    MissingContractorError
+    MissingContractorError,
+    ConvergenceError
 )
 
 
 class ProcessingStepError(Exception):
     pass
 
+# =========================================================================
+# КОНСТАНТЫ КОЛОНОК И ТИПОВ ДАННЫХ
+# =========================================================================
+class ColumnNames:
+    """Названия колонок, используемые в обработке."""
+    BALANCE = 'сальдо, тыс.ед.'
+
+
+class DataTypes:
+    """Типы данных pandas."""
+    OBJECT = 'object'
+    STRING = 'string'
+
+
+class Prefixes:
+    """Префиксы для специальных колонок."""
+    LEVEL = 'level_'
+
+
+class Values:
+    """Специальные значения."""
+    UNSPECIFIED = 'не_указано'
+
+@dataclass(slots=True)
 class ProcessingContext:
-    def __init__(self):
-        # Параметры
-        self.company: Optional[str] = None # сокращенное
-        self.segment: Optional[str] = None
-        self.period: Optional[str] = None
-        self.name_file_general_osv: Optional[str] = None
+    # Параметры
+    company: Optional[str] = None
+    segment: Optional[str] = None
+    period: Optional[str] = None
+    type_period: Optional[str] = None
+    name_file_general_osv: Optional[str] = None
 
-        # общая осв для списка выгрузок и сверки
-        self.common_osv_df: Optional[pd.DataFrame] = None
+    # общая осв для списка выгрузок и сверки
+    common_osv_df: Optional[pd.DataFrame] = None
 
-        # Справочники
-        self.references: Dict[str, pd.DataFrame] = {}
+    # Справочники
+    references: Dict[str, pd.DataFrame] = field(default_factory=dict)
 
-        # Рабочие таблицы для передачи данных между шагами конвейера
-        self.summary_osv_df: Optional[pd.DataFrame] = None
-        self.journal_df: Optional[pd.DataFrame] = None
+    # Рабочие таблицы
+    summary_osv_df: Optional[pd.DataFrame] = None
+    journal_df: Optional[pd.DataFrame] = None
 
-        # Результаты
-        self.balance_df: Optional[pd.DataFrame] = None
-        self.pnl_df: Optional[pd.DataFrame] = None
-        
-        #Прочие данные для временного хранения
-        self.data: Dict[str, Any] = {}
+    # Результаты
+    balance_df: Optional[pd.DataFrame] = None
+    pnl_df: Optional[pd.DataFrame] = None
+    
+    # Прочие данные
+    data: Dict[str, Any] = field(default_factory=dict)
 
 class Step(ABC):
     """
     Абстрактный базовый класс для всех шагов обработки.
     """
-    
-    UNSPECIFIED = 'не_указано'
     
     def __init__(self, name: str, description: str = ""):
         self.name = name
@@ -63,7 +87,7 @@ class Step(ABC):
         """
         Публичный метод, который запускает шаг.
         """
-        logger.info(f"--- Начало этапа: {self.name} ---")
+        logger.info("--- Начало этапа: {} ---", self.name)
         
         try:
             # 1. Валидация входа
@@ -81,7 +105,7 @@ class Step(ABC):
             # 5. Валидация выхода
             self._validate_output(context)
             
-            logger.info(f"--- Успешное завершение этапа: {self.name} ---")
+            logger.info("--- Успешное завершение этапа: {} ---", self.name)
             
             return context
         
@@ -93,34 +117,37 @@ class Step(ABC):
             if STRICT_CONTRACTOR_CHECK:
                 # Строгий режим: падаем
                 logger.error(
-                    f"❌ Критическая ошибка: неизвестные контрагенты "
-                    f"на этапе '{self.name}': {e}"
+                    "❌ Критическая ошибка: неизвестные контрагенты на этапе '{}': {}", self.name, e
                 )
                 raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
             else:
                 # Мягкий режим: заменяем на '3 лица' и продолжаем
                 logger.warning(
-                    f"⚠️ Мягкий режим: неизвестные контрагенты заменены на "
-                    f"'{e.replacement_value}'"
+                    "⚠️ Мягкий режим: неизвестные контрагенты заменены на '{}'", e.replacement_value
                 )
                 context = self._apply_soft_contractor_handling(context, e)
                 return context
-            
+        except ConvergenceError as e:
+            # Существующая обработка для ошибок несоотвествия выгрузок между собой
+            e.step_name = self.name
+            self._save_reference_mismatch_report(e)
+            logger.error("❌ Ошибка несоответствия выгрузок между собой на этапе '{}': {}", self.name, e)
+            raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
         except ReferenceMismatchError as e:
             # Существующая обработка для других ошибок справочников
             e.step_name = self.name
             self._save_reference_mismatch_report(e)
-            logger.error(f"❌ Ошибка несоответствия справочнику на этапе '{self.name}': {e}")
+            logger.error("❌ Ошибка несоответствия справочнику на этапе '{}': {}", self.name, e)
             raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
             
         except MissingFilesError as e:
             e.step_name = self.name
             self._save_missing_files_report(e)
-            logger.error(f"❌ Ошибка: отсутствуют файлы выгрузок на этапе '{self.name}': {e}")
+            logger.error("❌ Ошибка: отсутствуют файлы выгрузок на этапе '{}': {}", self.name, e)
             raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
             
         except Exception as e:
-            logger.error(f"❌ Ошибка на этапе '{self.name}': {e}")
+            logger.error("❌ Ошибка на этапе '{}': {}", self.name, e)
             raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
     
     @abstractmethod
@@ -146,18 +173,16 @@ class Step(ABC):
         1. Сходимость сальдо, если есть столбец 'сальдо, тыс.ед.'
         2. Отсутствие столбцов с типом object
         """
-        balance_col = 'сальдо, тыс.ед.'
+
     
         def validate_single_df(df: pd.DataFrame, df_name: str) -> None:
             # 1. Проверяем наличие данных ДО любых действий
             if df is None:
-                logger.debug(f"Этап '{self.name}': {df_name} is None, пропускаем валидацию")
+                logger.debug("Этап '{}': {} is None, пропускаем валидацию", self.name, df_name)
                 return
     
             if df.empty:
-                logger.warning(
-                    f"Этап '{self.name}': {df_name} пуст, пропускаем валидацию"
-                )
+                logger.warning("Этап '{}': {} пуст, пропускаем валидацию", self.namem, df_name)
                 return
     
             # 2. Проверка отсутствия object типов
@@ -165,7 +190,7 @@ class Step(ABC):
             # сложить строки, если колонка случайно осталась в object.
             object_cols = [
                 col for col, dtype in df.dtypes.items()
-                if dtype == 'object'
+                if dtype == DataTypes.OBJECT
             ]
     
             if object_cols:
@@ -176,15 +201,15 @@ class Step(ABC):
                 )
     
             # 3. Проверка сходимости сальдо
-            if balance_col in df.columns:
+            if ColumnNames.BALANCE in df.columns:
                 try:
                     # pd.to_numeric дополнительно страхует от случаев,
                     # когда тип не object, но значения не числовые.
-                    balance_values = pd.to_numeric(df[balance_col], errors='raise')
+                    balance_values = pd.to_numeric(df[ColumnNames.BALANCE], errors='raise')
                 except (ValueError, TypeError) as exc:
                     raise TypeError(
                         f"После этапа '{self.name}' в {df_name} столбец "
-                        f"'{balance_col}' содержит нечисловые значения."
+                        f"'{ColumnNames.BALANCE}' содержит нечисловые значения."
                     ) from exc
     
                 balance_sum = balance_values.sum()
@@ -213,10 +238,10 @@ class Step(ABC):
         """
         df_clean = df.copy()
         
-        string_columns = df_clean.select_dtypes(include=['string', 'object']).columns
+        string_columns = df_clean.select_dtypes(include=[DataTypes.STRING, DataTypes.OBJECT]).columns
         
         for col in string_columns:
-            if df_clean[col].dtype == 'object':
+            if df_clean[col].dtype == DataTypes.OBJECT:
                 if df_clean[col].apply(lambda x: isinstance(x, str)).any():
                     df_clean[col] = (
                         df_clean[col]
@@ -360,7 +385,7 @@ class Step(ABC):
             # Находим столбцы Level_* (регистронезависимо)
             level_cols = [
                 col for col in df.columns 
-                if str(col).lower().startswith('level_')
+                if str(col).lower().startswith(Prefixes.LEVEL)
             ]
             
             if not level_cols:
@@ -416,8 +441,7 @@ class Step(ABC):
             error.problem_data.to_excel(output_path, index=False)
             
             logger.error(
-                f"📁 Проблемные данные сохранены в: "
-                f"{output_path.parent.name}/{output_path.name}"
+                "📁 Проблемные данные сохранены в: {}/{}", output_path.parent.name, output_path.name
             )
             
         except PermissionError:
@@ -435,7 +459,6 @@ class Step(ABC):
     @staticmethod
     def _slugify(text: str) -> str:
         """Преобразует текст в безопасное имя файла."""
-        import re
         text = text.lower()
         text = re.sub(r'[^\wа-я]+', '_', text, flags=re.IGNORECASE)
         return text.strip('_')
@@ -522,7 +545,6 @@ class Step(ABC):
             "Шаг 1а: Формирование списка..." → "step_1a"
             "Шаг 1б: Проверка списка..." → "step_1b"
         """
-        import re
         
         # Ищем паттерн "Шаг N" где N может содержать буквы (11a, 1а, 1б)
         match = re.search(r'Шаг\s+(\d+[a-zа-я]?)', self.name, re.IGNORECASE)
@@ -553,7 +575,6 @@ class Step(ABC):
         Returns:
             Короткий slug (гарантированно <= max_len символов)
         """
-        import re
         
         if not text:
             return 'unknown'
@@ -582,40 +603,6 @@ class Step(ABC):
         return result
     
     # =========================================================================
-    # МЯГКАЯ ОБРАБОТКА MISSING SUBTYPE
-    # =========================================================================
-    
-    # def _apply_soft_subtype_handling(
-    #     self, 
-    #     context: 'ProcessingContext', 
-    #     error: MissingSubtypeError
-    # ) -> 'ProcessingContext':
-    #     """
-    #     Заменяет неучтённые подвиды на 'Прочая ДЗ'/'Прочая КЗ'.
-        
-    #     Вызывается в мягком режиме (STRICT_SUBTYPE_CHECK=False).
-    #     """
-    #     df = context.main_df.copy()
-        
-    #     mask_unspecified = df['подвид_задолженности'] == ReceivableClassifier.UNSPECIFIED
-    #     mask_debit = mask_unspecified & (df['вид_задолженности'] == ReceivableClassifier.DEBIT)
-    #     mask_credit = mask_unspecified & (df['вид_задолженности'] == ReceivableClassifier.CREDIT)
-        
-    #     replaced_count = mask_debit.sum() + mask_credit.sum()
-        
-    #     df.loc[mask_debit, 'подвид_задолженности'] = ReceivableClassifier.OTHER_DEBIT
-    #     df.loc[mask_credit, 'подвид_задолженности'] = ReceivableClassifier.OTHER_CREDIT
-        
-    #     logger.info(
-    #         f"Заменено {replaced_count} неучтённых позиций: "
-    #         f"{mask_debit.sum()} → '{ReceivableClassifier.OTHER_DEBIT}', "
-    #         f"{mask_credit.sum()} → '{ReceivableClassifier.OTHER_CREDIT}'"
-    #     )
-        
-    #     context.main_df = df
-    #     return context
-    
-    # =========================================================================
     # МЯГКАЯ ОБРАБОТКА НЕИЗВЕСТНЫХ КОНТРАГЕНТОВ
     # =========================================================================
     
@@ -629,21 +616,23 @@ class Step(ABC):
         
         Вызывается в мягком режиме (STRICT_CONTRACTOR_CHECK=False).
         """
-        df = context.main_df.copy()
+        df = context.summary_osv_df.copy()
         
         # Находим строки с UNSPECIFIED в целевом столбце
-        mask = df[error.target_column] == 'не_указано'
+        mask = df[error.target_column] == Values.UNSPECIFIED
         replaced_count = mask.sum()
         
         # Заменяем на значение из error
         df.loc[mask, error.target_column] = error.replacement_value
         
         logger.info(
-            f"Заменено {replaced_count} неизвестных контрагентов "
-            f"на '{error.replacement_value}' в столбце '{error.target_column}'"
+            "Заменено {} неизвестных контрагентов на '{}' в столбце '{}'",
+            replaced_count,
+            error.replacement_value,
+            error.target_column
         )
         
-        context.main_df = df
+        context.summary_osv_df = df
         return context
     
     def __repr__(self) -> str:
@@ -670,12 +659,12 @@ class Pipeline:
             self для цепочки вызовов (fluent interface)
         """
         self.steps.append(step)
-        logger.debug(f"Добавлен шаг: {step.name}")
+        logger.debug("Добавлен шаг: {}", step.name)
         return self
     
     def run(self, initial_context: ProcessingContext) -> ProcessingContext:
         context = initial_context
-        logger.info(f"Запуск конвейера '{self.name}' из {len(self.steps)} шагов")
+        logger.info("Запуск конвейера '{}' из {} шагов", self.name, len(self.steps))
         
         for i, step in enumerate(self.steps, 1):
             logger.info(f"[{i}/{len(self.steps)}] Выполнение: {step.name}")

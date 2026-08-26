@@ -4,6 +4,7 @@
 """
 from pipeline.steps.step_01a_list_registers import Step1aListExpectedRegistersStep
 from pipeline.steps.step_01b_verify_files import Step1bVerifyFilesStep
+from pipeline.steps.step_01c_reconcile_totals import Step1cReconcileTotalsStep
 from pipeline.steps.step_02_flat_osv import Step2FlatSummaryOSVStep
 from pipeline.steps.step_03_add_account import Step3AddAccountColumnStep
 from pipeline.steps.step_04_add_debt_type import Step4AddReceivableTypeStep
@@ -28,6 +29,7 @@ from pipeline.steps.step_19_build_opu import Step19BuildOpuStep
 __all__ = [
     'Step1aListExpectedRegistersStep',
     'Step1bVerifyFilesStep',
+    'Step1cReconcileTotalsStep',
     'Step2FlatSummaryOSVStep',
     'Step3AddAccountColumnStep',
     'Step4AddReceivableTypeStep',

@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
+# -- coding: utf-8 --
 """
 Модуль конфигурации логирования.
 Настраивает loguru для всего приложения.
 """
-
 import sys
 from loguru import logger
 from config.settings import LOG_LEVEL, LOG_FILE
-
 
 def _truncate_text(text: str, max_length: int = 35) -> str:
     """
@@ -18,45 +16,39 @@ def _truncate_text(text: str, max_length: int = 35) -> str:
         return text
     return f"...{text[-(max_length-3):]}"
 
-
 def _patch_record(record):
     """
     Добавляет в запись сокращённые имена модулей, функций и сообщений.
     Для уровней ERROR и CRITICAL сообщение НЕ обрезается —
     важная диагностическая информация сохраняется полностью.
     """
-
     name = record["name"]
     parts = name.split('.')
     short_name = '.'.join(parts[-2:]) if len(parts) > 2 else name
-
-    # Отдельные сокращения для консоли и файла
-    record["console_short_name"] = _truncate_text(short_name, max_length=35)
+    
+    # Отдельные сокращения для файла
     record["file_short_name"] = _truncate_text(short_name, max_length=55)
-
-    record["short_function"] = _truncate_text(record["function"], max_length=35)
-
+    record["short_function"] = _truncate_text(record["function"], max_length=55)
+    
     if record["level"].no >= 40:
         record["short_message"] = record["message"]
     else:
         record["short_message"] = _truncate_text(record["message"], max_length=500)
-
+        
     return record
-
 
 def setup_logger():
     logger.remove()
     logger.configure(patcher=_patch_record)
     
+    # Формат для консоли: только дата/время, уровень и сообщение
     console_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "<level>{level: <8}</level> | "
-        "<cyan>{console_short_name:<35}</cyan> | "
-        "<cyan>{short_function:<35}</cyan> | "
-        "<red>{line:<5}</red> | "
         "<level>{short_message}</level>"
     )
     
+    # Формат для файла (содержит все технические детали)
     file_format = (
         "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
         "{file_short_name:<55} | "
@@ -79,3 +71,85 @@ def setup_logger():
     )
     
     return logger
+
+# # -*- coding: utf-8 -*-
+# """
+# Модуль конфигурации логирования.
+# Настраивает loguru для всего приложения.
+# """
+
+# import sys
+# from loguru import logger
+# from config.settings import LOG_LEVEL, LOG_FILE
+
+
+# def _truncate_text(text: str, max_length: int = 35) -> str:
+#     """
+#     Обрезает текст до max_length символов.
+#     Если текст длиннее, оставляет правую часть и добавляет '...' в начало.
+#     """
+#     if len(text) <= max_length:
+#         return text
+#     return f"...{text[-(max_length-3):]}"
+
+
+# def _patch_record(record):
+#     """
+#     Добавляет в запись сокращённые имена модулей, функций и сообщений.
+#     Для уровней ERROR и CRITICAL сообщение НЕ обрезается —
+#     важная диагностическая информация сохраняется полностью.
+#     """
+
+#     name = record["name"]
+#     parts = name.split('.')
+#     short_name = '.'.join(parts[-2:]) if len(parts) > 2 else name
+
+#     # Отдельные сокращения для консоли и файла
+#     record["console_short_name"] = _truncate_text(short_name, max_length=35)
+#     record["file_short_name"] = _truncate_text(short_name, max_length=55)
+
+#     record["short_function"] = _truncate_text(record["function"], max_length=35)
+
+#     if record["level"].no >= 40:
+#         record["short_message"] = record["message"]
+#     else:
+#         record["short_message"] = _truncate_text(record["message"], max_length=500)
+
+#     return record
+
+
+# def setup_logger():
+#     logger.remove()
+#     logger.configure(patcher=_patch_record)
+    
+#     console_format = (
+#         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+#         "<level>{level: <8}</level> | "
+#         "<cyan>{console_short_name:<35}</cyan> | "
+#         "<cyan>{short_function:<35}</cyan> | "
+#         "<red>{line:<5}</red> | "
+#         "<level>{short_message}</level>"
+#     )
+    
+#     file_format = (
+#         "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+#         "{file_short_name:<55} | "
+#         "{short_function:<55} | "
+#         "{line:<5} | "
+#         "{short_message}"
+#     )
+    
+#     logger.add(sys.stderr, format=console_format, level=LOG_LEVEL)
+    
+#     # Лог-файл перезаписывается при каждом запуске
+#     logger.add(
+#         str(LOG_FILE),
+#         format=file_format,
+#         level='DEBUG',
+#         mode="w",
+#         retention=None,
+#         enqueue=True,
+#         encoding="utf-8"
+#     )
+    
+#     return logger

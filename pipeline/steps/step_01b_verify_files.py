@@ -8,6 +8,7 @@ from pipeline.errors import MissingFilesError
 from config.settings import (
     ACCOUNT_CARDS_DIR,
     REQUIRED_OSV_DIRS,
+    SPECIAL_REPORTS_DIR
 )
 from utils import find_missing_files
 
@@ -18,7 +19,8 @@ class Step1bVerifyFilesStep(Step):
     
     Проверяет наличие:
     - ОСВ для баланса (в accounts_osv и accounts_osv_lease)
-    - Карточек счетов для ОПУ (в account_cards)
+    - Отчеты по проводкам для ОПУ (в transaction_report)
+    - Спецотчеты для баланса (в special_reports)
     """
 
     def __init__(self):
@@ -67,6 +69,36 @@ class Step1bVerifyFilesStep(Step):
                     f"✓ Все {len(dir_filenames)} ОСВ найдены в {dir_name}"
                 )
         
+        
+        # =========================================================================
+        # ПРОВЕРКА СПЕЦОТЧЕТОВ, точно нужны:
+            # если период год, то анализ по 84 обязателен, чтобы разбить НРП на накопленную на начало года и текущего периода
+            # ведомость амортизации арендованных ОС в разбивке по арендодателям, чтобы исключить ВГО
+            # остальные - спецотчеты для УПП выгрузок, если их нет, скрипт заполняет значениями по умолчанию
+        # =========================================================================
+        if context.type_period == 'год':
+            context.data['special_reports_obligatory_list'] = [f'{context.company}_анализ_84_{context.period}_.xlsx',
+                                           f'{context.company}_ведамор_0102_{context.period}_.xlsx']
+        else:
+            context.data['special_reports_obligatory_list'] = [f'{context.company}_ведамор_0102_{context.period}_.xlsx']
+        
+        special_reports_filenames = context.data.get('special_reports_obligatory_list', [])
+        
+        missing_special_reports = []
+        
+        if special_reports_filenames:
+            missing_special_reports = find_missing_files(special_reports_filenames, SPECIAL_REPORTS_DIR)
+            
+            if missing_special_reports:
+                missing_by_dir['special_reports'] = missing_special_reports
+                logger.warning(
+                    f"В папке special_reports отсутствует обязательные спецотчеты: {len(missing_special_reports)} шт."
+                )
+            else:
+                logger.debug(
+                    f"✓ Все {len(special_reports_filenames)} спецотчеты в special_reports"
+                )
+        
         # =========================================================================
         # ПРОВЕРКА ОТЧЕТОВ ПО ПРОВОДКАМ ДЛЯ ОПУ
         # =========================================================================
@@ -90,7 +122,7 @@ class Step1bVerifyFilesStep(Step):
         # =========================================================================
         # ОБЪЕДИНЕНИЕ ОШИБОК И ВЫБРОС ИСКЛЮЧЕНИЯ
         # =========================================================================
-        all_missing = missing_balance + missing_cards
+        all_missing = missing_balance + missing_cards + missing_special_reports
         
         if all_missing:
             # Формируем problem_data для Excel

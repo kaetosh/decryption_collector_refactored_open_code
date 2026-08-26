@@ -441,12 +441,12 @@ class Step19BuildOpuStep(Step):
         mapping_df = mapping_keys.copy()
         mapping_df[self.TARGET_ACCOUNT_COL] = self._clean_series(mapping_ref[self.TARGET_ACCOUNT_COL]).array
 
-        duplicates_count = int(mapping_df.duplicated(subset=key_cols).sum())
-        if duplicates_count:
-            logger.warning(
-                f"В справочнике маппинга ОПУ найдено дублей по ключу: {duplicates_count}. "
-                "Приоритет будет отдан записи с заполненным счетом ФО, если такая есть."
-            )
+        # duplicates_count = int(mapping_df.duplicated(subset=key_cols).sum())
+        # if duplicates_count:
+        #     logger.warning(
+        #         f"В справочнике маппинга ОПУ найдено дублей по ключу: {duplicates_count}. "
+        #         "Приоритет будет отдан записи с заполненным счетом ФО, если такая есть."
+        #     )
 
         mapping_df = mapping_df.assign(__has_target__=mapping_df[self.TARGET_ACCOUNT_COL].notna())
 

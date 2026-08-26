@@ -96,6 +96,7 @@ class Step13BuildBalanceBreakdownStep(Step):
         df = osv_all_df.copy()
         
         
+        
         # Создаём MultiIndex из ключевых столбцов ОСВ
         osv_keys = pd.MultiIndex.from_frame(df[self.MAPPING_KEYS])
         

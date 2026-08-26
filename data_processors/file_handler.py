@@ -59,9 +59,9 @@ class FileHandler:
                     f"Для type_register='posting' ожидается файл .txt, "
                     f"но получен '{input_path.name}'"
                 )
-            if type_register != 'posting' and input_path.suffix.lower() not in ('.xlsx', '.mxl'):
+            if type_register != 'posting' and input_path.suffix.lower() not in ('.xlsx'):
                 raise ValueError(
-                    f"Для type_register='{type_register}' ожидается файл .xlsx/.mxl, "
+                    f"Для type_register='{type_register}' ожидается файл .xlsx, "
                     f"но получен '{input_path.name}'"
                 )
             files_to_process = [input_path]

@@ -117,8 +117,13 @@ class MissingOSGroupError(ReferenceMismatchError):
 
 class ConvergenceError(ReferenceMismatchError):
     """Расхождение сумм при сверке."""
-    pass
-
+    def __str__(self) -> str:
+        parts = [self.message]
+        if self.reference_name:
+            parts.append(f"[Проверяемые данные: {self.reference_name}]")
+        if self.problem_data is not None:
+            parts.append(f"[Строк с проблемами: {len(self.problem_data)}]")
+        return " | ".join(parts)
 
 class MissingSubtypeError(ReferenceMismatchError):
     """Подвид задолженности не учтён в Меппинге."""

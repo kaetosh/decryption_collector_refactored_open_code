@@ -147,7 +147,7 @@ class Step7AddLongShortTermColumnStep(Step):
             # Сохраняем ВСЕ расхождения в Excel
             mismatches.to_excel(output_path)
             
-            logger.error(
+            logger.warning(
                 f"⚠️ Расхождения сумм после замены: {len(mismatches)} комбинаций. "
                 f"Все данные сохранены в {output_path.parent.name}/{output_path.name}"
             )
