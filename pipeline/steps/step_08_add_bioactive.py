@@ -81,7 +81,7 @@ class Step8AddBioactiveSegmentColumnStep(Step):
         if pd.isna(bioact_type) or bioact_type == self.UNSPECIFIED:
             bioact_type = self.DEFAULT_BIOACTIVE
         
-        logger.debug(f"Тип биоактивов для {name_company}: {bioact_type}")
+        logger.debug("Тип биоактивов для {}: {}", name_company, bioact_type)
         
         return bioact_type
     
@@ -131,7 +131,7 @@ class Step8AddBioactiveSegmentColumnStep(Step):
         
         # Логирование результата
         classified_count = (osv_all_df['сегмент_биоактивов_для_01_02'] != self.UNSPECIFIED).sum()
-        logger.debug(f"Классифицировано строк с биоактивами: {classified_count}")
+        logger.debug("Классифицировано строк с биоактивами: {}", classified_count)
         
         return osv_all_df
     

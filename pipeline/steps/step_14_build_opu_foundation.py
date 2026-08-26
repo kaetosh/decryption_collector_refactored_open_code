@@ -81,8 +81,9 @@ class Step14BuildOpuFoundationStep(Step):
         # df_final.to_parquet('df_final.parquet', engine='pyarrow')
         
         logger.info(
-            f"✓ Основа ОПУ сформирована: {len(df_final)} строк "
-            f"({df_final['счет'].value_counts().to_dict()})"
+            "✓ Основа ОПУ сформирована: {} строк ({})",
+            len(df_final),
+            df_final['счет'].value_counts().to_dict(),
         )
         
         return context
@@ -98,8 +99,9 @@ class Step14BuildOpuFoundationStep(Step):
         transactions_all_df = self.clean_whitespace(transactions_all_df)
         
         logger.debug(
-            f"Загружено {len(transactions_all_df)} проводок, "
-            f"{transactions_all_df['Кт'].nunique()} уникальных Кт счетов"
+            "Загружено {} проводок, {} уникальных Кт счетов",
+            len(transactions_all_df),
+            transactions_all_df['Кт'].nunique(),
         )
         
         return transactions_all_df
@@ -166,7 +168,7 @@ class Step14BuildOpuFoundationStep(Step):
         # Проверка сходимости с ОСВ
         self._validate_revenue_against_osv(df9001, osv_df)
         
-        logger.debug(f"Выручка обработана: {len(df9001)} строк")
+        logger.debug("Выручка обработана: {} строк", len(df9001))
         
         return df9001
     
@@ -196,8 +198,10 @@ class Step14BuildOpuFoundationStep(Step):
             )
         
         logger.debug(
-            f"✓ Сходимость выручки: ОСВ={revenue_without_vat:,.2f}, "
-            f"отчёт={revenue_from_df9001:,.2f}, разница={difference:,.2f}"
+            "✓ Сходимость выручки: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
+            revenue_without_vat,
+            revenue_from_df9001,
+            difference,
         )
     
     # =========================================================================
@@ -254,8 +258,9 @@ class Step14BuildOpuFoundationStep(Step):
         self._validate_cost_against_osv(df9002, osv_df, turn_df9002_16)
         
         logger.debug(
-            f"Себестоимость обработана: {len(df9002)} строк основной, "
-            f"{len(df9002_16)} строк переоценки"
+            "Себестоимость обработана: {} строк основной, {} строк переоценки",
+            len(df9002),
+            len(df9002_16),
         )
         
         return df9002, df9002_16
@@ -320,8 +325,9 @@ class Step14BuildOpuFoundationStep(Step):
         df9002_16['вид_дохода_расхода'] = products_reassessment_type
         
         logger.debug(
-            f"Переоценка: {len(df9002_16)} строк, "
-            f"вид_дохода_расхода='{products_reassessment_type}'"
+            "Переоценка: {} строк, вид_дохода_расхода='{}'",
+            len(df9002_16),
+            products_reassessment_type,
         )
         
         return df9002_16
@@ -349,8 +355,10 @@ class Step14BuildOpuFoundationStep(Step):
             )
         
         logger.debug(
-            f"✓ Сходимость себестоимости: ОСВ={cost_price_osv_9002:,.2f}, "
-            f"отчёт={cost_price_from_df9002:,.2f}, разница={difference:,.2f}"
+            "✓ Сходимость себестоимости: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
+            cost_price_osv_9002,
+            cost_price_from_df9002,
+            difference,
         )
     
     # =========================================================================
@@ -403,8 +411,9 @@ class Step14BuildOpuFoundationStep(Step):
         
         distributed_count = mask_empty.sum()
         logger.debug(
-            f"Распределено {distributed_count} строк себестоимости без покупателей "
-            f"на {len(df_result)} строк с покупателями"
+            "Распределено {} строк себестоимости без покупателей на {} строк с покупателями",
+            distributed_count,
+            len(df_result),
         )
         
         return df_result
@@ -440,7 +449,7 @@ class Step14BuildOpuFoundationStep(Step):
         # Удаление нулевых оборотов
         df_long = df_long[df_long['оборот, тыс.ед.'] != 0].reset_index(drop=True)
         
-        logger.debug(f"После melt: {len(df_long)} строк")
+        logger.debug("После melt: {} строк", len(df_long))
         
         return df_long
     
@@ -473,10 +482,11 @@ class Step14BuildOpuFoundationStep(Step):
         company_directory_df = context.references['компании_группы']
 
         logger.debug(
-            f"Загружено: УФР={len(directory_ufr_df)}, "
-            f"МеппингОПУ={len(mapping_opu_df)}, "
-            f"ВидСвязиКА={len(group_companies_df)}, "
-            f"КомпанииГруппы={len(company_directory_df)}"
+            "Загружено: УФР={}, МеппингОПУ={}, ВидСвязиКА={}, КомпанииГруппы={}",
+            len(directory_ufr_df),
+            len(mapping_opu_df),
+            len(group_companies_df),
+            len(company_directory_df),
         )
         
         return mapping_opu_df, directory_ufr_df, group_companies_df, company_directory_df
@@ -554,7 +564,8 @@ class Step14BuildOpuFoundationStep(Step):
         df_result['вид_связи'] = self._calculate_connection_type(df_result)
         
         logger.debug(
-            f"Обогащение завершено: {df_result['вид_связи'].value_counts().to_dict()}"
+            "Обогащение завершено: {}",
+            df_result['вид_связи'].value_counts().to_dict(),
         )
         
         return df_result
@@ -598,8 +609,10 @@ class Step14BuildOpuFoundationStep(Step):
         
         if unexpected_groups:
             logger.warning(
-                f"⚠️ В столбце 'группа_ка' обнаружены неожиданные значения: "
-                f"{unexpected_groups}. Ожидались только: {expected_groups}"
+                "⚠️ В столбце 'группа_ка' обнаружены неожиданные значения: {}. "
+                "Ожидались только: {}",
+                unexpected_groups,
+                expected_groups,
             )
     
     def _calculate_connection_type(self, df_result: pd.DataFrame) -> pd.Series:
@@ -655,18 +668,15 @@ class Step14BuildOpuFoundationStep(Step):
                 df_final[col] = df_final[col].astype('string')
         
         logger.debug(
-            f"Объединение завершено: {len(df_result)} + {len(df9002_16)} = "
-            f"{len(df_final)} строк"
+            "Объединение завершено: {} + {} = {} строк",
+            len(df_result),
+            len(df9002_16),
+            len(df_final),
         )
         
         return df_final
 
-        
-        
-        
-        
 
-        
         
         
         

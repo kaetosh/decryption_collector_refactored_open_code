@@ -119,13 +119,13 @@ class FileHandler:
         if txt_files:
             for file_path in txt_files:
                 try:
-                    logger.debug(f"🔍 Пытаемся обработать TXT: {file_path.name}")
+                    logger.debug("🔍 Пытаемся обработать TXT: {}", file_path.name)
                     
                     # Детекция процессора
                     txt_processor_class = self._detect_processor_from_txt(
                         file_path, type_register
                     )
-                    logger.debug(f"✓ Определён процессор: {txt_processor_class.__name__}")
+                    logger.debug("✓ Определён процессор: {}", txt_processor_class.__name__)
                     
                     if processor_class is None:
                         processor_class = txt_processor_class
@@ -134,8 +134,10 @@ class FileHandler:
                     result_df, check_df = processor.process_file(file_path, file_path.name)
                     
                     logger.debug(
-                        f"✓ Обработан {file_path.name}: "
-                        f"{len(result_df)} строк, {len(check_df)} проверок"
+                        "✓ Обработан {}: {} строк, {} проверок",
+                        file_path.name,
+                        len(result_df),
+                        len(check_df),
                     )
                     
                     results_collector['results'].append(result_df)
@@ -145,8 +147,10 @@ class FileHandler:
                 except Exception as e:
                     # ★ РАСШИРЕННОЕ логирование ошибки
                     logger.error(
-                        f"❌ Ошибка обработки {file_path.name}: "
-                        f"{type(e).__name__}: {e}"
+                        "❌ Ошибка обработки {}: {}: {}",
+                        file_path.name,
+                        type(e).__name__,
+                        e,
                     )
                     import traceback
                     logger.error(traceback.format_exc())
@@ -220,8 +224,11 @@ class FileHandler:
             # Если совпало больше половины паттерна — это наш процессор
             if matches >= len(pattern) * 0.5:
                 logger.debug(
-                    f"Определён процессор {processor.__name__} для {file_path.name} "
-                    f"(совпало {matches}/{len(pattern)} ключевых слов)"
+                    "Определён процессор {} для {} (совпало {}/{} ключевых слов)",
+                    processor.__name__,
+                    file_path.name,
+                    matches,
+                    len(pattern),
                 )
                 return processor
         

@@ -85,9 +85,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         df_9102['сегмент'] = df_9102['сегмент'].astype('string')
 
         logger.debug(
-            f"Создан столбец 'сегмент': "
-            f"91.01 unique={df_9101['сегмент'].unique().tolist()}, "
-            f"91.02 unique={df_9102['сегмент'].unique().tolist()}"
+            "Создан столбец 'сегмент': 91.01 unique={}, 91.02 unique={}",
+            df_9101['сегмент'].unique().tolist(),
+            df_9102['сегмент'].unique().tolist(),
         )
 
         # 4. Извлечение контрагентов для обеих таблиц
@@ -152,9 +152,10 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         ].iloc[0]
 
         logger.debug(
-            f"segment_company = '{segment_company}', "
-            f"type = {type(segment_company)}, "
-            f"isna = {pd.isna(segment_company)}"
+            "segment_company = '{}', type = {}, isna = {}",
+            segment_company,
+            type(segment_company),
+            pd.isna(segment_company),
         )
 
         # 10. Обогащение: группа_ка, сегмент_ка, вид_связи
@@ -166,8 +167,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         )
 
         logger.debug(
-            f"df_9101['сегмент'] unique = {df_9101['сегмент'].unique()}, "
-            f"NA count = {df_9101['сегмент'].isna().sum()}"
+            "df_9101['сегмент'] unique = {}, NA count = {}",
+            df_9101['сегмент'].unique(),
+            df_9101['сегмент'].isna().sum(),
         )
 
         df_9102 = self._enrich_with_connection_info(
@@ -191,8 +193,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         context.journal_df = df_final
 
         logger.info(
-            f"✓ Прочие доходы/расходы добавлены: "
-            f"91.01={len(df_9101)} строк, 91.02={len(df_9102)} строк"
+            "✓ Прочие доходы/расходы добавлены: 91.01={} строк, 91.02={} строк",
+            len(df_9101),
+            len(df_9102),
         )
 
         return context
@@ -242,7 +245,8 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             )
 
         logger.debug(
-            f"Счета с контрагентами из ПланаСчетовБУ: {accounts_with_contractors}"
+            "Счета с контрагентами из ПланаСчетовБУ: {}",
+            accounts_with_contractors,
         )
 
         # 7. Справочник ПрочиеДоходыНДС → список видов доходов/расходов для обработки НДС
@@ -267,7 +271,8 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
         logger.debug(
             "Виды доходов/расходов для обработки НДС "
-            f"из 'ПрочиеДоходыНДС': {asset_sale_types}"
+            "из 'ПрочиеДоходыНДС': {}",
+            asset_sale_types,
         )
 
         return {
@@ -302,8 +307,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             )
 
         logger.debug(
-            f"Загружено из контекста: ОСВ={len(osv_df)} строк, "
-            f"проводки={len(transactions_all_df)} строк"
+            "Загружено из контекста: ОСВ={} строк, проводки={} строк",
+            len(osv_df),
+            len(transactions_all_df),
         )
 
         return osv_df, transactions_all_df
@@ -344,7 +350,11 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         df_9101 = self._add_income_expense_type(df_9101, reference_df, is_income=True)
         df_9102 = self._add_income_expense_type(df_9102, reference_df, is_income=False)
 
-        logger.debug(f"91.01: {len(df_9101)} строк, 91.02: {len(df_9102)} строк")
+        logger.debug(
+            "91.01: {} строк, 91.02: {} строк",
+            len(df_9101),
+            len(df_9102),
+        )
 
         return df_9101, df_9102
 
@@ -565,8 +575,8 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         )
 
         logger.debug(
-            f"Подтянуто {count_ppa_9101 + count_ppa_9102} "
-            f"контрагентов из справочника ППА"
+            "Подтянуто {} контрагентов из справочника ППА",
+            count_ppa_9101 + count_ppa_9102,
         )
 
         return df_9101, df_9102
@@ -599,9 +609,10 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             return df_9101, df_9102
 
         logger.debug(
-            f"Типы продажи активов: {asset_sale_types} "
-            f"({mask_9101_assets.sum()} строк в 91.01, "
-            f"{mask_9102_assets.sum()} строк в 91.02)"
+            "Типы продажи активов: {} ({} строк в 91.01, {} строк в 91.02)",
+            asset_sale_types,
+            mask_9101_assets.sum(),
+            mask_9102_assets.sum(),
         )
 
         # Задача 1: Корректировка выручки на НДС
@@ -740,8 +751,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         removed_vat = int(mask_vat_in_main.sum())
 
         logger.debug(
-            f"Скорректировано {adjusted} строк выручки на НДС, "
-            f"удалено {removed_vat} строк НДС из 91.02"
+            "Скорректировано {} строк выручки на НДС, удалено {} строк НДС из 91.02",
+            adjusted,
+            removed_vat,
         )
 
         return df_9101, df_9102
@@ -817,7 +829,8 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         replaced = int(mapped_contractors.notna().sum())
 
         logger.debug(
-            f"Подтянуто {replaced} контрагентов из 91.01 в 91.02"
+            "Подтянуто {} контрагентов из 91.01 в 91.02",
+            replaced,
         )
 
         return df_9102
@@ -945,13 +958,15 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
         if abs(sum_before - sum_after) > 0.01:
             logger.warning(
-                f"⚠️ Расхождение при распределении: было {sum_before:,.2f}, "
-                f"стало {sum_after:,.2f}"
+                "⚠️ Расхождение при распределении: было {:,.2f}, стало {:,.2f}",
+                sum_before,
+                sum_after,
             )
 
         logger.debug(
-            f"Распределено {len(df_9102_orphan)} осиротевших строк "
-            f"на {len(df_9102_orphan_dist)} строк"
+            "Распределено {} осиротевших строк на {} строк",
+            len(df_9102_orphan),
+            len(df_9102_orphan_dist),
         )
 
         return df_9102_result
@@ -1014,14 +1029,16 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             missing_list = df.loc[missing_mask, 'рбп_кредитные_линии'].unique().tolist()
 
             logger.warning(
-                f"⚠️ В справочнике КредитОбслуж отсутствуют {len(missing_list)} РБП:\n"
-                + "\n".join(f"  - {item}" for item in missing_list[:10])
+                "⚠️ В справочнике КредитОбслуж отсутствуют {} РБП:\n{}",
+                len(missing_list),
+                "\n".join("  - {}".format(item) for item in missing_list[:10]),
             )
 
         df['контрагент'] = df['контрагент'].astype('string')
 
         logger.debug(
-            f"Кредитные линии: {mask_found.sum()} контрагентов подтянуто"
+            "Кредитные линии: {} контрагентов подтянуто",
+            mask_found.sum(),
         )
 
         return df
@@ -1070,10 +1087,11 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         unexpected = actual_groups - expected_groups
 
         if unexpected:
-            logger.warning(f"⚠️ Неожиданные значения в 'группа_ка': {unexpected}")
+            logger.warning("⚠️ Неожиданные значения в 'группа_ка': {}", unexpected)
 
         logger.debug(
-            f"вид_связи: {df['вид_связи'].value_counts().to_dict()}"
+            "вид_связи: {}",
+            df['вид_связи'].value_counts().to_dict(),
         )
 
         return df
@@ -1188,8 +1206,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         )['оборот, тыс.ед.'].sum()
 
         logger.debug(
-            f"Группировка: {len(df_9101) + len(df_9102)} → "
-            f"{len(df_combined)} строк"
+            "Группировка: {} → {} строк",
+            len(df_9101) + len(df_9102),
+            len(df_combined),
         )
 
         # Объединяем с main_df
@@ -1216,8 +1235,10 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
                 df_final[col] = df_final[col].astype('string')
 
         logger.debug(
-            f"Объединение завершено: {len(main_df)} + {len(df_combined)} = "
-            f"{len(df_final)} строк"
+            "Объединение завершено: {} + {} = {} строк",
+            len(main_df),
+            len(df_combined),
+            len(df_final),
         )
 
         return df_final
@@ -1244,8 +1265,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         ).astype('string')
 
         logger.debug(
-            f"Извлечено контрагентов: {(df['контрагент'] != 'не_указано').sum()} "
-            f"из {len(df)} строк"
+            "Извлечено контрагентов: {} из {} строк",
+            (df['контрагент'] != 'не_указано').sum(),
+            len(df),
         )
 
         return df

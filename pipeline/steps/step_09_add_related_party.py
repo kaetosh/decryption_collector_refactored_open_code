@@ -56,7 +56,7 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
         mask = osv_all_df['вид_связи'].str.startswith(self.OTHER_GAP, na=False)
         if mask.any():
             osv_all_df.loc[mask, 'вид_связи'] = self.OTHER_GAP
-            logger.debug(f"Нормализовано {mask.sum()} значений 'Прочие ГАП'")
+            logger.debug("Нормализовано {} значений 'Прочие ГАП'", mask.sum())
         
         return osv_all_df
     
@@ -94,7 +94,7 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
             osv_all_df.loc[mask, 'вид_связи'] = (
                 osv_all_df.loc[mask, 'допсубконто'].map(mapping_dict)
             )
-            logger.debug(f"Уточнено {mask.sum()} значений '3 лица' по справочнику")
+            logger.debug("Уточнено {} значений '3 лица' по справочнику", mask.sum())
         
         return osv_all_df
     
@@ -136,7 +136,9 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
         
         if mask.any():
             osv_all_df.loc[mask, 'вид_связи'] = osv_all_df.loc[mask, 'договор'].map(mapping)
-            logger.debug(f"Нормализовано {mask.sum()} противоречивых значений '3 лица'")
+            logger.debug(
+                "Нормализовано {} противоречивых значений '3 лица'", mask.sum()
+            )
         
         return osv_all_df
     
@@ -192,7 +194,7 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
         
         # Логирование результата
         classified_count = (osv_all_df['вид_связи'] != self.UNSPECIFIED).sum()
-        logger.debug(f"Классифицировано видов связи: {classified_count}")
+        logger.debug("Классифицировано видов связи: {}", classified_count)
         
         context.summary_osv_df = osv_all_df
         return context

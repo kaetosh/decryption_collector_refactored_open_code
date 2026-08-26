@@ -119,7 +119,11 @@ class Step18AddTaskAndOtherMovementsStep(Step):
 
             context.journal_df = main_df
 
-        logger.info(f"✓ Добавлено: Налог на прибыль = {tax_profit:,.0f} тыс.ед., Прочее = {other_value:,.0f} тыс.ед.")
+        logger.info(
+            "✓ Добавлено: Налог на прибыль = {:,.0f} тыс.ед., Прочее = {:,.0f} тыс.ед.",
+            tax_profit,
+            other_value,
+        )
         return context
 
     # =========================================================================
@@ -139,6 +143,9 @@ class Step18AddTaskAndOtherMovementsStep(Step):
                 "В контексте нет сводного отчета по проводкам. "
                 "Убедитесь, что предыдущий шаг (14) выполнен успешно."
             )
-        logger.debug(f"Загружено из контекста: проводки={len(transactions_all_df)} строк")
+        logger.debug(
+            "Загружено из контекста: проводки={} строк",
+            len(transactions_all_df),
+        )
         return transactions_all_df
 

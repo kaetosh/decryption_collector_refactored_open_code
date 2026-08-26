@@ -24,7 +24,7 @@ def find_missing_files(filenames: List[str], folder_path: str = 'INPUT_DATA') ->
     """Возвращает список файлов из filenames, которых нет в указанной папке."""
     folder = Path(folder_path)
     if not folder.exists() or not folder.is_dir():
-        logger.error(f"Папка '{folder_path}' не найдена или не является директорией")
+        logger.error("Папка '{}' не найдена или не является директорией", folder_path)
         return filenames.copy()
         
     existing_files = {f.name for f in folder.iterdir() if f.is_file()}
@@ -78,5 +78,5 @@ def find_register_file(
     if account_number: criteria.append(f"счет='{account_number}'")
     if period: criteria.append(f"период='{period}'")
     
-    logger.warning(f"Файл не найден по критериям: {', '.join(criteria)}")
+    logger.warning("Файл не найден по критериям: {}", ', '.join(criteria))
     return None

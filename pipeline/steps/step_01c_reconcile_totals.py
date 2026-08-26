@@ -141,7 +141,10 @@ class Step1cReconcileTotalsStep(Step):
         
         missing_acc_all = [x for x in osv_all_df['синтетический_счет'].unique() if x not in unique_chart_accounts]
         if missing_acc_all:
-            logger.warning(f"В детальной ОСВ обнаружены неизвестные синтетические счета: {missing_acc_all}")
+            logger.warning(
+                "В детальной ОСВ обнаружены неизвестные синтетические счета: {}",
+                missing_acc_all,
+            )
             
         osv_all_agg = osv_all_df.groupby('синтетический_счет')[['сальдо_свернуто, тыс. ед.']].sum().reset_index()
 
@@ -246,5 +249,9 @@ class Step1cReconcileTotalsStep(Step):
                 tolerance=self.CONVERGENCE_TOLERANCE
             )
             
-        logger.info(f"Реконциляция прошла успешно: расхождения в сальдо и оборотах не превышают порог {self.CONVERGENCE_TOLERANCE} тыс. ед.")
+        logger.info(
+            "Реконциляция прошла успешно: расхождения в сальдо и оборотах "
+            "не превышают порог {} тыс. ед.",
+            self.CONVERGENCE_TOLERANCE,
+        )
         return context

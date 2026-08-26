@@ -42,7 +42,7 @@ class Step3AddAccountColumnStep(Step):
                 "В сводной ОСВ по счетам не найден столбец Level_ содержащий только бухгалтерские счета"
             )
         
-        logger.debug(f"Найден столбец со счетами: {name_col_with_all_account}")
+        logger.debug("Найден столбец со счетами: {}", name_col_with_all_account)
         
         # Добавляем столбец с явным типом (copy() не нужен, astype уже создает копию)
         osv_all_df['счет'] = osv_all_df[name_col_with_all_account].astype('string')
@@ -51,13 +51,13 @@ class Step3AddAccountColumnStep(Step):
         level_columns = [col for col in osv_all_df.columns if col.startswith('Level_')]
         osv_all_df = osv_all_df.drop(columns=level_columns, errors='ignore')
         
-        logger.debug(f"Удалено {len(level_columns)} столбцов Level_")
+        logger.debug("Удалено {} столбцов Level_", len(level_columns))
         
         # Переименовываем для соответствия меппингу
         rename_dict = {'вид связи ка за период': 'вид_связи'}
         osv_all_df = osv_all_df.rename(columns=rename_dict)
         
-        logger.debug(f"Переименованы столбцы: {rename_dict}")
+        logger.debug("Переименованы столбцы: {}", rename_dict)
         
         # Сохраняем результат
         context.summary_osv_df = osv_all_df

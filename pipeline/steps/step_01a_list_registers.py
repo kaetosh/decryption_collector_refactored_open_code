@@ -259,7 +259,10 @@ class Step1aListExpectedRegistersStep(Step):
                 missing_codes=sorted(missing_codes)
             )
         
-        logger.debug(f"Все счета из общей ОСВ (файл {context.name_file_general_osv}) присутствуют в справочнике.")
+        logger.debug(
+            "Все счета из общей ОСВ (файл {}) присутствуют в справочнике.",
+            context.name_file_general_osv,
+        )
         
         # 5. Сопоставление счетов (логика префиксов) - ТОЛЬКО ДЛЯ БАЛАНСА
         mapping_df = context.references['меппинг_баланс']
@@ -314,15 +317,17 @@ class Step1aListExpectedRegistersStep(Step):
                 unmatched_details.append(osv_code)
         
         logger.debug(
-            f"Статистика меппинга счетов - без совпадений: {stats['missing']} "
-            f"{unmatched_details if unmatched_details else ''}"
+            "Статистика меппинга счетов - без совпадений: {} {}",
+            stats['missing'],
+            unmatched_details if unmatched_details else '',
         )
         
         # Создаем DataFrame с частичными совпадениями
         partially_matching_accounts_df = pd.DataFrame(partial_matches)
         if not partially_matching_accounts_df.empty:
             logger.debug(
-                f"Найдено {len(partially_matching_accounts_df)} счетов с частичным совпадением"
+                "Найдено {} счетов с частичным совпадением",
+                len(partially_matching_accounts_df),
             )
             # =========================================================================
         # =========================================================================
@@ -344,8 +349,9 @@ class Step1aListExpectedRegistersStep(Step):
         filtered_loads_balance['Тип регистра'] = 'осв'  # Маркер для Excel
         
         logger.debug(
-            f"Для баланса отобрано {len(filtered_loads_balance)} ОСВ "
-            f"по {len(valid_accounts)} счетам"
+            "Для баланса отобрано {} ОСВ по {} счетам",
+            len(filtered_loads_balance),
+            len(valid_accounts),
         )
         
         # =========================================================================
@@ -355,8 +361,9 @@ class Step1aListExpectedRegistersStep(Step):
         
         if opu_prefixes:
             logger.info(
-                f"Обнаружены обороты по счетам ОПУ: {sorted(opu_prefixes)}. "
-                f"Формируем список отчетов по проводкам для выгрузки."
+                "Обнаружены обороты по счетам ОПУ: {}. "
+                "Формируем список отчетов по проводкам для выгрузки.",
+                sorted(opu_prefixes),
             )
             
             # ★ ИСПРАВЛЕНИЕ: фильтруем не только по префиксу, но и по типу регистра 'карточка'
@@ -368,9 +375,10 @@ class Step1aListExpectedRegistersStep(Step):
             
             if filtered_loads_opu.empty:
                 logger.warning(
-                    f"⚠️ В справочнике 'Выгрузки' отсутствуют строки с "
-                    f"регистром='отчет по проводкам' для счетов {sorted(opu_prefixes)}. "
-                    f"Добавьте их в справочник для формирования списка карточек."
+                    "⚠️ В справочнике 'Выгрузки' отсутствуют строки с "
+                    "регистром='отчет по проводкам' для счетов {}. "
+                    "Добавьте их в справочник для формирования списка карточек.",
+                    sorted(opu_prefixes),
                 )
                 context.data['expected_card_filenames'] = []
                 context.data['has_opu'] = False
@@ -395,8 +403,9 @@ class Step1aListExpectedRegistersStep(Step):
                 )
                 
                 logger.info(
-                    f"Для ОПУ необходимо выгрузить {len(card_filenames)} шт. отчетов по проводкам: "
-                    f"{sorted(filtered_loads_opu['счет'].unique())}"
+                    "Для ОПУ необходимо выгрузить {} шт. отчетов по проводкам: {}",
+                    len(card_filenames),
+                    sorted(filtered_loads_opu['счет'].unique()),
                 )
         else:
             # Нет счетов для ОПУ
@@ -462,12 +471,14 @@ class Step1aListExpectedRegistersStep(Step):
         context.data['special_reports_filenames'] = special_reports_df['Имя файла для сохранения'].tolist()
         
         logger.info(
-            f"Необходимо выгрузить {len(balance_filenames)} ОСВ и "
-            f"{len(context.data.get('expected_card_filenames', []))} отчетов по проводкам."
+            "Необходимо выгрузить {} ОСВ и {} отчетов по проводкам.",
+            len(balance_filenames),
+            len(context.data.get('expected_card_filenames', [])),
         )
         logger.info(
-            f"Подробности см. в {output_path.parent.name}/{output_path.name} "
-            f"(2 листа: обязательные + спецотчеты)"
+            "Подробности см. в {}/{} (2 листа: обязательные + спецотчеты)",
+            output_path.parent.name,
+            output_path.name,
         )
         
         return context

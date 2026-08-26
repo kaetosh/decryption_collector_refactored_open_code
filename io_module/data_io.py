@@ -142,8 +142,9 @@ class DataLoader:
         # Логируем проблемные файлы
         if handler.not_correct_files:
             logger.warning(
-                f"Проблемы при обработке {len(handler.not_correct_files)} файл(ов):\n" +
-                "\n".join(f"  - {name}: {error}" for name, error in handler.not_correct_files.items())
+                "Проблемы при обработке {} файл(ов):\n{}",
+                len(handler.not_correct_files),
+                "\n".join(f"  - {name}: {error}" for name, error in handler.not_correct_files.items()),
             )
         
         return df, check_df
@@ -199,7 +200,7 @@ class DataLoader:
         Returns:
             Кортеж (df, check_df) — данные и контрольная таблица
         """
-        logger.info(f"Загрузка ОСВ по 60 ИнвестДоговоры: {path.name}")
+        logger.info("Загрузка ОСВ по 60 ИнвестДоговоры: {}", path.name)
         
         DataLoader._validate_file(path)
         df, check_df = DataLoader._process_with_handler(path, 'accountosv')
@@ -207,7 +208,7 @@ class DataLoader:
         if df.empty:
             raise ValueError(f"ОСВ по 60 ИнвестДоговоры {path.name} не содержит данных")
         
-        logger.info(f"Загружен ОСВ по 60 ИнвестДоговоры: {len(df)} строк")
+        logger.info("Загружен ОСВ по 60 ИнвестДоговоры: {} строк", len(df))
         return df, check_df
     
     
@@ -222,14 +223,14 @@ class DataLoader:
         Returns:
             Сырой DataFrame спецотчета (без бизнес-обработки)
         """
-        logger.info(f"Загрузка Ведомость амортизации: {path.name}")
+        logger.info("Загрузка Ведомость амортизации: {}", path.name)
         
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
             raise ValueError(f"Спецотчет {path.name} не содержит данных")
         
-        logger.info(f"Загружена Ведомость амортизации: {len(df)} строк")
+        logger.info("Загружена Ведомость амортизации: {} строк", len(df))
         return df
     
     @staticmethod
@@ -244,14 +245,14 @@ class DataLoader:
         Returns:
             Сырой DataFrame спецотчета (без бизнес-обработки)
         """
-        logger.info(f"Загрузка расшифровки строк 1450/1550/1230: {path.name}")
+        logger.info("Загрузка расшифровки строк 1450/1550/1230: {}", path.name)
         
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
             raise ValueError(f"Спецотчет {path.name} не содержит данных")
         
-        logger.info(f"Загружена расшифровка 1450/1550/1230: {len(df)} строк")
+        logger.info("Загружена расшифровка 1450/1550/1230: {} строк", len(df))
         return df
     
     @staticmethod
@@ -265,14 +266,14 @@ class DataLoader:
         Returns:
             Сырой DataFrame спецотчета (без бизнес-обработки)
         """
-        logger.info(f"Загрузка спецотчета долг/кор по 97: {path.name}")
+        logger.info("Загрузка спецотчета долг/кор по 97: {}", path.name)
         
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
             raise ValueError(f"Спецотчет {path.name} не содержит данных")
         
-        logger.info(f"Загружен спецотчет долг/кор по 97: {len(df)} строк")
+        logger.info("Загружен спецотчет долг/кор по 97: {} строк", len(df))
         return df
     
     # ----- АНАЛИЗ СЧЕТА -----
@@ -288,7 +289,7 @@ class DataLoader:
         Returns:
             Кортеж (df, check_df) — данные и контрольная таблица
         """
-        logger.info(f"Загрузка анализ 84: {path.name}")
+        logger.info("Загрузка анализ 84: {}", path.name)
         
         DataLoader._validate_file(path)
         df, check_df = DataLoader._process_with_handler(path, 'analisys')
@@ -296,7 +297,7 @@ class DataLoader:
         if df.empty:
             raise ValueError(f"Анализ 84 {path.name} не содержит данных")
         
-        logger.info(f"Загружен Анализ 84: {len(df)} строк")
+        logger.info("Загружен Анализ 84: {} строк", len(df))
         return df, check_df
     
     # ----- ОСВ -----
@@ -312,11 +313,11 @@ class DataLoader:
         Returns:
             Кортеж (df, check_df) — данные и контрольная таблица
         """
-        logger.info(f"Загрузка ОСВ 76 Аренда: {ACCOUNTS_OSV_LEASE_DIR.name}")
+        logger.info("Загрузка ОСВ 76 Аренда: {}", ACCOUNTS_OSV_LEASE_DIR.name)
         
         # ★ ВАЛИДАЦИЯ ДИРЕКТОРИИ (а не файла)
         files = DataLoader._validate_directory(ACCOUNTS_OSV_LEASE_DIR, "*.xlsx")
-        logger.debug(f"Найдено {len(files)} файл(ов) для загрузки: {[f.name for f in files]}")
+        logger.debug("Найдено {} файл(ов) для загрузки: {}", len(files), [f.name for f in files])
         
         # Загрузка и объединение всех файлов
         df, check_df = DataLoader._process_with_handler(ACCOUNTS_OSV_LEASE_DIR, 'accountosv')
@@ -327,7 +328,7 @@ class DataLoader:
                 f"не содержит данных после обработки {len(files)} файл(ов)"
             )
         
-        logger.info(f"Загружена ОСВ 76 Аренда: {len(df)} строк из {len(files)} файл(ов)")
+        logger.info("Загружена ОСВ 76 Аренда: {} строк из {} файл(ов)", len(df), len(files))
         return df, check_df
     
     @staticmethod
@@ -350,7 +351,7 @@ class DataLoader:
         if not transaction_report_files:
             raise FileNotFoundError(f"В папке {ACCOUNT_CARDS_DIR} нет файлов с отчетами по проводкам (*_отчпровод_*.txt)")
         
-        logger.info(f"Найдено {len(transaction_report_files)} файлов отчеты по проводкам")
+        logger.info("Найдено {} файлов отчеты по проводкам", len(transaction_report_files))
         
         # Обработка
         df, _ = DataLoader._process_with_handler(ACCOUNT_CARDS_DIR, 'posting')
@@ -358,7 +359,7 @@ class DataLoader:
         if df.empty:
             raise ValueError("Сводный Отчет по проводкам не содержит данных")
         
-        logger.info(f"Загружен сводный Отчет по проводкам: {len(df)} строк, {len(df.columns)} столбцов")
+        logger.info("Загружен сводный Отчет по проводкам: {} строк, {} столбцов", len(df), len(df.columns))
         return df
     
     @staticmethod
@@ -381,7 +382,7 @@ class DataLoader:
         if not osv_files:
             raise FileNotFoundError(f"В папке {ACCOUNTS_OSV_DIR} нет файлов ОСВ (*_осв_*.xlsx)")
         
-        logger.info(f"Найдено {len(osv_files)} файлов ОСВ")
+        logger.info("Найдено {} файлов ОСВ", len(osv_files))
         
         # Обработка
         df, _ = DataLoader._process_with_handler(ACCOUNTS_OSV_DIR, 'accountosv')
@@ -389,7 +390,7 @@ class DataLoader:
         if df.empty:
             raise ValueError("Сводная ОСВ не содержит данных")
         
-        logger.info(f"Загружена сводная ОСВ: {len(df)} строк, {len(df.columns)} столбцов")
+        logger.info("Загружена сводная ОСВ: {} строк, {} столбцов", len(df), len(df.columns))
         return df
     
     @staticmethod
@@ -417,7 +418,7 @@ class DataLoader:
         if df.empty:
             raise ValueError(f"Общая ОСВ {file_path.name} не содержит данных")
         
-        logger.info(f"Загружена общая ОСВ: {file_path.name} ({len(df)} строк)")
+        logger.info("Загружена общая ОСВ: {} ({} строк)", file_path.name, len(df))
         return df, file_path.name
     
     # ----- Справочники -----
@@ -439,7 +440,7 @@ class DataLoader:
         Returns:
             DataFrame со справочными данными
         """
-        logger.debug(f"Загрузка справочника: {sheet_name}")
+        logger.debug("Загрузка справочника: {}", sheet_name)
         
         if not REFERENCE_DATA_FILE.exists():
             raise FileNotFoundError(f"Файл справочников {REFERENCE_DATA_FILE} не найден")
@@ -457,7 +458,7 @@ class DataLoader:
                 if existing_cols:
                     df = df.astype({col: 'string' for col in existing_cols})
             
-            logger.debug(f"Загружен справочник '{sheet_name}': {len(df)} строк")
+            logger.debug("Загружен справочник '{}': {} строк", sheet_name, len(df))
             return df
             
         except Exception as e:
@@ -648,7 +649,7 @@ class DataSaver:
                 f"файл открыт в Excel. Закройте файл и перезапустите программу."
             )
     
-        logger.info(f"Комбинированный отчёт сохранён в {output_path.name}")
+        logger.info("Комбинированный отчёт сохранён в {}", output_path.name)
         return output_path
 
 
@@ -741,5 +742,5 @@ class DataSaver:
                 f"файл открыт в Excel. Закройте файл и перезапустите программу."
             )
         
-        logger.debug(f"Результаты сохранены в {output_path.name}")
+        logger.debug("Результаты сохранены в {}", output_path.name)
         return output_path

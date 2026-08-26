@@ -182,7 +182,7 @@ class Step(ABC):
                 return
     
             if df.empty:
-                logger.warning("Этап '{}': {} пуст, пропускаем валидацию", self.namem, df_name)
+                logger.warning("Этап '{}': {} пуст, пропускаем валидацию", self.name, df_name)
                 return
     
             # 2. Проверка отсутствия object типов
@@ -222,8 +222,10 @@ class Step(ABC):
                     )
     
                 logger.debug(
-                    f"Этап '{self.name}', {df_name}: "
-                    f"сходимость сальдо = {balance_sum:.2f} тыс.ед."
+                    "Этап '{}', {}: сходимость сальдо = {:.2f} тыс.ед.",
+                    self.name,
+                    df_name,
+                    balance_sum,
                 )
     
         # Обрабатываем те же датафреймы, что и в предыдущих методах
@@ -349,8 +351,12 @@ class Step(ABC):
             )
         
         logger.debug(
-            f"Валидация столбца '{column_name}' ({column_purpose}) пройдена: "
-            f"{match_rate:.0%} совпадений, {values.nunique()} уникальных значений"
+            "Валидация столбца '{}' ({}) пройдена: "
+            "{:.0%} совпадений, {} уникальных значений",
+            column_name,
+            column_purpose,
+            match_rate,
+            values.nunique(),
         )
         
     def _clean_whitespace(self, context: 'ProcessingContext') -> 'ProcessingContext':
@@ -446,14 +452,17 @@ class Step(ABC):
             
         except PermissionError:
             logger.error(
-                f"⚠️ НЕ УДАЛОСЬ сохранить файл '{filename}': "
-                f"файл открыт в другой программе (Excel?) или нет прав на запись.\n"
-                f"Закройте файл и повторите попытку, либо проверьте права доступа к папке "
-                f"{output_path.parent}.\n"
-                f"Проблемные данные ({len(error.problem_data)} строк) НЕ были сохранены."
+                "⚠️ НЕ УДАЛОСЬ сохранить файл '{}': "
+                "файл открыт в другой программе (Excel?) или нет прав на запись.\n"
+                "Закройте файл и повторите попытку, либо проверьте права доступа к папке "
+                "{}.\n"
+                "Проблемные данные ({} строк) НЕ были сохранены.",
+                filename,
+                output_path.parent,
+                len(error.problem_data),
             )
         except Exception as save_error:
-            logger.error(f"Не удалось сохранить файл с проблемными данными: {save_error}")
+            logger.error("Не удалось сохранить файл с проблемными данными: {}", save_error)
 
     
     @staticmethod
@@ -517,18 +526,20 @@ class Step(ABC):
             df.to_excel(output_path, index=False)
             
             logger.error(
-                f"📁 Список отсутствующих файлов сохранён в: "
-                f"{output_path.parent.name}/{output_path.name}"
+                "📁 Список отсутствующих файлов сохранён в: {}/{}",
+                output_path.parent.name,
+                output_path.name,
             )
             
         except PermissionError:
             logger.error(
-                f"⚠️ НЕ УДАЛОСЬ сохранить файл '{filename}': "
-                f"файл открыт в другой программе (Excel?) или нет прав на запись.\n"
-                f"Закройте файл и повторите попытку."
+                "⚠️ НЕ УДАЛОСЬ сохранить файл '{}': "
+                "файл открыт в другой программе (Excel?) или нет прав на запись.\n"
+                "Закройте файл и повторите попытку.",
+                filename,
             )
         except Exception as save_error:
-            logger.error(f"Не удалось сохранить файл с отсутствующими файлами: {save_error}")
+            logger.error("Не удалось сохранить файл с отсутствующими файлами: {}", save_error)
     
     
     # =========================================================================
@@ -667,27 +678,30 @@ class Pipeline:
         logger.info("Запуск конвейера '{}' из {} шагов", self.name, len(self.steps))
         
         for i, step in enumerate(self.steps, 1):
-            logger.info(f"[{i}/{len(self.steps)}] Выполнение: {step.name}")
+            logger.info("[{}/{}] Выполнение: {}", i, len(self.steps), step.name)
             if step.description:
-                logger.debug(f"Описание: {step.description}")
+                logger.debug("Описание: {}", step.description)
             
             try:
                 context = step.execute(context)
-                logger.debug(f"✓ Шаг '{step.name}' успешно завершен")
+                logger.debug("✓ Шаг '{}' успешно завершен", step.name)
             except ProcessingStepError:
                 # Уже обработано в Step.execute() — просто пробрасываем
                 raise
             except Exception as e:
                 # ★ ИСПРАВЛЕНИЕ: logger.exception автоматически логирует traceback
                 logger.exception(
-                    f"✗ Критическая ошибка на шаге '{step.name}': {type(e).__name__}: {e}"
+                    "✗ Критическая ошибка на шаге '{}': {}: {}",
+                    step.name,
+                    type(e).__name__,
+                    e,
                 )
                 # ★ Пробрасываем оригинал, сохраняя цепочку (raise ... from e)
                 raise ProcessingStepError(
                     f"Сбой конвейера на шаге '{step.name}'"
                 ) from e
         
-        logger.info(f"Конвейер '{self.name}' успешно завершен")
+        logger.info("Конвейер '{}' успешно завершен", self.name)
         return context
 
 

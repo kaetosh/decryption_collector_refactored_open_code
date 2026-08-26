@@ -24,7 +24,7 @@ def find_target_column(df,
     columns_with_prefix = [col for col in df.columns if col.startswith(column_prefix)]
     
     if not columns_with_prefix:
-        logger.debug(f"Столбцы с префиксом '{column_prefix}' не найдены")
+        logger.debug("Столбцы с префиксом '{}' не найдены", column_prefix)
         return None
     
     # Определяем порядок проверки
@@ -33,7 +33,7 @@ def find_target_column(df,
     elif search_direction == 'leftmost':
         check_order = columns_with_prefix
     else:
-        logger.warning(f"Некорректное значение search_direction: {search_direction}")
+        logger.warning("Некорректное значение search_direction: {}", search_direction)
         return None
     
     # Ищем столбец, удовлетворяющий условию
@@ -50,7 +50,7 @@ def find_target_column(df,
             elif account_type == 'no_accounts':
                 condition_met = (~is_all_account).all()
             else:
-                logger.warning(f"Некорректное значение account_type: {account_type}")
+                logger.warning("Некорректное значение account_type: {}", account_type)
                 return None
             
             if condition_met:
@@ -59,18 +59,18 @@ def find_target_column(df,
                 break
                 
         except Exception as e:
-            logger.debug(f"Ошибка при проверке столбца {col}: {e}")
+            logger.debug("Ошибка при проверке столбца {}: {}", col, e)
             continue
     
     if found_column is None:
-        logger.debug(f"Столбец с условием '{account_type}' не найден")
+        logger.debug("Столбец с условием '{}' не найден", account_type)
         return None
     
     # Применяем сдвиг
     target_index = found_index + shift
     
     if target_index < 0 or target_index >= len(columns_with_prefix):
-        logger.warning(f"Сдвиг {shift} выходит за границы списка столбцов")
+        logger.warning("Сдвиг {} выходит за границы списка столбцов", shift)
         return None
     
     return columns_with_prefix[target_index]

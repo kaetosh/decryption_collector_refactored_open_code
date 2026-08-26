@@ -44,8 +44,9 @@ class Posting_UPPFileProcessor(FileProcessor):
                     break
                 if keyword_lower in line.lower():
                     logger.debug(
-                        f"Заголовок найден на строке {physical_line_idx}: "
-                        f"{line.strip()[:50]}..."
+                        "Заголовок найден на строке {}: {}...",
+                        physical_line_idx,
+                        line.strip()[:50],
                     )
                     return physical_line_idx
         
@@ -135,7 +136,9 @@ class Posting_UPPFileProcessor(FileProcessor):
             dropped = initial_len - len(df)
             if dropped > 0:
                 logger.warning(
-                    f"Отброшено {dropped} строк из-за превышения лимита ({max_rows_per_doc})"
+                    "Отброшено {} строк из-за превышения лимита ({})",
+                    dropped,
+                    max_rows_per_doc,
                 )
     
         attrs_cols = [c for c in ['Дт', 'Кт', 'Сумма'] if c in df.columns]
@@ -196,7 +199,7 @@ class Posting_UPPFileProcessor(FileProcessor):
     
     def process_file(self, file_path: Path, file_name: str):
         """Основной метод обработки TXT-файла отчёта по проводкам."""
-        logger.debug(f"Начата обработка {file_path.name}")
+        logger.debug("Начата обработка {}", file_path.name)
         
         df = self._load_txt_file(file_path)
         logger.debug('# 1. Загрузка')
@@ -213,7 +216,7 @@ class Posting_UPPFileProcessor(FileProcessor):
         result = self._finalize_result(result, file_path)
         logger.debug('# 4. Финализация')
         
-        logger.debug(f"Обработка {file_path.name} завершена: {len(result)} операций")
+        logger.debug("Обработка {} завершена: {} операций", file_path.name, len(result))
         
         return result, pd.DataFrame()
 

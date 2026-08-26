@@ -65,7 +65,7 @@ class StepAddExpensesToOpuBase(Step):
     
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         """Основной метод обработки."""
-        logger.debug(f"Начало обработки: {self.OPU_LINE_NAME}")
+        logger.debug("Начало обработки: {}", self.OPU_LINE_NAME)
         name_company = context.company
         
         # 1. Загрузка данных из контекста
@@ -77,8 +77,9 @@ class StepAddExpensesToOpuBase(Step):
         # ★ Защита от отсутствия расходов на накопительном счете
         if df_accum_clean.empty:
             logger.info(
-                f"⚠️ Проводки по счету {self.ACCOUNT_COST_ACCUMULATION} отсутствуют. "
-                f"{self.OPU_LINE_NAME} не добавлены."
+                "⚠️ Проводки по счету {} отсутствуют. {} не добавлены.",
+                self.ACCOUNT_COST_ACCUMULATION,
+                self.OPU_LINE_NAME,
             )
             return context
         
@@ -88,8 +89,9 @@ class StepAddExpensesToOpuBase(Step):
         # ★ Защита от отсутствия расходов на счете ОПУ
         if df_opu.empty:
             logger.info(
-                f"⚠️ Проводки по счету {self.ACCOUNT_OPU} отсутствуют. "
-                f"{self.OPU_LINE_NAME} не добавлены."
+                "⚠️ Проводки по счету {} отсутствуют. {} не добавлены.",
+                self.ACCOUNT_OPU,
+                self.OPU_LINE_NAME,
             )
             return context
         
@@ -109,8 +111,10 @@ class StepAddExpensesToOpuBase(Step):
         context.journal_df = df_final
         
         logger.info(
-            f"✓ {self.OPU_LINE_NAME} добавлены: {len(df_result)} строк "
-            f"(виды связи: {df_result['вид_связи'].value_counts().to_dict()})"
+            "✓ {} добавлены: {} строк (виды связи: {})",
+            self.OPU_LINE_NAME,
+            len(df_result),
+            df_result['вид_связи'].value_counts().to_dict(),
         )
 
         return context
@@ -139,8 +143,9 @@ class StepAddExpensesToOpuBase(Step):
             )
         
         logger.debug(
-            f"Загружено из контекста: ОСВ={len(osv_df)} строк, "
-            f"проводки={len(transactions_all_df)} строк"
+            "Загружено из контекста: ОСВ={} строк, проводки={} строк",
+            len(osv_df),
+            len(transactions_all_df),
         )
         
         return osv_df, transactions_all_df
@@ -160,7 +165,10 @@ class StepAddExpensesToOpuBase(Step):
         Фильтрует только из файлов отчёта по накопительному счету,
         чтобы избежать дублей с файлом отчёта по счету ОПУ.
         """
-        logger.debug(f"Обработка проводок Дт {self.ACCOUNT_COST_ACCUMULATION} Кт 60/76")
+        logger.debug(
+            "Обработка проводок Дт {} Кт 60/76",
+            self.ACCOUNT_COST_ACCUMULATION,
+        )
         
         # Фильтруем проводки
         mask_account = (
@@ -176,7 +184,8 @@ class StepAddExpensesToOpuBase(Step):
         # ★ Защита от пустого результата
         if df_accum.empty:
             logger.debug(
-                f"Проводки Дт {self.ACCOUNT_COST_ACCUMULATION} Кт 60/76 не найдены"
+                "Проводки Дт {} Кт 60/76 не найдены",
+                self.ACCOUNT_COST_ACCUMULATION,
             )
             return pd.DataFrame()
         
@@ -200,9 +209,11 @@ class StepAddExpensesToOpuBase(Step):
         )['оборот, тыс.ед.'].sum()
         
         logger.debug(
-            f"Обработано проводок Дт {self.ACCOUNT_COST_ACCUMULATION}: "
-            f"{len(df_accum_clean)} уникальных контрагентов, "
-            f"сумма={df_accum_clean['оборот, тыс.ед.'].sum():,.2f} тыс.ед."
+            "Обработано проводок Дт {}: {} уникальных контрагентов, "
+            "сумма={:,.2f} тыс.ед.",
+            self.ACCOUNT_COST_ACCUMULATION,
+            len(df_accum_clean),
+            df_accum_clean['оборот, тыс.ед.'].sum(),
         )
         
         return df_accum_clean
@@ -239,7 +250,7 @@ class StepAddExpensesToOpuBase(Step):
         Фильтрует только из файлов отчёта по счету ОПУ,
         чтобы избежать дублей с файлом отчёта по накопительному счету.
         """
-        logger.debug(f"Обработка проводок Дт {self.ACCOUNT_OPU}")
+        logger.debug("Обработка проводок Дт {}", self.ACCOUNT_OPU)
         
         # Фильтруем проводки
         mask_account = transactions_all_df['Дт'].str.startswith(self.ACCOUNT_OPU, na=False)
@@ -252,7 +263,8 @@ class StepAddExpensesToOpuBase(Step):
         # ★ Защита от пустого результата
         if df_opu.empty:
             logger.debug(
-                f"Проводки Дт {self.ACCOUNT_OPU} не найдены"
+                "Проводки Дт {} не найдены",
+                self.ACCOUNT_OPU,
             )
             return pd.DataFrame()
         
@@ -268,8 +280,10 @@ class StepAddExpensesToOpuBase(Step):
         df_opu = df_opu.loc[:, ['ном_группа', 'оборот, тыс.ед.']]
         
         logger.debug(
-            f"Обработано проводок Дт {self.ACCOUNT_OPU}: {len(df_opu)} ном_групп, "
-            f"сумма={df_opu['оборот, тыс.ед.'].sum():,.2f} тыс.ед."
+            "Обработано проводок Дт {}: {} ном_групп, сумма={:,.2f} тыс.ед.",
+            self.ACCOUNT_OPU,
+            len(df_opu),
+            df_opu['оборот, тыс.ед.'].sum(),
         )
         
         return df_opu
@@ -320,7 +334,10 @@ class StepAddExpensesToOpuBase(Step):
                 reference_name="Справочник УФР (directory_ufr)",
             )
         
-        logger.debug(f"Сегменты добавлены: {df_opu['сегмент'].value_counts().to_dict()}")
+        logger.debug(
+            "Сегменты добавлены: {}",
+            df_opu['сегмент'].value_counts().to_dict(),
+        )
         
         return df_opu
     
@@ -368,8 +385,9 @@ class StepAddExpensesToOpuBase(Step):
             df_remainder = self._create_remainder_rows(df_opu, remainder)
             df_result = pd.concat([df_cross, df_remainder], ignore_index=True)
             logger.debug(
-                f"Добавлен остаток: {remainder:,.2f} тыс.ед. "
-                f"({remainder/total_opu:.1%} от общей суммы)"
+                "Добавлен остаток: {:,.2f} тыс.ед. ({:.1%} от общей суммы)",
+                remainder,
+                remainder / total_opu,
             )
         else:
             df_result = df_cross
@@ -382,8 +400,9 @@ class StepAddExpensesToOpuBase(Step):
         df_result = self._add_service_columns(df_result)
         
         logger.debug(
-            f"Распределение завершено: {len(df_result)} строк, "
-            f"сумма={df_result['оборот, тыс.ед.'].sum():,.2f} тыс.ед."
+            "Распределение завершено: {} строк, сумма={:,.2f} тыс.ед.",
+            len(df_result),
+            df_result['оборот, тыс.ед.'].sum(),
         )
         
         return df_result
@@ -451,10 +470,11 @@ class StepAddExpensesToOpuBase(Step):
             )
         
         logger.debug(
-            f"✓ Сходимость {self.OPU_LINE_NAME}: "
-            f"ОСВ={expenses_osv:,.2f}, "
-            f"отчёт={expenses_from_result:,.2f}, "
-            f"разница={difference:,.2f}"
+            "✓ Сходимость {}: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
+            self.OPU_LINE_NAME,
+            expenses_osv,
+            expenses_from_result,
+            difference,
         )
     
     def _merge_with_main_df(
@@ -478,8 +498,10 @@ class StepAddExpensesToOpuBase(Step):
                 df_final[col] = df_final[col].astype('string')
         
         logger.debug(
-            f"Объединение завершено: {len(main_df)} + {len(df_result)} = "
-            f"{len(df_final)} строк"
+            "Объединение завершено: {} + {} = {} строк",
+            len(main_df),
+            len(df_result),
+            len(df_final),
         )
         
         return df_final

@@ -31,6 +31,9 @@ class Step11aCheckContractorSimilarityStep(Step):
     когда название контрагента очень похоже на название своей компании.
     """
 
+    # Константы
+    UNSPECIFIED = 'не_указано'
+
     def __init__(self):
         super().__init__(
             name="Шаг 11a: Проверка похожих контрагентов",
@@ -66,8 +69,8 @@ class Step11aCheckContractorSimilarityStep(Step):
         
         if similarity_df.empty:
             logger.info(
-                f"✓ Похожих названий не найдено "
-                f"(проверено {len(third_party_contractors)} контрагентов)"
+                "✓ Похожих названий не найдено (проверено {} контрагентов)",
+                len(third_party_contractors),
             )
             return context
         
@@ -106,7 +109,10 @@ class Step11aCheckContractorSimilarityStep(Step):
         
         # Кэшируем в контексте
         context.data[cache_key] = group_companies_df
-        logger.debug(f"Загружен и кэширован справочник ВидСвязиКА: {len(group_companies_df)} записей")
+        logger.debug(
+            "Загружен и кэширован справочник ВидСвязиКА: {} записей",
+            len(group_companies_df),
+        )
         
         return group_companies_df
 
@@ -190,8 +196,10 @@ class Step11aCheckContractorSimilarityStep(Step):
         )
         
         logger.debug(
-            f"Объединено контрагентов: {len(osv_grouped)} из ОСВ + "
-            f"{len(depreciation_grouped)} из ведомости = {len(result)} уникальных"
+            "Объединено контрагентов: {} из ОСВ + {} из ведомости = {} уникальных",
+            len(osv_grouped),
+            len(depreciation_grouped),
+            len(result),
         )
         
         return result
@@ -287,8 +295,10 @@ class Step11aCheckContractorSimilarityStep(Step):
         grouped = grouped.sort_values('суммарное_сальдо', key=abs, ascending=False)
         
         logger.debug(
-            f"Извлечено {len(grouped)} контрагентов из ведомости амортизации "
-            f"(использован столбец '{contractor_col}')"
+            "Извлечено {} контрагентов из ведомости амортизации "
+            "(использован столбец '{}')",
+            len(grouped),
+            contractor_col,
         )
         
         return grouped
@@ -371,13 +381,18 @@ class Step11aCheckContractorSimilarityStep(Step):
             )
             
             logger.warning(
-                f"⚠️ Найдено {len(similarity_df)} потенциальных совпадений контрагентов со своими компаниями! 📁 Подробности в: {output_path.parent.name}/{output_path.name}"
+                "⚠️ Найдено {} потенциальных совпадений контрагентов со своими "
+                "компаниями! 📁 Подробности в: {}/{}",
+                len(similarity_df),
+                output_path.parent.name,
+                output_path.name,
             )
             
         except PermissionError as e:
             logger.error(
-                f"Не удалось сохранить отчёт о похожих контрагентах: {e}. "
-                f"Закройте файл и повторите."
+                "Не удалось сохранить отчёт о похожих контрагентах: {}. "
+                "Закройте файл и повторите.",
+                e,
             )
         except Exception as e:
-            logger.error(f"Ошибка при сохранении отчёта: {e}")
+            logger.error("Ошибка при сохранении отчёта: {}", e)

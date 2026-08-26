@@ -42,7 +42,7 @@ class Step6AddOSGroupColumnStep(Step):
     
     def _load_and_process_76_lease(self, name_company: str) -> pd.DataFrame:
         """Загружает и обрабатывает ОСВ по счету 76.07/76.05.3 с проверкой сходимости."""
-        logger.debug(f"Загрузка и обработка ОСВ 76.07/76.05.3 для {name_company}")
+        logger.debug("Загрузка и обработка ОСВ 76.07/76.05.3 для {}", name_company)
         
         df, check_df = DataLoader.load_account_osv76_lease()
         
@@ -128,7 +128,7 @@ class Step6AddOSGroupColumnStep(Step):
         # Удаление лишних пробелов
         df = self.clean_whitespace(df)
         
-        logger.debug(f"Обработана ОСВ 76 аренда: {len(df)} строк после фильтрации")
+        logger.debug("Обработана ОСВ 76 аренда: {} строк после фильтрации", len(df))
         
         return df
     
@@ -216,10 +216,12 @@ class Step6AddOSGroupColumnStep(Step):
             ]].copy()
             
             logger.error(
-                f"Критическая ошибка: ни один договор из ОСВ по ОСВ 76.07/76.05.3 "
-                f"не удалось замапить на сводную ОСВ.\n"
-                f"Всего строк ОСВ 76.07/76.05.3: {len(result)}\n"
-                f"Пример первых 5 строк:\n{problem_data.head().to_string(index=False)}"
+                "Критическая ошибка: ни один договор из ОСВ по ОСВ 76.07/76.05.3 "
+                "не удалось замапить на сводную ОСВ.\n"
+                "Всего строк ОСВ 76.07/76.05.3: {}\n"
+                "Пример первых 5 строк:\n{}",
+                len(result),
+                problem_data.head().to_string(index=False),
             )
             
             raise ValueError(
@@ -233,8 +235,9 @@ class Step6AddOSGroupColumnStep(Step):
             )
         
         logger.debug(
-            f"Замапплено договоров: "
-            f"{(result['договор'] != self.UNSPECIFIED).sum()} из {len(result)}"
+            "Замапплено договоров: {} из {}",
+            (result['договор'] != self.UNSPECIFIED).sum(),
+            len(result),
         )
         
         # 8. Восстановление порядка столбцов
@@ -246,7 +249,7 @@ class Step6AddOSGroupColumnStep(Step):
         final_cols = [col for col in cols_orig if col in result.columns]
         result = result[final_cols]
         
-        logger.debug(f"Объединение завершено: {len(result)} строк")
+        logger.debug("Объединение завершено: {} строк", len(result))
         
         
         
@@ -324,7 +327,7 @@ class Step6AddOSGroupColumnStep(Step):
         logger.debug("Этап 1: Загрузка ОСВ 76.07/76.05.3 по договорам аренды/лизинга")
         osv_76_lease_df = self._load_and_process_76_lease(name_company)
         osv_all_df = self._merge_with_76_lease_detail(osv_all_df, osv_76_lease_df)
-        logger.debug(f"После merge с 76.07: {len(osv_all_df)} строк")
+        logger.debug("После merge с 76.07: {} строк", len(osv_all_df))
 
         # 2. Загрузка и фильтрация справочника ППА
         logger.debug("Этап 2: Загрузка справочника ППА")
@@ -346,7 +349,7 @@ class Step6AddOSGroupColumnStep(Step):
                 reference_name="ППА",
                 searched_company=name_company,
             )
-        logger.debug(f"Справочник ППА для {name_company}: {len(lease_df)} строк")
+        logger.debug("Справочник ППА для {}: {} строк", name_company, len(lease_df))
         
         # Очистка пробелов
         osv_all_df = self.clean_whitespace(osv_all_df)
@@ -357,7 +360,11 @@ class Step6AddOSGroupColumnStep(Step):
         os_group_by_rbp = self._create_mapping(lease_df, 'рбп', 'группа_ос')
         contract_by_rbp = self._create_mapping(lease_df, 'рбп', 'договор_аренды')
         
-        logger.debug(f"Меппинги созданы: {len(os_group_by_contract)} договоров, {len(os_group_by_rbp)} РБП")
+        logger.debug(
+            "Меппинги созданы: {} договоров, {} РБП",
+            len(os_group_by_contract),
+            len(os_group_by_rbp),
+        )
 
         # 4. Проставление групп ОС по договору (ОСВ 76.07/76.05.3)
         logger.debug("Этап 4: Классификация по договорам (ОСВ 76.07/76.05.3)")
@@ -372,7 +379,10 @@ class Step6AddOSGroupColumnStep(Step):
                             )
 
         osv_all_df['группа_ос_аренды_лизинга'] = osv_all_df['договор'].map(os_group_by_contract)
-        logger.debug(f"Группы ОС по договорам: {osv_all_df['группа_ос_аренды_лизинга'].notna().sum()} заполнено")
+        logger.debug(
+            "Группы ОС по договорам: {} заполнено",
+            osv_all_df['группа_ос_аренды_лизинга'].notna().sum(),
+        )
 
         # 5. Проставление групп ОС по РБП (97.21)
         logger.debug("Этап 5: Классификация по РБП (97.21)")
@@ -404,11 +414,22 @@ class Step6AddOSGroupColumnStep(Step):
         # Дополнительная проверка на NaN после fillna
         nan_count = osv_all_df['группа_ос_аренды_лизинга'].isna().sum()
         if nan_count > 0:
-            logger.warning(f"Обнаружено {nan_count} NaN в 'группа_ос_аренды_лизинга', заменяем на '{self.UNSPECIFIED}'")
+            logger.warning(
+                "Обнаружено {} NaN в 'группа_ос_аренды_лизинга', заменяем на '{}'",
+                nan_count,
+                self.UNSPECIFIED,
+            )
             osv_all_df['группа_ос_аренды_лизинга'] = osv_all_df['группа_ос_аренды_лизинга'].fillna(self.UNSPECIFIED)
         
-        logger.debug(f"Итого групп ОС заполнено: {(osv_all_df['группа_ос_аренды_лизинга'] != self.UNSPECIFIED).sum()}")
-        logger.debug(f"Строк с '{self.UNSPECIFIED}': {(osv_all_df['группа_ос_аренды_лизинга'] == self.UNSPECIFIED).sum()}")
+        logger.debug(
+            "Итого групп ОС заполнено: {}",
+            (osv_all_df['группа_ос_аренды_лизинга'] != self.UNSPECIFIED).sum(),
+        )
+        logger.debug(
+            "Строк с '{}': {}",
+            self.UNSPECIFIED,
+            (osv_all_df['группа_ос_аренды_лизинга'] == self.UNSPECIFIED).sum(),
+        )
 
         # 6. Проставление договоров по РБП для 97.21
         logger.debug("Этап 6: Заполнение договоров для РБП")
@@ -421,7 +442,7 @@ class Step6AddOSGroupColumnStep(Step):
         )
 
         osv_all_df.loc[mask_fill_contract, 'договор'] = contracts_97[mask_fill_contract]
-        logger.debug(f"Договоры заполнены для {mask_fill_contract.sum()} строк")
+        logger.debug("Договоры заполнены для {} строк", mask_fill_contract.sum())
 
         # 7. Преобразование в строковый тип
         logger.debug("Этап 7: Преобразование в строковый тип")
@@ -433,7 +454,11 @@ class Step6AddOSGroupColumnStep(Step):
         ].unique()
         
         if len(invalid_values) > 0:
-            logger.warning(f"Найдены значения вне разрешённого списка: {invalid_values}. Заменяем на '{self.UNSPECIFIED}'")
+            logger.warning(
+                "Найдены значения вне разрешённого списка: {}. Заменяем на '{}'",
+                invalid_values,
+                self.UNSPECIFIED,
+            )
             osv_all_df.loc[
                 osv_all_df['группа_ос_аренды_лизинга'].isin(invalid_values),
                 'группа_ос_аренды_лизинга'
@@ -444,10 +469,17 @@ class Step6AddOSGroupColumnStep(Step):
         # Финальная проверка: убеждаемся, что нет пустых значений
         final_nan_count = osv_all_df['группа_ос_аренды_лизинга'].isna().sum()
         if final_nan_count > 0:
-            logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: После всех обработок осталось {final_nan_count} NaN!")
+            logger.error(
+                "КРИТИЧЕСКАЯ ОШИБКА: После всех обработок осталось {} NaN!",
+                final_nan_count,
+            )
             raise ValueError(f"Столбец 'группа_ос_аренды_лизинга' содержит {final_nan_count} пустых значений")
         
         context.summary_osv_df = osv_all_df
-        logger.debug(f"Шаг 6 завершен: {len(osv_all_df)} строк, {len(unique_groups)} групп ОС")
+        logger.debug(
+            "Шаг 6 завершен: {} строк, {} групп ОС",
+            len(osv_all_df),
+            len(unique_groups),
+        )
         
         return context

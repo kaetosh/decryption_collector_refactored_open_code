@@ -66,12 +66,13 @@ class Step12Split84AccountBalanceStep(Step):
         
         if not input_path:
             logger.warning(
-                f"Файл {expected_filename} не найден. "
-                f"Рекласс счёта 84 на НРП и прибыль периода не проводим."
+                "Файл {} не найден. "
+                "Рекласс счёта 84 на НРП и прибыль периода не проводим.",
+                expected_filename,
             )
             return None
         
-        logger.debug(f"Файл {expected_filename} найден. Проводим рекласс.")
+        logger.debug("Файл {} найден. Проводим рекласс.", expected_filename)
         
         # Загрузка сырых данных
         df, check_df = DataLoader.load_84_analysis(input_path)
@@ -100,7 +101,7 @@ class Step12Split84AccountBalanceStep(Step):
         
         missing = [col for col in required_cols if col not in check_df.columns]
         if missing:
-            logger.warning(f"Отсутствуют столбцы для проверки сходимости: {missing}")
+            logger.warning("Отсутствуют столбцы для проверки сходимости: {}", missing)
             return
         
         sum_diff = abs(check_df[required_cols[0]].sum()) + abs(check_df[required_cols[1]].sum())
@@ -116,7 +117,9 @@ class Step12Split84AccountBalanceStep(Step):
                 tolerance=self.CONVERGENCE_TOLERANCE_84,
             )
         
-        logger.debug(f"Сходимость анализа 84 подтверждена: разница {sum_diff:.2f} руб.")
+        logger.debug(
+            "Сходимость анализа 84 подтверждена: разница {:.2f} руб.", sum_diff
+        )
     
     def _calculate_turnover(self, df: pd.DataFrame) -> pd.DataFrame:
         """Рассчитывает свёрнутый оборот и очищает DataFrame."""
@@ -157,7 +160,7 @@ class Step12Split84AccountBalanceStep(Step):
         mask_99 = df_analysis['Корр_счет'].astype(str).str.startswith(self.ACCOUNT_99)
         turnover = df_analysis.loc[mask_99, 'Оборот, тыс.ед.'].sum()
         
-        logger.debug(f"Оборот текущего периода (счёт 99): {turnover:.2f} тыс.ед.")
+        logger.debug("Оборот текущего периода (счёт 99): {:.2f} тыс.ед.", turnover)
         
         return turnover
     
@@ -193,10 +196,12 @@ class Step12Split84AccountBalanceStep(Step):
         original_balance = df_84['сальдо, тыс.ед.'].iloc[0]
         
         logger.debug(
-            f"Разбивка счёта {self.ACCOUNT_84}: "
-            f"исходное сальдо={original_balance:.2f}, "
-            f"финрезультат текущего периода={current_period_turnover:.2f}, "
-            f"НРП прошлых периодов={original_balance - current_period_turnover:.2f}"
+            "Разбивка счёта {}: исходное сальдо={:.2f}, "
+            "финрезультат текущего периода={:.2f}, НРП прошлых периодов={:.2f}",
+            self.ACCOUNT_84,
+            original_balance,
+            current_period_turnover,
+            original_balance - current_period_turnover,
         )
         
         # Создаём две новые строки

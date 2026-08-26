@@ -230,8 +230,11 @@ def find_similar_companies(
     scorer = fuzz.token_sort_ratio if USE_TOKEN_SORT_RATIO else fuzz.ratio
     
     logger.debug(
-        f"Запуск fuzzy matching: {len(df_a)} vs {len(df_b)}, "
-        f"порог={similarity_threshold}%, скорер={scorer.__name__}"
+        "Запуск fuzzy matching: {} vs {}, порог={}%, скорер={}",
+        len(df_a),
+        len(df_b),
+        similarity_threshold,
+        scorer.__name__,
     )
     
     results = []

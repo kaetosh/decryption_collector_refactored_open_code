@@ -275,8 +275,10 @@ class Step19BuildOpuStep(Step):
 
         if bad_count:
             logger.warning(
-                f"В столбце '{self.AMOUNT_COL}' обнаружено {bad_count} пустых/нечисловых значений. "
-                "Они будут заменены на 0."
+                "В столбце '{}' обнаружено {} пустых/нечисловых значений. "
+                "Они будут заменены на 0.",
+                self.AMOUNT_COL,
+                bad_count,
             )
 
         df[self.AMOUNT_COL] = converted.fillna(0.0).astype("float64").array
@@ -305,8 +307,10 @@ class Step19BuildOpuStep(Step):
 
         logger.info(
             "Разница между чистой прибылью в расшифровке ОПУ и НРП текущего периода "
-            f"в расшифровке баланса составляет {diff:,.0f} тыс.ед., что НЕ превышает "
-            f"допустимый порог в {self.MAX_PROFIT_DIFF:,.0f} тыс.ед."
+            "в расшифровке баланса составляет {:,.0f} тыс.ед., что НЕ превышает "
+            "допустимый порог в {:,.0f} тыс.ед.",
+            diff,
+            self.MAX_PROFIT_DIFF,
         )
 
     def _get_retained_earnings(self, balance_df: pd.DataFrame) -> float:
@@ -497,8 +501,16 @@ class Step19BuildOpuStep(Step):
         unmatched_count = int(unmatched_mask.sum())
         total_count = len(journal_df)
 
-        logger.info(f"Найдено совпадений: {total_count - unmatched_count} из {total_count}")
-        logger.info(f"Не найдено (NaN): {unmatched_count} ({unmatched_count / total_count:.1%})")
+        logger.info(
+            "Найдено совпадений: {} из {}",
+            total_count - unmatched_count,
+            total_count,
+        )
+        logger.info(
+            "Не найдено (NaN): {} ({:.1%})",
+            unmatched_count,
+            unmatched_count / total_count,
+        )
 
         if unmatched_count == 0:
             return
@@ -562,7 +574,10 @@ class Step19BuildOpuStep(Step):
         opu_template = chart_df.loc[opu_mask].copy()
 
         if opu_template.empty:
-            logger.warning(f"В плане счетов не найдены строки с отчетностью '{self.OPU_REPORT}'.")
+            logger.warning(
+                "В плане счетов не найдены строки с отчетностью '{}'.",
+                self.OPU_REPORT,
+            )
             return self._empty_opu_report()
 
         journal_target = journal_df[self.TARGET_ACCOUNT_COL].copy()

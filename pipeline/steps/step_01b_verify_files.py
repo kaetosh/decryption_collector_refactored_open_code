@@ -52,7 +52,7 @@ class Step1bVerifyFilesStep(Step):
             )
             
             if not dir_filenames:
-                logger.debug(f"Нет ожидаемых ОСВ для папки {dir_name}")
+                logger.debug("Нет ожидаемых ОСВ для папки {}", dir_name)
                 continue
             
             # Проверяем наличие файлов
@@ -62,11 +62,13 @@ class Step1bVerifyFilesStep(Step):
                 missing_balance.extend(missing)
                 missing_by_dir[dir_name] = missing
                 logger.warning(
-                    f"В папке {dir_name} отсутствует {len(missing)} файл(ов) ОСВ"
+                    "В папке {} отсутствует {} файл(ов) ОСВ",
+                    dir_name,
+                    len(missing),
                 )
             else:
                 logger.debug(
-                    f"✓ Все {len(dir_filenames)} ОСВ найдены в {dir_name}"
+                    "✓ Все {} ОСВ найдены в {}", len(dir_filenames), dir_name
                 )
         
         
@@ -92,11 +94,13 @@ class Step1bVerifyFilesStep(Step):
             if missing_special_reports:
                 missing_by_dir['special_reports'] = missing_special_reports
                 logger.warning(
-                    f"В папке special_reports отсутствует обязательные спецотчеты: {len(missing_special_reports)} шт."
+                    "В папке special_reports отсутствует обязательные спецотчеты: {} шт.",
+                    len(missing_special_reports),
                 )
             else:
                 logger.debug(
-                    f"✓ Все {len(special_reports_filenames)} спецотчеты в special_reports"
+                    "✓ Все {} спецотчеты в special_reports",
+                    len(special_reports_filenames),
                 )
         
         # =========================================================================
@@ -112,11 +116,13 @@ class Step1bVerifyFilesStep(Step):
             if missing_cards:
                 missing_by_dir['transaction_report'] = missing_cards
                 logger.warning(
-                    f"В папке transaction_report отсутствует отчеты по проводкам: {len(missing_cards)} шт."
+                    "В папке transaction_report отсутствует отчеты по проводкам: {} шт.",
+                    len(missing_cards),
                 )
             else:
                 logger.debug(
-                    f"✓ Все {len(card_filenames)} отчеты по проводкам найдены в account_cards"
+                    "✓ Все {} отчеты по проводкам найдены в account_cards",
+                    len(card_filenames),
                 )
         
         # =========================================================================

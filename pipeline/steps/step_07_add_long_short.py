@@ -98,12 +98,15 @@ class Step7AddLongShortTermColumnStep(Step):
             mismatches.to_excel(output_path)
             
             logger.error(
-                f"⚠️ Расхождения сумм после разбивки: {len(mismatches)} строк. "
-                f"Все данные сохранены в {output_path.parent.name}/{output_path.name}"
+                "⚠️ Расхождения сумм после разбивки: {} строк. "
+                "Все данные сохранены в {}/{}",
+                len(mismatches),
+                output_path.parent.name,
+                output_path.name,
             )
             return False
         
-        logger.debug(f"✓ Валидация разбивки пройдена: {len(comparison)} групп")
+        logger.debug("✓ Валидация разбивки пройдена: {} групп", len(comparison))
         return True
     
     def _validate_replacement(self, osv_original: pd.DataFrame, 
@@ -148,12 +151,17 @@ class Step7AddLongShortTermColumnStep(Step):
             mismatches.to_excel(output_path)
             
             logger.warning(
-                f"⚠️ Расхождения сумм после замены: {len(mismatches)} комбинаций. "
-                f"Все данные сохранены в {output_path.parent.name}/{output_path.name}"
+                "⚠️ Расхождения сумм после замены: {} комбинаций. "
+                "Все данные сохранены в {}/{}",
+                len(mismatches),
+                output_path.parent.name,
+                output_path.name,
             )
             return False
         
-        logger.debug(f"✓ Валидация замены пройдена: {len(comparison_replaced)} комбинаций")
+        logger.debug(
+            "✓ Валидация замены пройдена: {} комбинаций", len(comparison_replaced)
+        )
         return True
     
     # =========================================================================
@@ -176,12 +184,13 @@ class Step7AddLongShortTermColumnStep(Step):
         
         if not input_path:
             logger.warning(
-                f"Файл {expected_filename} не найден. "
-                f"Рекласс на долгую/короткую части по 76 и 97 счету не проводим."
+                "Файл {} не найден. "
+                "Рекласс на долгую/короткую части по 76 и 97 счету не проводим.",
+                expected_filename,
             )
             return None
         
-        logger.debug(f"Файл {expected_filename} найден. Проводим рекласс.")
+        logger.debug("Файл {} найден. Проводим рекласс.", expected_filename)
         
         raw_df = DataLoader.load_lease_report_decoding(input_path)
         return self._transform_lease_report(raw_df)
@@ -435,12 +444,12 @@ class Step7AddLongShortTermColumnStep(Step):
         
         if not file_path:
             logger.warning(
-                f"Файл с реклассом рбп на 97.21 на долгие/короткие не найден. "
-                f"Рекласс по 97 счету (кроме аренды/лизинга) не проводим."
+                "Файл с реклассом рбп на 97.21 на долгие/короткие не найден. "
+                "Рекласс по 97 счету (кроме аренды/лизинга) не проводим."
             )
             return osv_all_df
         
-        logger.debug(f"Файл {file_path.name} найден. Проводим рекласс по 97 счету.")
+        logger.debug("Файл {} найден. Проводим рекласс по 97 счету.", file_path.name)
         
         reclass_97_df = DataLoader.load_long_short_register(file_path)
         reclass_97_df = self._clean_reclass_97(reclass_97_df)
@@ -533,9 +542,12 @@ class Step7AddLongShortTermColumnStep(Step):
         
         diff = (original_sums - updated_sums).abs()
         if (diff > 0.01).any():
-            logger.error(f"⚠️ Расхождения сумм после рекласса по 97: {diff[diff > 0.01].to_dict()}")
+            logger.error(
+                "⚠️ Расхождения сумм после рекласса по 97: {}",
+                diff[diff > 0.01].to_dict(),
+            )
         
-        logger.debug(f"Рекласс по 97 выполнен: {mask.sum()} строк разбито")
+        logger.debug("Рекласс по 97 выполнен: {} строк разбито", mask.sum())
         
         return result_df
     
@@ -617,7 +629,10 @@ class Step7AddLongShortTermColumnStep(Step):
         # ★ Устанавливаем строковый тип
         osv_all_df['долгая_короткая_часть'] = osv_all_df['долгая_короткая_часть'].astype('string')
         
-        logger.debug(f"Инициализация столбца завершена: {(osv_all_df['долгая_короткая_часть'] != self.UNSPECIFIED).sum()} строк классифицировано")
+        logger.debug(
+            "Инициализация столбца завершена: {} строк классифицировано",
+            (osv_all_df['долгая_короткая_часть'] != self.UNSPECIFIED).sum(),
+        )
         
         return osv_all_df
     
@@ -627,7 +642,7 @@ class Step7AddLongShortTermColumnStep(Step):
                            name_company: str,
                            period: str) -> pd.DataFrame:
         """Обрабатывает один тип договоров (лизинг или аренда)."""
-        logger.debug(f"Обработка {lease_type}-договоров")
+        logger.debug("Обработка {}-договоров", lease_type)
         
         decoded_report = self._process_lease_report_decoding(
             type_register=type_register,
@@ -636,7 +651,7 @@ class Step7AddLongShortTermColumnStep(Step):
         )
         
         if not isinstance(decoded_report, pd.DataFrame) or decoded_report.empty:
-            logger.debug(f"Отчет по {lease_type}ым договорам пуст или не найден")
+            logger.debug("Отчет по {}ым договорам пуст или не найден", lease_type)
             return osv_all_df
         
         decoded_report_original = decoded_report.copy()
@@ -652,6 +667,6 @@ class Step7AddLongShortTermColumnStep(Step):
         
         self._validate_replacement(osv_all_df, osv_all_df_updated, decoded_report_split, lease_type)
         
-        logger.debug(f"Обработка {lease_type}-договоров завершена")
+        logger.debug("Обработка {}-договоров завершена", lease_type)
         
         return osv_all_df_updated

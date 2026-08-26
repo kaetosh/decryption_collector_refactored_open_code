@@ -52,7 +52,7 @@ class Step10ClassifyLeaseSourceStep(Step):
         cache_key = f'{self.RELATED_PARTIES_SHEET}_mapping'
         
         if cache_key in context.data:
-            logger.debug(f"Используем кэшированный маппинг {self.RELATED_PARTIES_SHEET}")
+            logger.debug("Используем кэшированный маппинг {}", self.RELATED_PARTIES_SHEET)
             return context.data[cache_key]
         
         # Загрузка справочника
@@ -66,7 +66,11 @@ class Step10ClassifyLeaseSourceStep(Step):
         
         # Кэшируем в контексте
         context.data[cache_key] = mapping_dict
-        logger.debug(f"Загружен и кэширован маппинг {self.RELATED_PARTIES_SHEET}: {len(mapping_dict)} записей")
+        logger.debug(
+            "Загружен и кэширован маппинг {}: {} записей",
+            self.RELATED_PARTIES_SHEET,
+            len(mapping_dict),
+        )
         
         return mapping_dict
     
@@ -122,8 +126,12 @@ class Step10ClassifyLeaseSourceStep(Step):
             )
         
         logger.debug(
-            f"✓ Входная сходимость подтверждена: "
-            f"ОСВ={sum_osv:.2f}, Ведомость={sum_depr:.2f}, разница={diff:.2f} тыс.ед., допуск={self.CONVERGENCE_TOLERANCE} тыс.ед."
+            "✓ Входная сходимость подтверждена: ОСВ={:.2f}, Ведомость={:.2f}, "
+            "разница={:.2f} тыс.ед., допуск={} тыс.ед.",
+            sum_osv,
+            sum_depr,
+            diff,
+            self.CONVERGENCE_TOLERANCE,
         )
     
     def _process_depreciation_statement_decoding(
@@ -149,12 +157,13 @@ class Step10ClassifyLeaseSourceStep(Step):
         
         if not input_path:
             logger.warning(
-                f"Файл {expected_filename} не найден. "
-                f"Рекласс по виду связи для арендованных ОС не проводим."
+                "Файл {} не найден. "
+                "Рекласс по виду связи для арендованных ОС не проводим.",
+                expected_filename,
             )
             return None
         
-        logger.debug(f"Файл {expected_filename} найден. Проводим рекласс.")
+        logger.debug("Файл {} найден. Проводим рекласс.", expected_filename)
         
         # 1. Загрузка сырого файла БЕЗ заголовков
         # (header=None — чтобы сохранить все строки, включая шапку)
@@ -177,8 +186,10 @@ class Step10ClassifyLeaseSourceStep(Step):
         combined_header = self._combine_header_rows(header_top, header_bot)
         
         logger.debug(
-            f"Найдена двухстрочная шапка на строках {header_row_idx} и "
-            f"{header_row_idx + 1}. Объединено в {len(combined_header)} столбцов."
+            "Найдена двухстрочная шапка на строках {} и {}. Объединено в {} столбцов.",
+            header_row_idx,
+            header_row_idx + 1,
+            len(combined_header),
         )
         
         # 4. Формирование DataFrame: данные начинаются со строки header_row_idx + 2
@@ -239,7 +250,9 @@ class Step10ClassifyLeaseSourceStep(Step):
         
         # Сохраняем в контекст для последующей проверки в шаге 11a
         context.data['depreciation_statement_df'] = df_filtered
-        logger.debug(f"Ведомость амортизации сохранена в контекст: {len(df_filtered)} строк")
+        logger.debug(
+            "Ведомость амортизации сохранена в контекст: {} строк", len(df_filtered)
+        )
         
         return df
 
@@ -257,7 +270,7 @@ class Step10ClassifyLeaseSourceStep(Step):
         for idx in range(min(20, len(df))):
             row_values = df.iloc[idx].astype(str).str.strip().str.lower()
             if (row_values == 'основное средство').any():
-                logger.debug(f"Строка-шапка найдена на индексе {idx}")
+                logger.debug("Строка-шапка найдена на индексе {}", idx)
                 return idx
         return None
     
@@ -330,7 +343,7 @@ class Step10ClassifyLeaseSourceStep(Step):
         if mask_total.any():
             removed_count = mask_total.sum()
             logger.debug(
-                f"Удалено {removed_count} итоговых строк из ведомости амортизации"
+                "Удалено {} итоговых строк из ведомости амортизации", removed_count
             )
             df = df[~mask_total].copy()
         
@@ -502,7 +515,10 @@ class Step10ClassifyLeaseSourceStep(Step):
                 sum_after=sum_after,
             )
         
-        logger.debug(f"Классификация источника аренды завершена. Добавлено {len(to_add)} строк.")
+        logger.debug(
+            "Классификация источника аренды завершена. Добавлено {} строк.",
+            len(to_add),
+        )
         
         context.summary_osv_df = osv_all_df
         return context

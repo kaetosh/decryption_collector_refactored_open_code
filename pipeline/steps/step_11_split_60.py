@@ -69,12 +69,12 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         
         if not input_path:
             logger.warning(
-                f"Файл {expected_filename} не найден. "
-                f"Рекласс остатков на 60 счете не проводим."
+                "Файл {} не найден. Рекласс остатков на 60 счете не проводим.",
+                expected_filename,
             )
             return None
         
-        logger.debug(f"Файл {expected_filename} найден. Проводим рекласс.")
+        logger.debug("Файл {} найден. Проводим рекласс.", expected_filename)
         
         # Загрузка сырых данных
         df, check_df = DataLoader.load_process_60_invest(input_path)
@@ -115,7 +115,7 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
                 tolerance=self.CONVERGENCE_TOLERANCE_60,
             )
         
-        logger.debug(f"Сходимость ОСВ 60 подтверждена: разница {sum_diff:.2f} руб.")
+        logger.debug("Сходимость ОСВ 60 подтверждена: разница {:.2f} руб.", sum_diff)
     
     def _clean_raw_60_invest(self, df: pd.DataFrame) -> pd.DataFrame:
         """Базовая очистка сырого DataFrame ОСВ 60."""
@@ -280,16 +280,21 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
             # Строгий режим: сохраняем файл и выбрасываем ошибку
             output_path = self._save_unknown_contractors(unknown_df)
             logger.error(
-                f"{error_msg}. "
-                f"Список сохранён в {output_path.parent.name}/{output_path.name}"
+                "{}. Список сохранён в {}/{}",
+                error_msg,
+                output_path.parent.name,
+                output_path.name,
             )
             raise ValueError(error_msg)
         
         # Мягкий режим: сохраняем файл и заменяем на '3 лица'
         output_path = self._save_unknown_contractors(unknown_df)
         logger.warning(
-            f"{error_msg}. Заменяем на '{self.THIRD_PARTY}'. "
-            f"Список сохранён в {output_path.parent.name}/{output_path.name}"
+            "{}. Заменяем на '{}'. Список сохранён в {}/{}",
+            error_msg,
+            self.THIRD_PARTY,
+            output_path.parent.name,
+            output_path.name,
         )
         
         # Работаем со string типом, а не category
@@ -351,9 +356,12 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         df['инвест_договор'] = df['инвест_договор'].astype('string')
         
         logger.debug(
-            f"Добавлен столбец 'инвест_договор': "
-            f"{mask_60.sum()} строк со значением '{self.INVEST_NO}', "
-            f"{(~mask_60).sum()} строк со значением '{self.UNSPECIFIED}'"
+            "Добавлен столбец 'инвест_договор': {} строк со значением '{}', "
+            "{} строк со значением '{}'",
+            mask_60.sum(),
+            self.INVEST_NO,
+            (~mask_60).sum(),
+            self.UNSPECIFIED,
         )
         
         
@@ -470,14 +478,17 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
             nan_count = osv_all_df[col].isna().sum()
             if nan_count > 0:
                 logger.debug(
-                    f"Обнаружено {nan_count} NaN в столбце '{col}' после шага 11. "
-                    f"Заменяем на '{self.UNSPECIFIED}'."
+                    "Обнаружено {} NaN в столбце '{}' после шага 11. "
+                    "Заменяем на '{}'.",
+                    nan_count,
+                    col,
+                    self.UNSPECIFIED,
                 )
                 
                 # Заполняем NaN
                 osv_all_df[col] = osv_all_df[col].fillna(self.UNSPECIFIED)
         
-        logger.debug(f"Разбиение счета 60 завершено. Добавлено {len(df)} строк.")
+        logger.debug("Разбиение счета 60 завершено. Добавлено {} строк.", len(df))
         
         context.summary_osv_df = osv_all_df
         return context

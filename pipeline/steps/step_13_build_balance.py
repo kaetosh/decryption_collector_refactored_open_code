@@ -214,13 +214,16 @@ class Step13BuildBalanceBreakdownStep(Step):
         
         if abs_balance > TOLERANCE:
             logger.error(
-                f"Расхождение баланса составляет {abs_balance} тыс. ед., "
-                f"что превышает допуск {TOLERANCE} тыс. ед."
+                "Расхождение баланса составляет {} тыс. ед., "
+                "что превышает допуск {} тыс. ед.",
+                abs_balance,
+                TOLERANCE,
             )
         else:
             logger.debug(
-                f"Баланс сходится: расхождение {abs_balance} тыс. ед. "
-                f"(допуск {TOLERANCE} тыс. ед.)"
+                "Баланс сходится: расхождение {} тыс. ед. (допуск {} тыс. ед.)",
+                abs_balance,
+                TOLERANCE,
             )
     
     # =========================================================================
@@ -248,12 +251,15 @@ class Step13BuildBalanceBreakdownStep(Step):
         # 1. Построение словаря маппинга
         logger.debug("Этап 1: Построение словаря меппинга")
         mapping_dict = self._build_mapping_dict(mapping_df)
-        logger.debug(f"Создан словарь меппинга: {len(mapping_dict)} записей")
+        logger.debug("Создан словарь меппинга: {} записей", len(mapping_dict))
         
         # 2. Векторизованный маппинг счетов ОСВ на счета ФО
         logger.debug("Этап 2: Маппинг счетов ОСВ на счета ФО")
         osv_all_df = self._map_accounts_to_final(osv_all_df, mapping_dict)
-        logger.debug(f"Замепплено строк: {(osv_all_df['счет_фо'] != self.UNSPECIFIED).sum()}")
+        logger.debug(
+            "Замепплено строк: {}",
+            (osv_all_df['счет_фо'] != self.UNSPECIFIED).sum(),
+        )
         
         # 3. Валидация полноты маппинга
         logger.debug("Этап 3: Проверка полноты меппинга")
@@ -268,9 +274,9 @@ class Step13BuildBalanceBreakdownStep(Step):
         context.summary_osv_df = osv_all_df.loc[:, ~osv_all_df.columns.str.startswith('level_')]
         
         logger.debug(
-            f"Расшифровка баланса готова: "
-            f"{len(balance_sheet)} статей, "
-            f"{len(osv_all_df)} строк в ОСВ"
+            "Расшифровка баланса готова: {} статей, {} строк в ОСВ",
+            len(balance_sheet),
+            len(osv_all_df),
         )
         
         return context

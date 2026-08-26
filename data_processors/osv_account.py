@@ -290,7 +290,7 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
                 cell_value = df.iloc[0, idx]
                 if pd.notna(cell_value) and str(cell_value).strip() == word:
                     return idx
-            logger.warning(f"'{word}' не найден после индекса {start_idx}")
+            logger.warning("'{}' не найден после индекса {}", word, start_idx)
             return None
 
         target_indices = [
