@@ -110,11 +110,12 @@ class StepAddExpensesToOpuBase(Step):
         # Обновляем context
         context.journal_df = df_final
         
+        related_party_counts = df_result['вид_связи'].value_counts().to_dict()
         logger.info(
-            "✓ {} добавлены: {} строк (виды связи: {})",
+            "✓ {} добавлены: {} позиций ({})",
             self.OPU_LINE_NAME,
             len(df_result),
-            df_result['вид_связи'].value_counts().to_dict(),
+            ', '.join(f'{k} — {v}' for k, v in sorted(related_party_counts.items(), key=lambda x: -x[1]))
         )
 
         return context

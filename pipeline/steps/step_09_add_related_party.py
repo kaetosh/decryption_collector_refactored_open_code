@@ -197,4 +197,10 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
         logger.debug("Классифицировано видов связи: {}", classified_count)
         
         context.summary_osv_df = osv_all_df
+        
+        related_party_counts = osv_all_df['вид_связи'].value_counts().to_dict()
+        logger.info(
+            "✓ Определены виды связи контрагентов: {}",
+            ', '.join(f'{k} — {v}' for k, v in sorted(related_party_counts.items(), key=lambda x: -x[1]) if k != 'не_указано')
+        )
         return context

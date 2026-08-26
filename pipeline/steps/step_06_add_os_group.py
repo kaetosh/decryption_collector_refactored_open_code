@@ -476,10 +476,12 @@ class Step6AddOSGroupColumnStep(Step):
             raise ValueError(f"Столбец 'группа_ос_аренды_лизинга' содержит {final_nan_count} пустых значений")
         
         context.summary_osv_df = osv_all_df
-        logger.debug(
-            "Шаг 6 завершен: {} строк, {} групп ОС",
+        
+        os_group_counts = osv_all_df['группа_ос_аренды_лизинга'].value_counts().to_dict()
+        logger.info(
+            "✓ Добавлены группы ОС для аренды/лизинга: {} позиций ({})",
             len(osv_all_df),
-            len(unique_groups),
+            ', '.join(f'{k} — {v}' for k, v in sorted(os_group_counts.items(), key=lambda x: -x[1]) if k != 'не_указано')
         )
         
         return context

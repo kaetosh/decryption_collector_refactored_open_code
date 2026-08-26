@@ -33,5 +33,11 @@ class Step4AddReceivableTypeStep(Step):
         osv_all_df = ReceivableClassifier.clean_subaccounts(osv_all_df, mapping_df)
         
         context.summary_osv_df = osv_all_df
+        
+        debt_counts = osv_all_df['вид_задолженности'].value_counts().to_dict()
+        logger.info(
+            "✓ Классифицирована задолженность: {}",
+            ', '.join(f'{k} — {v}' for k, v in sorted(debt_counts.items(), key=lambda x: -x[1]))
+        )
         return context
 

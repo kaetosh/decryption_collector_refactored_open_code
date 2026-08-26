@@ -80,10 +80,11 @@ class Step14BuildOpuFoundationStep(Step):
         context.journal_df = df_final
         # df_final.to_parquet('df_final.parquet', engine='pyarrow')
         
+        account_counts = df_final['счет'].value_counts().to_dict()
         logger.info(
             "✓ Основа ОПУ сформирована: {} строк ({})",
             len(df_final),
-            df_final['счет'].value_counts().to_dict(),
+            ', '.join(f'{k}: {v}' for k, v in sorted(account_counts.items(), key=lambda x: -x[1]))
         )
         
         return context

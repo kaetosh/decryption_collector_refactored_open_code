@@ -87,7 +87,7 @@ class Step(ABC):
         """
         Публичный метод, который запускает шаг.
         """
-        logger.info("--- Начало этапа: {} ---", self.name)
+        logger.debug("--- Начало этапа: {} ---", self.name)
         
         try:
             # 1. Валидация входа
@@ -105,7 +105,7 @@ class Step(ABC):
             # 5. Валидация выхода
             self._validate_output(context)
             
-            logger.info("--- Успешное завершение этапа: {} ---", self.name)
+            logger.debug("--- Успешное завершение этапа: {} ---", self.name)
             
             return context
         
@@ -675,10 +675,11 @@ class Pipeline:
     
     def run(self, initial_context: ProcessingContext) -> ProcessingContext:
         context = initial_context
-        logger.info("Запуск конвейера '{}' из {} шагов", self.name, len(self.steps))
+        total_steps = len(self.steps)
+        logger.info("Запуск конвейера '{}' (всего шагов: {})", self.name, total_steps)
         
         for i, step in enumerate(self.steps, 1):
-            logger.info("[{}/{}] Выполнение: {}", i, len(self.steps), step.name)
+            logger.info("[{:02d}/{:02d}] {}", i, total_steps, step.name)
             if step.description:
                 logger.debug("Описание: {}", step.description)
             

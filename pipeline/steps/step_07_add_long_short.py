@@ -592,6 +592,12 @@ class Step7AddLongShortTermColumnStep(Step):
         osv_all_df = osv_all_df.reset_index(drop=True)
         context.summary_osv_df = osv_all_df
         
+        long_short_counts = osv_all_df['долгая_короткая_часть'].value_counts().to_dict()
+        logger.info(
+            "✓ Выделена долгосрочная/краткосрочная часть: {}",
+            ', '.join(f'{k} — {v}' for k, v in sorted(long_short_counts.items(), key=lambda x: -x[1]) if k != 'не_указано')
+        )
+        
         return context
     
     def _initialize_long_short_column(self, osv_all_df: pd.DataFrame, 

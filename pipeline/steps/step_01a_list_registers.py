@@ -363,7 +363,7 @@ class Step1aListExpectedRegistersStep(Step):
             logger.info(
                 "Обнаружены обороты по счетам ОПУ: {}. "
                 "Формируем список отчетов по проводкам для выгрузки.",
-                sorted(opu_prefixes),
+                ', '.join(sorted(opu_prefixes)),
             )
             
             # ★ ИСПРАВЛЕНИЕ: фильтруем не только по префиксу, но и по типу регистра 'карточка'
@@ -403,16 +403,16 @@ class Step1aListExpectedRegistersStep(Step):
                 )
                 
                 logger.info(
-                    "Для ОПУ необходимо выгрузить {} шт. отчетов по проводкам: {}",
+                    "Для ОПУ необходимо выгрузить {} отчетов по проводкам (счета: {})",
                     len(card_filenames),
-                    sorted(filtered_loads_opu['счет'].unique()),
+                    ', '.join(sorted(filtered_loads_opu['счет'].unique())),
                 )
         else:
             # Нет счетов для ОПУ
             filtered_loads = filtered_loads_balance
             context.data['expected_card_filenames'] = []
             context.data['has_opu'] = False
-            logger.info("Обороты по счетам ОПУ не обнаружены, сборка ОПУ будет пропущена")
+            logger.info("Обороты по счетам ОПУ не обнаружены, расшифровка ОПУ будет пропущена")
         
         # =========================================================================
         # 8. ФОРМИРОВАНИЕ ИМЕН ФАЙЛОВ ДЛЯ ОСВ
@@ -471,12 +471,12 @@ class Step1aListExpectedRegistersStep(Step):
         context.data['special_reports_filenames'] = special_reports_df['Имя файла для сохранения'].tolist()
         
         logger.info(
-            "Необходимо выгрузить {} ОСВ и {} отчетов по проводкам.",
+            "✓ Список выгрузок сформирован: {} ОСВ + {} отчетов по проводкам",
             len(balance_filenames),
             len(context.data.get('expected_card_filenames', [])),
         )
         logger.info(
-            "Подробности см. в {}/{} (2 листа: обязательные + спецотчеты)",
+            "  Список сохранен в: {}/{}",
             output_path.parent.name,
             output_path.name,
         )

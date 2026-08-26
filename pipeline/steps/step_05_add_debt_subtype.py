@@ -32,4 +32,10 @@ class Step5AddReceivableSubtypeStep(Step):
         osv_all_df = ReceivableClassifier.apply_categorical_subtype(osv_all_df, mapping_df)
         
         context.summary_osv_df = osv_all_df
+        
+        subtype_counts = osv_all_df['подвид_задолженности'].value_counts().to_dict()
+        logger.info(
+            "✓ Определены подвиды задолженности: {}",
+            ', '.join(f'{k} — {v}' for k, v in sorted(subtype_counts.items(), key=lambda x: -x[1]))
+        )
         return context

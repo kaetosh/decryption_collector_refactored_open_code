@@ -38,7 +38,7 @@ class Step1cReconcileTotalsStep(Step):
         )
 
     def _process(self, context: ProcessingContext) -> ProcessingContext:
-        logger.info("Начало шага 1в: Реконциляция итогов")
+        logger.debug("Начало реконциляции итогов")
         
         # ==========================================
         # 1. Подготовка данных: Отчеты по проводкам
@@ -250,8 +250,8 @@ class Step1cReconcileTotalsStep(Step):
             )
             
         logger.info(
-            "Реконциляция прошла успешно: расхождения в сальдо и оборотах "
-            "не превышают порог {} тыс. ед.",
+            "✓ Реконциляция пройдена: расхождения в сальдо и оборотах "
+            "в пределах нормы (до {} тыс. ед.)",
             self.CONVERGENCE_TOLERANCE,
         )
         return context

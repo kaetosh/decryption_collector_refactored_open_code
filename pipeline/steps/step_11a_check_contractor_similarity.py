@@ -69,7 +69,7 @@ class Step11aCheckContractorSimilarityStep(Step):
         
         if similarity_df.empty:
             logger.info(
-                "✓ Похожих названий не найдено (проверено {} контрагентов)",
+                "✓ Похожих контрагентов не обнаружено (проверено {} позиций)",
                 len(third_party_contractors),
             )
             return context
@@ -381,8 +381,8 @@ class Step11aCheckContractorSimilarityStep(Step):
             )
             
             logger.warning(
-                "⚠️ Найдено {} потенциальных совпадений контрагентов со своими "
-                "компаниями! 📁 Подробности в: {}/{}",
+                "Найдено {} потенциальных совпадений контрагентов со своими компаниями. "
+                "Подробности см. в {}/{}",
                 len(similarity_df),
                 output_path.parent.name,
                 output_path.name,

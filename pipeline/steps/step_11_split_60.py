@@ -491,4 +491,11 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         logger.debug("Разбиение счета 60 завершено. Добавлено {} строк.", len(df))
         
         context.summary_osv_df = osv_all_df
+        
+        invest_counts = df['инвест_договор'].value_counts().to_dict()
+        logger.info(
+            "✓ Разбит счет 60 на инвест/неинвест: {} позиций ({})",
+            len(df),
+            ', '.join(f'{k} — {v}' for k, v in sorted(invest_counts.items(), key=lambda x: -x[1]))
+        )
         return context

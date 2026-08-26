@@ -610,7 +610,7 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
         save_results(context)
         
         logger.info("=" * 80)
-        logger.info("✓ Приложение успешно завершено")
+        logger.info("Приложение успешно завершено")
         logger.info("=" * 80)
         
         return 0

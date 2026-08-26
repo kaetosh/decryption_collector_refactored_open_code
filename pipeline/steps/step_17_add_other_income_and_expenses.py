@@ -193,7 +193,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         context.journal_df = df_final
 
         logger.info(
-            "✓ Прочие доходы/расходы добавлены: 91.01={} строк, 91.02={} строк",
+            "✓ Прочие доходы и расходы добавлены: 91.01 — {} позиций, 91.02 — {} позиций",
             len(df_9101),
             len(df_9102),
         )

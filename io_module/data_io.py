@@ -200,7 +200,7 @@ class DataLoader:
         Returns:
             Кортеж (df, check_df) — данные и контрольная таблица
         """
-        logger.info("Загрузка ОСВ по 60 ИнвестДоговоры: {}", path.name)
+        logger.debug("Загрузка ОСВ по 60 ИнвестДоговоры: {}", path.name)
         
         DataLoader._validate_file(path)
         df, check_df = DataLoader._process_with_handler(path, 'accountosv')
@@ -208,7 +208,7 @@ class DataLoader:
         if df.empty:
             raise ValueError(f"ОСВ по 60 ИнвестДоговоры {path.name} не содержит данных")
         
-        logger.info("Загружен ОСВ по 60 ИнвестДоговоры: {} строк", len(df))
+        logger.debug("Загружен ОСВ по 60 ИнвестДоговоры: {} строк", len(df))
         return df, check_df
     
     
@@ -223,14 +223,14 @@ class DataLoader:
         Returns:
             Сырой DataFrame спецотчета (без бизнес-обработки)
         """
-        logger.info("Загрузка Ведомость амортизации: {}", path.name)
+        logger.debug("Загрузка Ведомость амортизации: {}", path.name)
         
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
             raise ValueError(f"Спецотчет {path.name} не содержит данных")
         
-        logger.info("Загружена Ведомость амортизации: {} строк", len(df))
+        logger.debug("Загружена Ведомость амортизации: {} строк", len(df))
         return df
     
     @staticmethod
@@ -245,14 +245,14 @@ class DataLoader:
         Returns:
             Сырой DataFrame спецотчета (без бизнес-обработки)
         """
-        logger.info("Загрузка расшифровки строк 1450/1550/1230: {}", path.name)
+        logger.debug("Загрузка расшифровки строк 1450/1550/1230: {}", path.name)
         
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
             raise ValueError(f"Спецотчет {path.name} не содержит данных")
         
-        logger.info("Загружена расшифровка 1450/1550/1230: {} строк", len(df))
+        logger.debug("Загружена расшифровка 1450/1550/1230: {} строк", len(df))
         return df
     
     @staticmethod
@@ -266,14 +266,14 @@ class DataLoader:
         Returns:
             Сырой DataFrame спецотчета (без бизнес-обработки)
         """
-        logger.info("Загрузка спецотчета долг/кор по 97: {}", path.name)
+        logger.debug("Загрузка спецотчета долг/кор по 97: {}", path.name)
         
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
             raise ValueError(f"Спецотчет {path.name} не содержит данных")
         
-        logger.info("Загружен спецотчет долг/кор по 97: {} строк", len(df))
+        logger.debug("Загружен спецотчет долг/кор по 97: {} строк", len(df))
         return df
     
     # ----- АНАЛИЗ СЧЕТА -----
@@ -289,7 +289,7 @@ class DataLoader:
         Returns:
             Кортеж (df, check_df) — данные и контрольная таблица
         """
-        logger.info("Загрузка анализ 84: {}", path.name)
+        logger.debug("Загрузка анализ 84: {}", path.name)
         
         DataLoader._validate_file(path)
         df, check_df = DataLoader._process_with_handler(path, 'analisys')
@@ -297,7 +297,7 @@ class DataLoader:
         if df.empty:
             raise ValueError(f"Анализ 84 {path.name} не содержит данных")
         
-        logger.info("Загружен Анализ 84: {} строк", len(df))
+        logger.debug("Загружен Анализ 84: {} строк", len(df))
         return df, check_df
     
     # ----- ОСВ -----
@@ -313,7 +313,7 @@ class DataLoader:
         Returns:
             Кортеж (df, check_df) — данные и контрольная таблица
         """
-        logger.info("Загрузка ОСВ 76 Аренда: {}", ACCOUNTS_OSV_LEASE_DIR.name)
+        logger.debug("Загрузка ОСВ 76 Аренда: {}", ACCOUNTS_OSV_LEASE_DIR.name)
         
         # ★ ВАЛИДАЦИЯ ДИРЕКТОРИИ (а не файла)
         files = DataLoader._validate_directory(ACCOUNTS_OSV_LEASE_DIR, "*.xlsx")
@@ -328,7 +328,7 @@ class DataLoader:
                 f"не содержит данных после обработки {len(files)} файл(ов)"
             )
         
-        logger.info("Загружена ОСВ 76 Аренда: {} строк из {} файл(ов)", len(df), len(files))
+        logger.debug("Загружена ОСВ 76 Аренда: {} строк из {} файл(ов)", len(df), len(files))
         return df, check_df
     
     @staticmethod
@@ -341,7 +341,7 @@ class DataLoader:
         Returns:
             Сводный DataFrame по всем отчетам по проводкам
         """
-        logger.info("Загрузка сводного отчета по проводкам по счетам")
+        logger.debug("Загрузка сводного отчета по проводкам по счетам")
         
         # Поиск файлов
         if not ACCOUNT_CARDS_DIR.exists() or not ACCOUNT_CARDS_DIR.is_dir():
@@ -351,7 +351,7 @@ class DataLoader:
         if not transaction_report_files:
             raise FileNotFoundError(f"В папке {ACCOUNT_CARDS_DIR} нет файлов с отчетами по проводкам (*_отчпровод_*.txt)")
         
-        logger.info("Найдено {} файлов отчеты по проводкам", len(transaction_report_files))
+        logger.debug("Найдено {} файлов отчеты по проводкам", len(transaction_report_files))
         
         # Обработка
         df, _ = DataLoader._process_with_handler(ACCOUNT_CARDS_DIR, 'posting')
@@ -359,7 +359,7 @@ class DataLoader:
         if df.empty:
             raise ValueError("Сводный Отчет по проводкам не содержит данных")
         
-        logger.info("Загружен сводный Отчет по проводкам: {} строк, {} столбцов", len(df), len(df.columns))
+        logger.debug("Загружен сводный Отчет по проводкам: {} строк, {} столбцов", len(df), len(df.columns))
         return df
     
     @staticmethod
@@ -372,7 +372,7 @@ class DataLoader:
         Returns:
             Сводный DataFrame по всем ОСВ
         """
-        logger.info("Загрузка сводной ОСВ по счетам")
+        logger.debug("Загрузка сводной ОСВ по счетам")
         
         # Поиск файлов
         if not ACCOUNTS_OSV_DIR.exists() or not ACCOUNTS_OSV_DIR.is_dir():
@@ -382,7 +382,7 @@ class DataLoader:
         if not osv_files:
             raise FileNotFoundError(f"В папке {ACCOUNTS_OSV_DIR} нет файлов ОСВ (*_осв_*.xlsx)")
         
-        logger.info("Найдено {} файлов ОСВ", len(osv_files))
+        logger.debug("Найдено {} файлов ОСВ", len(osv_files))
         
         # Обработка
         df, _ = DataLoader._process_with_handler(ACCOUNTS_OSV_DIR, 'accountosv')
@@ -390,7 +390,7 @@ class DataLoader:
         if df.empty:
             raise ValueError("Сводная ОСВ не содержит данных")
         
-        logger.info("Загружена сводная ОСВ: {} строк, {} столбцов", len(df), len(df.columns))
+        logger.debug("Загружена сводная ОСВ: {} строк, {} столбцов", len(df), len(df.columns))
         return df
     
     @staticmethod
@@ -418,7 +418,7 @@ class DataLoader:
         if df.empty:
             raise ValueError(f"Общая ОСВ {file_path.name} не содержит данных")
         
-        logger.info("Загружена общая ОСВ: {} ({} строк)", file_path.name, len(df))
+        logger.debug("Загружена общая ОСВ: {} ({} строк)", file_path.name, len(df))
         return df, file_path.name
     
     # ----- Справочники -----

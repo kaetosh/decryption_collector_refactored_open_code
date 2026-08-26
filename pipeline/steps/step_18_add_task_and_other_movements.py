@@ -120,7 +120,7 @@ class Step18AddTaskAndOtherMovementsStep(Step):
             context.journal_df = main_df
 
         logger.info(
-            "✓ Добавлено: Налог на прибыль = {:,.0f} тыс.ед., Прочее = {:,.0f} тыс.ед.",
+            "✓ Добавлен налог на прибыль ({:,.0f} тыс. ед.) и прочие движения ({:,.0f} тыс. ед.)",
             tax_profit,
             other_value,
         )

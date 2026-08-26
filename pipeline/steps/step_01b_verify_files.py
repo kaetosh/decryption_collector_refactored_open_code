@@ -148,7 +148,7 @@ class Step1bVerifyFilesStep(Step):
                             missing_by_dir={k: len(v) for k, v in missing_by_dir.items()},
                         )
         
-        logger.info("✓ Все обязательные файлы выгрузок найдены!")
+        logger.info("✓ Все обязательные файлы выгрузок найдены")
         return context
 
     def _filter_filenames_for_dir(

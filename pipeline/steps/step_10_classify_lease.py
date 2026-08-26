@@ -521,5 +521,17 @@ class Step10ClassifyLeaseSourceStep(Step):
         )
         
         context.summary_osv_df = osv_all_df
+        
+        lease_groups = osv_all_df[osv_all_df['счет'].isin(self.ACCOUNTS_01_03)]
+        if not lease_groups.empty:
+            lease_type_counts = lease_groups['вид_связи'].value_counts().to_dict()
+            logger.info(
+                "✓ Классифицированы источники аренды: {} позиций ({})",
+                len(lease_groups),
+                ', '.join(f'{k} — {v}' for k, v in sorted(lease_type_counts.items(), key=lambda x: -x[1]))
+            )
+        else:
+            logger.info("✓ Арендные позиции (01.03/02.03) не обнаружены")
+        
         return context
 

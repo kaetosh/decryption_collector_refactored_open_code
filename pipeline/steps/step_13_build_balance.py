@@ -279,4 +279,6 @@ class Step13BuildBalanceBreakdownStep(Step):
             len(osv_all_df),
         )
         
+        logger.info("✓ Собрана расшифровка баланса: {} строк отчетности", len(balance_sheet))
+        
         return context
