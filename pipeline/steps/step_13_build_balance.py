@@ -11,9 +11,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import MissingMappingError, ConvergenceError
-from io_module import DataLoader
-from config.settings import TOLERANCE
+from pipeline.errors import MissingMappingError
 
 
 class Step13BuildBalanceBreakdownStep(Step):
@@ -197,11 +195,11 @@ class Step13BuildBalanceBreakdownStep(Step):
         balance_transcripts = balance_transcripts[balance_transcripts['Значение'] != 0]
         
         # 8. Проверка сходимости баланса
-        self._validate_balance_convergence(balance_transcripts)
+        self._validate_balance_convergence(balance_transcripts, context)
         
         return balance_transcripts
     
-    def _validate_balance_convergence(self, balance_df: pd.DataFrame) -> None:
+    def _validate_balance_convergence(self, balance_df: pd.DataFrame, context: ProcessingContext) -> None:
         """
         Проверяет сходимость баланса (актив = пассив).
         
@@ -212,18 +210,18 @@ class Step13BuildBalanceBreakdownStep(Step):
         balance_sum = balance_df['Значение'].sum()
         abs_balance = abs(int(balance_sum))
         
-        if abs_balance > TOLERANCE:
+        if abs_balance > context.tolerance_params['tolerance_balance']:
             logger.error(
                 "Расхождение баланса составляет {} тыс. ед., "
                 "что превышает допуск {} тыс. ед.",
                 abs_balance,
-                TOLERANCE,
+                context.tolerance_params['tolerance_balance'],
             )
         else:
             logger.debug(
                 "Баланс сходится: расхождение {} тыс. ед. (допуск {} тыс. ед.)",
                 abs_balance,
-                TOLERANCE,
+                context.tolerance_params['tolerance_balance'],
             )
     
     # =========================================================================

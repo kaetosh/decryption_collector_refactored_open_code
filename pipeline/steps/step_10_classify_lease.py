@@ -28,7 +28,7 @@ class Step10ClassifyLeaseSourceStep(Step):
     
     # Допуск для проверки сходимости (в тыс.ед.)
     # 1000 тыс.ед. = 1 млн руб — экспертный допуск для остаточной стоимости ОС
-    CONVERGENCE_TOLERANCE = 3000
+    # CONVERGENCE_TOLERANCE = 3000
     
     # Имя справочника для кэширования
     RELATED_PARTIES_SHEET = 'ВидСвязиКА'
@@ -77,7 +77,8 @@ class Step10ClassifyLeaseSourceStep(Step):
     def _validate_input_convergence(
         self, 
         osv_all_df: pd.DataFrame, 
-        depreciation_df: pd.DataFrame
+        depreciation_df: pd.DataFrame,
+        context: ProcessingContext
     ) -> None:
         """
         Проверяет сходимость сумм по 01.03/02.03 между сводной ОСВ и ведомостью амортизации
@@ -99,7 +100,7 @@ class Step10ClassifyLeaseSourceStep(Step):
         
         diff = abs(sum_osv - sum_depr)
         
-        if diff > self.CONVERGENCE_TOLERANCE:
+        if diff > context.tolerance_params['tolerance_leased_os']:
             # Формируем problem_data для диагностики
             problem_data = pd.DataFrame({
                 'показатель': [
@@ -108,7 +109,7 @@ class Step10ClassifyLeaseSourceStep(Step):
                     'Разница',
                     'Допуск'
                 ],
-                'значение': [sum_osv, sum_depr, diff, self.CONVERGENCE_TOLERANCE],
+                'значение': [sum_osv, sum_depr, diff, context.tolerance_params['tolerance_leased_os']],
                 'единица_измерения': ['тыс.ед.', 'тыс.ед.', 'тыс.ед.', 'тыс.ед.'],
             })
             
@@ -120,7 +121,7 @@ class Step10ClassifyLeaseSourceStep(Step):
                 problem_data=problem_data,
                 reference_name="Входная сверка: ОСВ vs Ведомость амортизации",
                 difference=diff,
-                tolerance=self.CONVERGENCE_TOLERANCE,
+                tolerance=context.tolerance_params['tolerance_leased_os'],
                 sum_before=sum_osv,
                 sum_after=sum_depr,
             )
@@ -131,7 +132,7 @@ class Step10ClassifyLeaseSourceStep(Step):
             sum_osv,
             sum_depr,
             diff,
-            self.CONVERGENCE_TOLERANCE,
+            context.tolerance_params['tolerance_leased_os'],
         )
     
     def _process_depreciation_statement_decoding(
@@ -466,7 +467,7 @@ class Step10ClassifyLeaseSourceStep(Step):
         depreciation_df = self._prepare_depreciation_data(depreciation_df)
         
         # Проверка ВХОДНОЙ сходимости (ДО расшифровки)
-        self._validate_input_convergence(osv_all_df, depreciation_df)
+        self._validate_input_convergence(osv_all_df, depreciation_df, context)
         
         # 3. Выравнивание столбцов с osv_all_df
         depreciation_df = self._align_columns(depreciation_df, osv_all_df)
@@ -492,11 +493,11 @@ class Step10ClassifyLeaseSourceStep(Step):
         sum_after = osv_all_df[osv_all_df['счет'].isin(self.ACCOUNTS_01_03)]['сальдо, тыс.ед.'].sum()
         diff = abs(sum_before - sum_after)
         
-        if diff > self.CONVERGENCE_TOLERANCE:
+        if diff > context.tolerance_params['tolerance_leased_os']:
             # ★ Формируем problem_data — информацию о расхождении
             problem_data = pd.DataFrame({
                 'показатель': ['Сумма до объединения', 'Сумма после объединения', 'Разница', 'Допуск'],
-                'значение': [sum_before, sum_after, diff, self.CONVERGENCE_TOLERANCE],
+                'значение': [sum_before, sum_after, diff, context.tolerance_params['tolerance_leased_os']],
                 'единица_измерения': ['тыс.ед.', 'тыс.ед.', 'тыс.ед.', 'тыс.ед.'],
             })
             
@@ -510,7 +511,7 @@ class Step10ClassifyLeaseSourceStep(Step):
                 problem_data=problem_data,
                 reference_name="Ведомость амортизации vs ОСВ",
                 difference=diff,
-                tolerance=self.CONVERGENCE_TOLERANCE,
+                tolerance=context.tolerance_params['tolerance_leased_os'],
                 sum_before=sum_before,
                 sum_after=sum_after,
             )

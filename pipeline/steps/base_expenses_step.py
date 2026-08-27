@@ -47,7 +47,7 @@ class StepAddExpensesToOpuBase(Step):
     ACCOUNTS_CONTRACTORS = ('60', '76')
     
     # Допуск для проверки сходимости с ОСВ (в тыс.ед.)
-    TOLERANCE_OSV = 1000
+    # TOLERANCE_OSV = 1000
     
     def __init__(
         self,
@@ -102,7 +102,7 @@ class StepAddExpensesToOpuBase(Step):
         df_result = self._distribute_expenses(df_accum_clean, df_opu)
         
         # 6. Проверка сходимости с ОСВ
-        self._validate_against_osv(df_result, osv_df)
+        self._validate_against_osv(df_result, osv_df, context)
         
         # 7. Объединение с основной расшифровкой ОПУ
         df_final = self._merge_with_main_df(context.journal_df, df_result)
@@ -453,7 +453,8 @@ class StepAddExpensesToOpuBase(Step):
     def _validate_against_osv(
         self,
         df_result: pd.DataFrame,
-        osv_df: pd.DataFrame
+        osv_df: pd.DataFrame,
+        context: ProcessingContext
     ) -> None:
         """Проверяет сходимость расходов с общей ОСВ."""
         expenses_osv = osv_df.loc[
@@ -463,11 +464,11 @@ class StepAddExpensesToOpuBase(Step):
         expenses_from_result = df_result['оборот, тыс.ед.'].sum()
         difference = abs(expenses_osv - expenses_from_result)
         
-        if difference > self.TOLERANCE_OSV:
+        if difference > context.tolerance_params['tolerance_reconciliation']:
             raise ValueError(
                 f"{self.OPU_LINE_NAME} из отчёта по проводкам ({expenses_from_result:,.2f} тыс.ед.) "
                 f"отличаются от общей ОСВ ({expenses_osv:,.2f} тыс.ед.) "
-                f"на {difference:,.2f} тыс.ед. (допуск: {self.TOLERANCE_OSV})"
+                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})"
             )
         
         logger.debug(

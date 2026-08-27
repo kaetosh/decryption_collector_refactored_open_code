@@ -10,7 +10,6 @@ from typing import Tuple
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
 from io_module import DataLoader
-from config.settings import REFERENCE_CONFIGS
 
 
 class Step14BuildOpuFoundationStep(Step):
@@ -30,7 +29,7 @@ class Step14BuildOpuFoundationStep(Step):
     ACCOUNTS_REVENUE_COST = ['90.01', '90.02']
     
     # Допуск для проверки сходимости с ОСВ (в тыс.ед.)
-    TOLERANCE_OSV = 1000
+    # TOLERANCE_OSV = 1000
     
     def __init__(self):
         super().__init__(
@@ -55,11 +54,11 @@ class Step14BuildOpuFoundationStep(Step):
         context.data['transactions_all_df'] = transactions_all_df
         
         # 3. Обработка выручки (90.01)
-        df9001 = self._process_revenue_9001(transactions_all_df, osv_df)
+        df9001 = self._process_revenue_9001(transactions_all_df, osv_df, context)
         
         # 4. Обработка себестоимости (90.02) с выделением переоценки
         df9002, df9002_16 = self._process_cost_9002(
-            transactions_all_df, osv_df, name_company, company_directory_df
+            transactions_all_df, osv_df, name_company, company_directory_df, context
         )
         
         # 5. Распределение себестоимости на контрагентов
@@ -126,7 +125,8 @@ class Step14BuildOpuFoundationStep(Step):
     def _process_revenue_9001(
         self, 
         transactions_all_df: pd.DataFrame, 
-        osv_df: pd.DataFrame
+        osv_df: pd.DataFrame,
+        context: ProcessingContext
     ) -> pd.DataFrame:
         """Обрабатывает выручку по счету 90.01."""
         logger.debug("Обработка выручки (90.01)")
@@ -167,7 +167,7 @@ class Step14BuildOpuFoundationStep(Step):
         )['выручка_без_ндс_тыс_ед'].sum()
         
         # Проверка сходимости с ОСВ
-        self._validate_revenue_against_osv(df9001, osv_df)
+        self._validate_revenue_against_osv(df9001, osv_df, context)
         
         logger.debug("Выручка обработана: {} строк", len(df9001))
         
@@ -176,7 +176,8 @@ class Step14BuildOpuFoundationStep(Step):
     def _validate_revenue_against_osv(
         self, 
         df9001: pd.DataFrame, 
-        osv_df: pd.DataFrame
+        osv_df: pd.DataFrame,
+        context: ProcessingContext
     ) -> None:
         """Проверяет сходимость выручки с общей ОСВ."""
         revenue_osv_9001 = osv_df.loc[
@@ -191,11 +192,11 @@ class Step14BuildOpuFoundationStep(Step):
         
         difference = abs(revenue_without_vat - revenue_from_df9001)
         
-        if difference > self.TOLERANCE_OSV:
+        if difference > context.tolerance_params['tolerance_reconciliation']:
             raise ValueError(
                 f"Выручка из отчёта по проводкам ({revenue_from_df9001:,.2f} тыс.ед.) "
                 f"отличается от общей ОСВ ({revenue_without_vat:,.2f} тыс.ед.) "
-                f"на {difference:,.2f} тыс.ед. (допуск: {self.TOLERANCE_OSV})"
+                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})"
             )
         
         logger.debug(
@@ -214,7 +215,8 @@ class Step14BuildOpuFoundationStep(Step):
         transactions_all_df: pd.DataFrame,
         osv_df: pd.DataFrame,
         name_company: str,
-        company_directory_df: pd.DataFrame
+        company_directory_df: pd.DataFrame,
+        context: ProcessingContext
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Обрабатывает себестоимость по счету 90.02.
@@ -256,7 +258,7 @@ class Step14BuildOpuFoundationStep(Step):
         )['себестоимость_тыс_ед'].sum()
         
         # Проверка сходимости с ОСВ
-        self._validate_cost_against_osv(df9002, osv_df, turn_df9002_16)
+        self._validate_cost_against_osv(df9002, osv_df, turn_df9002_16, context)
         
         logger.debug(
             "Себестоимость обработана: {} строк основной, {} строк переоценки",
@@ -337,7 +339,8 @@ class Step14BuildOpuFoundationStep(Step):
         self,
         df9002: pd.DataFrame,
         osv_df: pd.DataFrame,
-        turn_df9002_16: float
+        turn_df9002_16: float,
+        context: ProcessingContext
     ) -> None:
         """Проверяет сходимость себестоимости с общей ОСВ."""
         cost_price_osv_9002 = osv_df.loc[
@@ -348,11 +351,11 @@ class Step14BuildOpuFoundationStep(Step):
         
         difference = abs(cost_price_osv_9002 - cost_price_from_df9002)
         
-        if difference > self.TOLERANCE_OSV:
+        if difference > context.tolerance_params['tolerance_reconciliation']:
             raise ValueError(
                 f"Себестоимость из отчёта по проводкам ({cost_price_from_df9002:,.2f} тыс.ед.) "
                 f"отличается от общей ОСВ ({cost_price_osv_9002:,.2f} тыс.ед.) "
-                f"на {difference:,.2f} тыс.ед. (допуск: {self.TOLERANCE_OSV})"
+                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})"
             )
         
         logger.debug(

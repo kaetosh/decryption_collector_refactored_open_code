@@ -11,7 +11,8 @@ from datetime import datetime
 import pandas as pd
 from typing import Any, Dict, Optional
 from loguru import logger
-from config.settings import (TOLERANCE,
+from config.settings import (
+                             # TOLERANCE,
                              OUTPUT_DATA_DIR,
                              STRICT_CONTRACTOR_CHECK)
 from pipeline.errors import (
@@ -62,6 +63,9 @@ class ProcessingContext:
 
     # Справочники
     references: Dict[str, pd.DataFrame] = field(default_factory=dict)
+    
+    # Параметры допусков сходимости
+    tolerance_params: Dict[str, float] = field(default_factory=dict)
 
     # Рабочие таблицы
     summary_osv_df: Optional[pd.DataFrame] = None
@@ -214,11 +218,11 @@ class Step(ABC):
     
                 balance_sum = balance_values.sum()
     
-                if abs(balance_sum) > TOLERANCE:
+                if abs(balance_sum) > context.tolerance_params['tolerance_balance']:
                     raise ValueError(
                         f"После этапа '{self.name}' в {df_name} ОСВ не сошлась: "
                         f"сумма сальдо = {balance_sum:.2f} тыс.ед. "
-                        f"(допуск: {TOLERANCE})"
+                        f"(допуск: {context.tolerance_params['tolerance_balance']})"
                     )
     
                 logger.debug(

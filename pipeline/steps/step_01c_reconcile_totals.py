@@ -29,7 +29,7 @@ class Step1cReconcileTotalsStep(Step):
     """
     Шаг 1в: Сверка остатков и оборотов между общей ОСВ и детальных выгрузок.
     """
-    CONVERGENCE_TOLERANCE = 1000
+    # CONVERGENCE_TOLERANCE = 1000
 
     def __init__(self):
         super().__init__(
@@ -169,8 +169,8 @@ class Step1cReconcileTotalsStep(Step):
             
         discrepancies_turnover = merged_turnover[
             (merged_turnover['_merge'] != 'both') | 
-            (merged_turnover['дебет_оборот, тыс. ед._diff'].abs() > self.CONVERGENCE_TOLERANCE) |
-            (merged_turnover['кредит_оборот, тыс. ед._diff'].abs() > self.CONVERGENCE_TOLERANCE)
+            (merged_turnover['дебет_оборот, тыс. ед._diff'].abs() > context.tolerance_params['tolerance_reconciliation']) |
+            (merged_turnover['кредит_оборот, тыс. ед._diff'].abs() > context.tolerance_params['tolerance_reconciliation'])
         ].copy()
         
         discrepancies_turnover = discrepancies_turnover.loc[:, [
@@ -200,7 +200,7 @@ class Step1cReconcileTotalsStep(Step):
             
         discrepancies_balance = merged_balance[
             (merged_balance['_merge'] != 'both') | 
-            (merged_balance['сальдо_свернуто, тыс. ед._diff'].abs() > self.CONVERGENCE_TOLERANCE)
+            (merged_balance['сальдо_свернуто, тыс. ед._diff'].abs() > context.tolerance_params['tolerance_reconciliation'])
         ].copy()
         
         discrepancies_balance = discrepancies_balance.loc[:, [
@@ -219,9 +219,9 @@ class Step1cReconcileTotalsStep(Step):
             
             error_messages = []
             if has_balance_error:
-                error_messages.append(f"• Сальдо (Общая ОСВ vs ОСВ по счетам): расхождения превышают порог {self.CONVERGENCE_TOLERANCE} тыс. ед.")
+                error_messages.append(f"• Сальдо (Общая ОСВ vs ОСВ по счетам): расхождения превышают порог {context.tolerance_params['tolerance_reconciliation']} тыс. ед.")
             if has_turnover_error:
-                error_messages.append(f"• Обороты (Общая ОСВ vs Отчеты по проводкам): расхождения превышают порог {self.CONVERGENCE_TOLERANCE} тыс. ед.")
+                error_messages.append(f"• Обороты (Общая ОСВ vs Отчеты по проводкам): расхождения превышают порог {context.tolerance_params['tolerance_reconciliation']} тыс. ед.")
                 
             full_message = (
                 "Обнаружены расхождения, превышающие установленный порог. "
@@ -246,12 +246,12 @@ class Step1cReconcileTotalsStep(Step):
                 message=full_message,
                 problem_data=combined_problem_data,
                 reference_name='Реконциляция итогов (Сальдо и Обороты)',
-                tolerance=self.CONVERGENCE_TOLERANCE
+                tolerance=context.tolerance_params['tolerance_reconciliation']
             )
             
         logger.info(
             "✓ Реконциляция пройдена: расхождения в сальдо и оборотах "
             "в пределах нормы (до {} тыс. ед.)",
-            self.CONVERGENCE_TOLERANCE,
+            context.tolerance_params['tolerance_reconciliation'],
         )
         return context

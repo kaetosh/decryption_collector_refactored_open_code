@@ -26,6 +26,8 @@ from loguru import logger
 from logging_handling.logger_config import setup_logger
 from pipeline.base import Pipeline, ProcessingContext
 from config.settings import REFERENCE_CONFIGS
+from config.defaults import TOLERANCE_DESCRIPTIONS
+from config.loader import load_params
 from pipeline.base import Step
 from pipeline.errors import ReferenceMismatchError
 
@@ -127,12 +129,7 @@ def create_main_pipeline() -> Pipeline:
 def pause_for_osv_general_export() -> None:
     """
     Приостанавливает выполнение и ждет, пока бухгалтер выгрузит Общую ОСВ из 1С.
-    
-    Returns
-    -------
-    None
     """
-    
     print("\n" + "=" * 80)
     print()
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
@@ -140,25 +137,21 @@ def pause_for_osv_general_export() -> None:
     print("   2. Убедитесь, что имя файла с Общей ОСВ имеет следующий формат:")
     print("      СокрНаименованиеКомпании_общаяосв_нд_Период_.xlsx, например, РЗК_общаяосв_нд_2025_.xlsx")
     print("   3. Убедитесь, что наименование компании соотвествует данным на листе КомпанииГруппы файла Справочники.xlsx из папки _REFERENCE_DATA")
+    print()
+    print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")
     print("=" * 80)
-    
     try:
         input("\n[PAUSE] Когда файл с Общей ОСВ будет готов, нажмите Enter для продолжения...")
     except EOFError:
         pass
     print("=" * 80 + "\n")
 
+
 def pause_for_1c_export(context: ProcessingContext) -> None:
     """
     Приостанавливает выполнение и ждет, пока бухгалтер выгрузит файлы из 1С.
-    
-    Эта функция вынесена отдельно, чтобы:
-    - Легко читалась в main.py
-    - Могла быть заменена на GUI-диалог или автоматический режим
-    - Не засорять бизнес-логику шагов
     """
     expected_count = len(context.data.get('expected_filenames', []))
-    
     print("\n" + "=" * 80)
     print(f"[LIST] Сформирован список из {expected_count} регистров к выгрузке.")
     print("[FOLDER] Список сохранен в папке OUTPUT_DATA.")
@@ -167,8 +160,9 @@ def pause_for_1c_export(context: ProcessingContext) -> None:
     print("   1. Откройте файл 'Выгрузить_*.xlsx' в папке OUTPUT_DATA")
     print("   2. Выгрузите указанные регистры из 1С")
     print("   3. Положите все файлы в папку INPUT_DATA в подпапки, указанные в поле 'куда класть' файла 'Выгрузить_*.xlsx'")
+    print()
+    print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")
     print("=" * 80)
-    
     try:
         input("\n[PAUSE] Когда файлы будут готовы, нажмите Enter для продолжения...")
     except EOFError:
@@ -188,6 +182,7 @@ class ReferenceSpec:
     strings: tuple[str, ...] = ()
     extra_kwargs: dict[str, Any] = field(default_factory=dict)
     usecols: tuple[int, ...] | None = None
+    required: bool = True
 
 
 REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
@@ -196,8 +191,8 @@ REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
         strings=("РСБУ Код отчетности", "Итоговый номер счета"),
     ),
     "меппинг_баланс": ReferenceSpec(
-        sheet_name="Меппинг",
-        **REFERENCE_CONFIGS["Меппинг"],
+        sheet_name="Меппинг_бб",
+        **REFERENCE_CONFIGS["Меппинг_бб"],
     ),
     "меппинг_опу": ReferenceSpec(
         sheet_name="Меппинг_опу",
@@ -212,6 +207,16 @@ REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
         ),
     ),
     "выгрузки": ReferenceSpec(sheet_name="Выгрузки"),
+    "параметры": ReferenceSpec(
+        sheet_name="Параметры",
+        strings=(
+            "параметр",
+            "описание",
+            "ед. изм.",
+            "тип данных значения",
+        ),
+        required=False,
+    ),
     "план_счетов_бу": ReferenceSpec(
         sheet_name="ПланСчетовБУ",
         strings=(
@@ -275,13 +280,28 @@ def _load_all_references() -> dict[str, pd.DataFrame]:
     references: dict[str, pd.DataFrame] = {}
 
     for key, spec in REFERENCE_REGISTRY.items():
-        logger.debug("Загрузка справочника '{}' (лист '{}')", key, spec.sheet_name)
+        logger.debug(
+            "Загрузка справочника '{}' (лист '{}')",
+            key,
+            spec.sheet_name,
+        )
+
+        loader_kwargs = dict(spec.extra_kwargs)
+        loader_kwargs["required"] = spec.required
+
+        if spec.usecols is not None:
+            loader_kwargs.setdefault("usecols", list(spec.usecols))
+
         df = DataLoader.load_reference_data(
             sheet_name=spec.sheet_name,
             strings=list(spec.strings),
-            **spec.extra_kwargs,
+            **loader_kwargs,
         )
-        references[key] = Step.clean_whitespace(df)
+
+        if df.empty:
+            references[key] = df
+        else:
+            references[key] = Step.clean_whitespace(df)
 
     return references
 
@@ -386,7 +406,7 @@ def initialize_context() -> ProcessingContext:
     logger.debug("Инициализация контекста обработки")
 
     context = ProcessingContext()
-
+    
     # Шаг 1. Загрузка общей ОСВ
     osv_df, osv_filename = DataLoader.load_general_osv()
     
@@ -399,8 +419,9 @@ def initialize_context() -> ProcessingContext:
     # Шаг 2. Извлечение метаданных из имени файла
     context.company, context.period = _parse_osv_filename(osv_filename)
 
-    # Шаг 3. Загрузка всех справочников
+    # Шаг 3. Загрузка всех справочников и параметров
     context.references = _load_all_references()
+    
 
     # Шаг 4. Валидация компании и обогащение контекста
     _validate_and_enrich_company_info(context)
@@ -563,65 +584,72 @@ def ask_user_about_traceback() -> bool:
         return False
 
 def main(show_traceback: bool = False, verbose: bool = False) -> int:
-    
-    """
-    Главная функция приложения.
-    
-    Выполняет следующие действия:
-    1. Настраивает логирование
-    2. Инициализирует контекст
-    3. Запускает первый пайплайн (подготовка списка выгрузок)
-    4. Делает паузу для выгрузки данных из 1С
-    5. Запускает второй пайплайн (основная обработка)
-    6. Сохраняет результаты
-    """
+    """Главная функция приложения."""
     # Настраиваем логирование
     if verbose:
         setup_logger(console_level='DEBUG')
     else:
         setup_logger()
-    
+
     logger.info("=" * 80)
     logger.info("Запуск приложения --СОБИРАТЕЛЬ РАСШИФРОВОК--")
     if show_traceback:
         logger.info("Режим: с полной трассировкой стека")
     logger.info("=" * 80)
-    
+
     try:
         # ФАЗА 0
         logger.info("ФАЗА 0: Ожидаем общую ОСВ в INPUT DATA")
         pause_for_osv_general_export()
-        
+        logger.info("Проверяем Общую ОСВ...")
         context = initialize_context()
-        
+        context.tolerance_params = load_params(context)
+
         # ФАЗА 1
         logger.info("ФАЗА 1: Формирование списка выгрузок из 1С")
         preparation_pipeline = create_preparation_pipeline()
         context = preparation_pipeline.run(context)
-        
+
         # ПАУЗА
         pause_for_1c_export(context)
-        
+
         # ФАЗА 2
         logger.info("ФАЗА 2: Основная обработка данных")
+        
+        lines = ["Используемые допуски сходимости, не более, в тыс.:"]
+
+        for key, value in context.tolerance_params.items():
+            description = TOLERANCE_DESCRIPTIONS.get(key, key)
+            formatted_value = f"{value:,.0f}".replace(",", " ")
+            lines.append(f"  • {description}: {formatted_value}")
+        
+        logger.info("\n".join(lines))
         main_pipeline = create_main_pipeline()
         context = main_pipeline.run(context)
-        
+
         save_results(context)
-        
+
         logger.info("=" * 80)
         logger.info("Приложение успешно завершено")
         logger.info("=" * 80)
-        
         return 0
-        
+
+    except KeyboardInterrupt:
+        # Корректное завершение по Ctrl+C — без traceback
+        logger.info("")
+        logger.info("=" * 80)
+        logger.warning("⚠ Получен сигнал прерывания (Ctrl+C). Завершаем работу.")
+        logger.info("   Несохранённые промежуточные результаты могли быть потеряны.")
+        logger.info("=" * 80)
+        return 130  # стандартный код выхода для SIGINT
+
     except FileNotFoundError as e:
         logger.error("✗ Ошибка: не найдены файлы выгрузок")
         logger.error("  {}", e)
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1
-        
+
     except Exception as e:
         logger.critical("✗ Неожиданная ошибка: {}", e)
         if show_traceback:

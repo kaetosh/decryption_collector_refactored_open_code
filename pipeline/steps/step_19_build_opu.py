@@ -33,14 +33,14 @@ class Step19BuildOpuStep(Step):
     UNMAPPED_ACCOUNT: Final = "не_указано"
 
     RETAINED_EARNINGS_CODE: Final = "240010200"
-    MAX_PROFIT_DIFF: Final = 1000
+    # MAX_PROFIT_DIFF: Final = 1000
 
     MAPPING_REF: Final = "меппинг_опу"
     CHART_OF_ACCOUNTS_REF: Final = "план_счетов_фо"
 
     # Алиасы для обратной совместимости со старыми именами
-    BALANCE_COL: Final = AMOUNT_COL
-    max_clean_profit_vs_retained_earnings_diff: Final = MAX_PROFIT_DIFF
+    # BALANCE_COL: Final = AMOUNT_COL
+    # max_clean_profit_vs_retained_earnings_diff: Final = MAX_PROFIT_DIFF
 
     MAPPING_KEY_COLS: Final = (
         "счет",
@@ -78,7 +78,7 @@ class Step19BuildOpuStep(Step):
         journal_df = context.journal_df.copy()
 
         self._prepare_amount_column(journal_df)
-        self._check_profit_vs_balance(context.balance_df, journal_df)
+        self._check_profit_vs_balance(context.balance_df, journal_df, context)
 
         mapping_ref = self._get_reference(context, self.MAPPING_REF)
         journal_df = self._apply_opu_mapping(journal_df, mapping_ref)
@@ -289,7 +289,8 @@ class Step19BuildOpuStep(Step):
     # Сверка ОПУ и баланса
     # ------------------------------------------------------------------
 
-    def _check_profit_vs_balance(self, balance_df: pd.DataFrame, journal_df: pd.DataFrame) -> None:
+    def _check_profit_vs_balance(self, balance_df: pd.DataFrame, journal_df: pd.DataFrame,
+                                 context: ProcessingContext) -> None:
         """
         Сверяет чистую прибыль по ОПУ и нераспределенную прибыль
         текущего периода по балансу.
@@ -298,11 +299,11 @@ class Step19BuildOpuStep(Step):
         net_profit = float(journal_df[self.AMOUNT_COL].sum())
         diff = abs(retained_earnings - net_profit)
 
-        if diff > self.MAX_PROFIT_DIFF:
+        if diff > context.tolerance_params['tolerance_pnl_balance']:
             message = (
                 "Разница между чистой прибылью в расшифровке ОПУ и НРП текущего периода "
                 f"в расшифровке баланса составляет {diff:,.0f} тыс.ед., что превышает "
-                f"допустимый порог в {self.MAX_PROFIT_DIFF:,.0f} тыс.ед."
+                f"допустимый порог в {context.tolerance_params['tolerance_pnl_balance']:,.0f} тыс.ед."
             )
             logger.error(message)
             raise ValueError(message)
@@ -310,7 +311,7 @@ class Step19BuildOpuStep(Step):
         logger.info(
             "✓ Сходимость чистой прибыли с балансом подтверждена: разница {:,.0f} тыс. ед. (порог {:,.0f})",
             diff,
-            self.MAX_PROFIT_DIFF,
+            context.tolerance_params['tolerance_pnl_balance'],
         )
 
     def _get_retained_earnings(self, balance_df: pd.DataFrame) -> float:
@@ -619,145 +620,3 @@ class Step19BuildOpuStep(Step):
         empty = pd.DataFrame({self.VALUE_COL: pd.Series(dtype="float64")})
         empty.index = pd.Index(pd.array([], dtype="string"), name=self.ACCOUNT_COL)
         return empty
-
-
-# """
-# Шаг 19: Финальная сборка расшифровки ОПУ.
-# """
-# import pandas as pd
-# from loguru import logger
-# from pipeline.base import Step, ProcessingContext
-# from pipeline.errors import MissingMappingError
-
-# class Step19BuildOpuStep(Step):
-#     """
-#     Шаг 19: Финальная сборка расшифровки ОПУ.
-#     """
-    
-#     OPU_REPORT = 'ОПУ'
-#     BALANCE_COL = 'оборот, тыс.ед.'
-    
-#     # максимально допустимая разница между чистой прибылью в ОПУ и нераспределенной прибылью текущего периода в балансе
-#     max_clean_profit_vs_retained_earnings_diff = 1000
-    
-#     def __init__(self):
-#         super().__init__(
-#             name="Шаг 19: Финальная сборка расшифровки ОПУ",
-#             description="Финальная сборка расшифровки ОПУ"
-#         )
-
-#     def _process(self, context: ProcessingContext) -> ProcessingContext:
-#         logger.debug("Начало финальной сборки расшифровки ОПУ")
-        
-#         # текущая таблица с ОПУ
-#         df_final = context.journal_df.copy()
-        
-#         # сверим чистую прибыль по расшифровке ОПУ
-#         # и нераспределенную прибыль текущего периода по расшифровке баланса
-#         # это код "240010200"
-
-#         try:
-#             current_period_NRP = context.balance_df.loc['240010200', 'Значение'].item()
-#         except ValueError as e:
-#             # Логируем или обрабатываем ситуацию
-#             logger.warning(f"Не удалось извлечь НРП текущего периода из расшифровки баланса: {e}")
-#             raise ValueError(f"Не удалось извлечь НРП текущего периода из расшифровки баланса: {e}")
-        
-#         net_profit = df_final['оборот, тыс.ед.'].sum()
-        
-#         clean_profit_vs_retained_earnings_diff = abs(current_period_NRP - net_profit)
-        
-#         if clean_profit_vs_retained_earnings_diff>self.max_clean_profit_vs_retained_earnings_diff:
-#             logger.error(f'Разница между чистой прибылью в расшифровке ОПУ и НРП текущего периода в расшифровке балансе составляет {clean_profit_vs_retained_earnings_diff} тыс.ед, что превышает допустимый порог в {self.max_clean_profit_vs_retained_earnings_diff} тыс. ед.')
-#             raise ValueError(f'Разница между чистой прибылью в расшифровке ОПУ и НРП текущего периода в расшифровке балансе составляет {clean_profit_vs_retained_earnings_diff} тыс.ед, что превышает допустимый порог в {self.max_clean_profit_vs_retained_earnings_diff} тыс. ед.')
-#         else:
-#             logger.info(f'Разница между чистой прибылью в расшифровке ОПУ и НРП текущего периода в расшифровке балансе составляет {clean_profit_vs_retained_earnings_diff} тыс.ед, что НЕ превышает допустимый порог в {self.max_clean_profit_vs_retained_earnings_diff} тыс. ед.')
-        
-#         key_cols = ['счет', 'вид_дохода_расхода', 'сегмент', 'вид_связи']
-        
-#         ref_keyed = (
-#             context.references["меппинг_опу"]
-#             .drop_duplicates(subset=key_cols)
-#             .set_index(key_cols)['счет_фо']
-#         )
-        
-
-#         mapped = df_final.set_index(key_cols).index.map(ref_keyed).values
-#         # mapped теперь содержит новые значения и NaN там, где ключ не найден
-        
-#         # Если старое значение уже есть, оставляем его. Иначе берем mapped.
-#         # Удобно сделать через pd.Series, чтобы align по индексу
-#         mapped_series = pd.Series(mapped, index=df_final.index)
-#         df_final['счет_фо'] = mapped_series.fillna(df_final['счет_фо'])
-                
-#         unmatched = df_final['счет_фо'].isna().sum()
-#         total = len(df_final)
-#         logger.info(f"Найдено совпадений: {total - unmatched} из {total}")
-#         logger.info(f"Не найдено (NaN): {unmatched} ({unmatched/total*100:.1f}%)")
-        
-#         if unmatched > 0:
-
-#             #Пустые значения заполним значения "не_указано"
-#             df_final['счет_фо'] = df_final['счет_фо'].fillna('не_указано')
-            
-#             unmapped_mask = df_final['счет_фо'] == 'не_указано'
-            
-#             # Формируем problem_data — все незамапленные строки ОПУ
-#             # (не только уникальные комбинации, а все строки для полного анализа)
-#             str_cols = ['контрагент', 'ном_группа', 'счет', 'доход_расход', 'вид_дохода_расхода',
-#                         'сегмент', 'группа_ка', 'сегмент_ка', 'вид_связи', 'объект для изм ппа', 'рбп_кредитные_линии']
-            
-#             problem_data = df_final.loc[
-#                 unmapped_mask, 
-#                 str_cols + ['счет_фо', 'оборот, тыс.ед.']
-#             ].copy()
-            
-#             # Уникальные комбинации для метаданных
-#             unmapped_unique = problem_data[str_cols].drop_duplicates()
-            
-#             # ★ Выбрасываем MissingMappingError
-#             # Базовый класс сам сохранит в Excel и залогорирует
-#             raise MissingMappingError(
-#                 message=(
-#                     f"НЕ ВСЕ позиции соответствуют Меппингу опу. "
-#                     f"Найдено {len(unmapped_unique)} уникальных незамапленных комбинаций"
-#                 ),
-#                 problem_data=problem_data,
-#                 reference_name="Меппинг ОПУ",
-#                 unique_combinations_count=len(unmapped_unique),
-#                 total_unmapped_rows=len(problem_data),
-#             )
-            
-#         context.journal_df = df_final
-        
-        
-#         chart_accounts_df = context.references['план_счетов_фо']
-        
-#         # Фильтрация только статей баланса
-#         opu_transcripts = chart_accounts_df[
-#             chart_accounts_df['Отчетность'] == self.OPU_REPORT
-#         ].copy()
-        
-#         # Валидация структуры
-#         if 'Итоговый номер счета' not in opu_transcripts.columns:
-#             raise ValueError("В ПланСчетов отсутствует столбец 'Итоговый номер счета'")
-        
-#         # Устанавливаем индекс
-#         opu_transcripts = opu_transcripts.set_index('Итоговый номер счета')
-        
-#         # Агрегация сальдо по счёт_фо
-#         sum_by_account = df_final.groupby('счет_фо')[self.BALANCE_COL].sum()
-        
-#         # Маппинг сальдо в баланс
-#         opu_transcripts['Значение'] = (
-#             opu_transcripts.index
-#             .map(sum_by_account)
-#             .fillna(0)
-#         )
-        
-#         # Удаление нулевых строк
-#         opu_transcripts = opu_transcripts[opu_transcripts['Значение'] != 0]
-        
-#         context.pnl_df = opu_transcripts
-        
-#         return context

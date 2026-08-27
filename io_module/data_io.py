@@ -427,41 +427,64 @@ class DataLoader:
     def load_reference_data(
         sheet_name: str,
         strings: Optional[List[str]] = None,
-        usecols: Optional[List[int]] = None
+        usecols: Optional[List[int]] = None,
+        *,
+        required: bool = True,
     ) -> pd.DataFrame:
         """
         Загружает справочные данные из файла справочников.
-        
+    
         Args:
             sheet_name: Имя листа в файле справочников
             strings: Столбцы, которые нужно привести к типу 'string'
             usecols: Индексы столбцов для чтения (None = все)
-            
+            required: Если True — падать при ошибке.
+                      Если False — вернуть пустой DataFrame.
+    
         Returns:
             DataFrame со справочными данными
         """
         logger.debug("Загрузка справочника: {}", sheet_name)
-        
-        if not REFERENCE_DATA_FILE.exists():
-            raise FileNotFoundError(f"Файл справочников {REFERENCE_DATA_FILE} не найден")
-        
+    
         try:
+            if not REFERENCE_DATA_FILE.exists():
+                raise FileNotFoundError(
+                    f"Файл справочников {REFERENCE_DATA_FILE} не найден"
+                )
+    
             df = pd.read_excel(
                 REFERENCE_DATA_FILE,
                 sheet_name=sheet_name,
-                dtype='string',
-                usecols=usecols
+                dtype="string",
+                usecols=usecols,
             )
-            
+    
             if strings:
                 existing_cols = [col for col in strings if col in df.columns]
                 if existing_cols:
-                    df = df.astype({col: 'string' for col in existing_cols})
-            
-            logger.debug("Загружен справочник '{}': {} строк", sheet_name, len(df))
+                    df = df.astype({col: "string" for col in existing_cols})
+    
+            logger.debug(
+                "Загружен справочник '{}': {} строк",
+                sheet_name,
+                len(df),
+            )
+    
             return df
-            
+    
         except Exception as e:
+            if not required:
+                logger.warning(
+                    "⚠ Не удалось загрузить справочник '{}': {}."
+                    "Продолжаем с пустым DataFrame.",
+                    sheet_name,
+                    e,
+                )
+                return pd.DataFrame()
+    
+            if isinstance(e, FileNotFoundError):
+                raise
+    
             raise ValueError(f"Ошибка загрузки справочника '{sheet_name}': {e}") from e
 
 class DataSaver:
