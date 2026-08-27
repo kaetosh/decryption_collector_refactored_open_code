@@ -61,7 +61,7 @@ def load_params(context: ProcessingContext) -> dict:
         
         if name not in SCHEMA:
             # Неизвестный параметр — игнорируем
-            logger.warning('⚠ Неизвестный параметр {} игнорируем', name)
+            logger.warning('[!] Неизвестный параметр {} игнорируем', name)
             continue
 
         expected_type, min_val, max_val, nullable = SCHEMA[name]
@@ -71,7 +71,7 @@ def load_params(context: ProcessingContext) -> dict:
             if nullable:
                 params[name] = None
             # Если не nullable — оставляем дефолт
-            logger.warning('⚠ Параметр {} не nullable — оставляем дефолт', name)
+            logger.warning('[!] Параметр {} не nullable — оставляем дефолт', name)
             continue
 
         # Приведение типа
@@ -79,7 +79,7 @@ def load_params(context: ProcessingContext) -> dict:
             value = _cast(raw_value, expected_type)
         except (ValueError, TypeError):
             logger.warning(
-                "⚠ Параметр '{}': не удалось привести '{}' к типу {}. "
+                "[!] Параметр '{}': не удалось привести '{}' к типу {}. "
                 "Используется значение по умолчанию: {}",
                 name,
                 raw_value,
@@ -91,7 +91,7 @@ def load_params(context: ProcessingContext) -> dict:
         # Проверка границ
         if min_val is not None and value < min_val:
             logger.warning(
-                "⚠ Параметр '{}': значение {} меньше допустимого минимума {}. "
+                "[!] Параметр '{}': значение {} меньше допустимого минимума {}. "
                 "Используется дефолт.",
                 name,
                 value,
@@ -101,7 +101,7 @@ def load_params(context: ProcessingContext) -> dict:
 
         if max_val is not None and value > max_val:
             logger.warning(
-                "⚠ Параметр '{}': значение {} больше допустимого максимума {}. "
+                "[!] Параметр '{}': значение {} больше допустимого максимума {}. "
                 "Используется дефолт.",
                 name,
                 value,

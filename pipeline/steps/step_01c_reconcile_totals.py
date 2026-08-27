@@ -250,7 +250,7 @@ class Step1cReconcileTotalsStep(Step):
             )
             
         logger.info(
-            "✓ Реконциляция пройдена: расхождения в сальдо и оборотах "
+            "[OK] Реконциляция пройдена: расхождения в сальдо и оборотах "
             "в пределах нормы (до {} тыс. ед.)",
             context.tolerance_params['tolerance_reconciliation'],
         )

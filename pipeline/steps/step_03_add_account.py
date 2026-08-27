@@ -62,5 +62,5 @@ class Step3AddAccountColumnStep(Step):
         # Сохраняем результат
         context.summary_osv_df = osv_all_df
         
-        logger.info("✓ Определены счета БУ для {} позиций", len(osv_all_df))
+        logger.info("[OK] Определены счета БУ для {} позиций", len(osv_all_df))
         return context

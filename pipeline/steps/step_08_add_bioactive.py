@@ -153,9 +153,9 @@ class Step8AddBioactiveSegmentColumnStep(Step):
         
         bioactive_count = (osv_all_df['сегмент_биоактивов_для_01_02'] != self.UNSPECIFIED).sum()
         if bioactive_count > 0:
-            logger.info("✓ Определены биоактивы: {} позиций (тип: {})", bioactive_count, bioact_type)
+            logger.info("[OK] Определены биоактивы: {} позиций (тип: {})", bioactive_count, bioact_type)
         else:
-            logger.info("✓ Биоактивы не обнаружены")
+            logger.info("[OK] Биоактивы не обнаружены")
         
         return context
 

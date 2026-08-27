@@ -68,7 +68,7 @@ class Step1bVerifyFilesStep(Step):
                 )
             else:
                 logger.debug(
-                    "✓ Все {} ОСВ найдены в {}", len(dir_filenames), dir_name
+                    "[OK] Все {} ОСВ найдены в {}", len(dir_filenames), dir_name
                 )
         
         
@@ -99,7 +99,7 @@ class Step1bVerifyFilesStep(Step):
                 )
             else:
                 logger.debug(
-                    "✓ Все {} спецотчеты в special_reports",
+                    "[OK] Все {} спецотчеты в special_reports",
                     len(special_reports_filenames),
                 )
         
@@ -121,7 +121,7 @@ class Step1bVerifyFilesStep(Step):
                 )
             else:
                 logger.debug(
-                    "✓ Все {} отчеты по проводкам найдены в account_cards",
+                    "[OK] Все {} отчеты по проводкам найдены в account_cards",
                     len(card_filenames),
                 )
         
@@ -148,7 +148,7 @@ class Step1bVerifyFilesStep(Step):
                             missing_by_dir={k: len(v) for k, v in missing_by_dir.items()},
                         )
         
-        logger.info("✓ Все обязательные файлы выгрузок найдены")
+        logger.info("[OK] Все обязательные файлы выгрузок найдены")
         return context
 
     def _filter_filenames_for_dir(

@@ -92,7 +92,7 @@ class Step19BuildOpuStep(Step):
         chart_ref = self._get_reference(context, self.CHART_OF_ACCOUNTS_REF)
         context.pnl_df = self._build_opu_report(journal_df, chart_ref)
 
-        logger.info("✓ Собрана расшифровка ОПУ: {} строк отчетности", len(context.pnl_df))
+        logger.info("[OK] Собрана расшифровка ОПУ: {} строк отчетности", len(context.pnl_df))
         
         return context
 
@@ -309,7 +309,7 @@ class Step19BuildOpuStep(Step):
             raise ValueError(message)
 
         logger.info(
-            "✓ Сходимость чистой прибыли с балансом подтверждена: разница {:,.0f} тыс. ед. (порог {:,.0f})",
+            "[OK] Сходимость чистой прибыли с балансом подтверждена: разница {:,.0f} тыс. ед. (порог {:,.0f})",
             diff,
             context.tolerance_params['tolerance_pnl_balance'],
         )

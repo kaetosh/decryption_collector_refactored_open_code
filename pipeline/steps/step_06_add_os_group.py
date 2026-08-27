@@ -479,7 +479,7 @@ class Step6AddOSGroupColumnStep(Step):
         
         os_group_counts = osv_all_df['группа_ос_аренды_лизинга'].value_counts().to_dict()
         logger.info(
-            "✓ Добавлены группы ОС для аренды/лизинга: {} позиций ({})",
+            "[OK] Добавлены группы ОС для аренды/лизинга: {} позиций ({})",
             len(osv_all_df),
             ', '.join(f'{k} — {v}' for k, v in sorted(os_group_counts.items(), key=lambda x: -x[1]) if k != 'не_указано')
         )

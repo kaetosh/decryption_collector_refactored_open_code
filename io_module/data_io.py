@@ -475,7 +475,7 @@ class DataLoader:
         except Exception as e:
             if not required:
                 logger.warning(
-                    "⚠ Не удалось загрузить справочник '{}': {}."
+                    "[!] Не удалось загрузить справочник '{}': {}."
                     "Продолжаем с пустым DataFrame.",
                     sheet_name,
                     e,
@@ -668,7 +668,7 @@ class DataSaver:
                 )
         except PermissionError:
             raise PermissionError(
-                f"❌ Не удалось сохранить результат в '{output_path.name}': "
+                f"[ERR] Не удалось сохранить результат в '{output_path.name}': "
                 f"файл открыт в Excel. Закройте файл и перезапустите программу."
             )
     
@@ -761,7 +761,7 @@ class DataSaver:
                 )
         except PermissionError:
             raise PermissionError(
-                f"❌ Не удалось сохранить результат в '{output_path.name}': "
+                f"[ERR] Не удалось сохранить результат в '{output_path.name}': "
                 f"файл открыт в Excel. Закройте файл и перезапустите программу."
             )
         

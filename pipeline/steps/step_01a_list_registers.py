@@ -69,7 +69,7 @@ class Step1aListExpectedRegistersStep(Step):
             row=1,
             column=1,
             value=(
-                '⚠️ Шаблоны отчетов уточните у админа.'
+                '[!] Шаблоны отчетов уточните у админа.'
             )
         )
         header_cell.font = Font(bold=True, size=12, color='C00000')  # тёмно-красный
@@ -373,7 +373,7 @@ class Step1aListExpectedRegistersStep(Step):
             
             if filtered_loads_opu.empty:
                 logger.warning(
-                    "⚠️ В справочнике 'Выгрузки' отсутствуют строки с "
+                    "[!] В справочнике 'Выгрузки' отсутствуют строки с "
                     "регистром='отчет по проводкам' для счетов {}. "
                     "Добавьте их в справочник для формирования списка карточек.",
                     sorted(opu_prefixes),
@@ -458,10 +458,10 @@ class Step1aListExpectedRegistersStep(Step):
                 
         except PermissionError:
             error_msg = (
-                f"❌ Не удалось сохранить файл '{output_path.name}': "
+                f"[ERR] Не удалось сохранить файл '{output_path.name}': "
                 f"файл открыт в Excel или другой программе.\n"
-                f"📂 Путь: {output_path}\n"
-                f"🔧 Закройте файл '{output_path.name}' и перезапустите программу."
+                f"[FOLDER] Путь: {output_path}\n"
+                f"[FIX] Закройте файл '{output_path.name}' и перезапустите программу."
             )
             logger.error(error_msg)
             raise PermissionError(error_msg) from None
@@ -469,7 +469,7 @@ class Step1aListExpectedRegistersStep(Step):
         context.data['special_reports_filenames'] = special_reports_df['Имя файла для сохранения'].tolist()
         
         logger.info(
-            "✓ Список выгрузок сформирован: {} ОСВ + {} отчетов по проводкам",
+            "[OK] Список выгрузок сформирован: {} ОСВ + {} отчетов по проводкам",
             len(balance_filenames),
             len(context.data.get('expected_card_filenames', [])),
         )

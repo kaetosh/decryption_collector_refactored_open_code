@@ -119,13 +119,13 @@ class FileHandler:
         if txt_files:
             for file_path in txt_files:
                 try:
-                    logger.debug("🔍 Пытаемся обработать TXT: {}", file_path.name)
+                    logger.debug("[SEARCH] Пытаемся обработать TXT: {}", file_path.name)
                     
                     # Детекция процессора
                     txt_processor_class = self._detect_processor_from_txt(
                         file_path, type_register
                     )
-                    logger.debug("✓ Определён процессор: {}", txt_processor_class.__name__)
+                    logger.debug("[OK] Определён процессор: {}", txt_processor_class.__name__)
                     
                     if processor_class is None:
                         processor_class = txt_processor_class
@@ -134,7 +134,7 @@ class FileHandler:
                     result_df, check_df = processor.process_file(file_path, file_path.name)
                     
                     logger.debug(
-                        "✓ Обработан {}: {} строк, {} проверок",
+                        "[OK] Обработан {}: {} строк, {} проверок",
                         file_path.name,
                         len(result_df),
                         len(check_df),
@@ -147,7 +147,7 @@ class FileHandler:
                 except Exception as e:
                     # ★ РАСШИРЕННОЕ логирование ошибки
                     logger.error(
-                        "❌ Ошибка обработки {}: {}: {}",
+                        "[ERR] Ошибка обработки {}: {}: {}",
                         file_path.name,
                         type(e).__name__,
                         e,

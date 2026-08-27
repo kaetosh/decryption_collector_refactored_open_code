@@ -36,7 +36,7 @@ class Step4AddReceivableTypeStep(Step):
         
         debt_counts = osv_all_df['вид_задолженности'].value_counts().to_dict()
         logger.info(
-            "✓ Классифицирована задолженность: {}",
+            "[OK] Классифицирована задолженность: {}",
             ', '.join(f'{k} — {v}' for k, v in sorted(debt_counts.items(), key=lambda x: -x[1]))
         )
         return context

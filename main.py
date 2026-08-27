@@ -638,21 +638,21 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
         # Корректное завершение по Ctrl+C — без traceback
         logger.info("")
         logger.info("=" * 80)
-        logger.warning("⚠ Получен сигнал прерывания (Ctrl+C). Завершаем работу.")
+        logger.warning("[!] Получен сигнал прерывания (Ctrl+C). Завершаем работу.")
         logger.info("   Несохранённые промежуточные результаты могли быть потеряны.")
         logger.info("=" * 80)
         return 130  # стандартный код выхода для SIGINT
 
     except FileNotFoundError as e:
         cause = e.__cause__ if e.__cause__ is not None else e
-        logger.error("✗ Ошибка: не найден файл (общая ОСВ, справочник или выгрузка). Подробнее: {}", cause)
+        logger.error("[!!] Ошибка: не найден файл (общая ОСВ, справочник или выгрузка). Подробнее: {}", cause)
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1
 
     except Exception as e:
         cause = e.__cause__ if e.__cause__ is not None else e
-        logger.critical("✗ Неожиданная ошибка: {}", cause)
+        logger.critical("[!!] Неожиданная ошибка: {}", cause)
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1

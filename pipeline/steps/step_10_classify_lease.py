@@ -127,7 +127,7 @@ class Step10ClassifyLeaseSourceStep(Step):
             )
         
         logger.debug(
-            "✓ Входная сходимость подтверждена: ОСВ={:.2f}, Ведомость={:.2f}, "
+            "[OK] Входная сходимость подтверждена: ОСВ={:.2f}, Ведомость={:.2f}, "
             "разница={:.2f} тыс.ед., допуск={} тыс.ед.",
             sum_osv,
             sum_depr,
@@ -527,12 +527,12 @@ class Step10ClassifyLeaseSourceStep(Step):
         if not lease_groups.empty:
             lease_type_counts = lease_groups['вид_связи'].value_counts().to_dict()
             logger.info(
-                "✓ Классифицированы источники аренды: {} позиций ({})",
+                "[OK] Классифицированы источники аренды: {} позиций ({})",
                 len(lease_groups),
                 ', '.join(f'{k} — {v}' for k, v in sorted(lease_type_counts.items(), key=lambda x: -x[1]))
             )
         else:
-            logger.info("✓ Арендные позиции (01.03/02.03) не обнаружены")
+            logger.info("[OK] Арендные позиции (01.03/02.03) не обнаружены")
         
         return context
 

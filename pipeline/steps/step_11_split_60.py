@@ -494,7 +494,7 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         
         invest_counts = df['инвест_договор'].value_counts().to_dict()
         logger.info(
-            "✓ Разбит счет 60 на инвест/неинвест: {} позиций ({})",
+            "[OK] Разбит счет 60 на инвест/неинвест: {} позиций ({})",
             len(df),
             ', '.join(f'{k} — {v}' for k, v in sorted(invest_counts.items(), key=lambda x: -x[1]))
         )

@@ -281,7 +281,7 @@ class Step12Split84AccountBalanceStep(Step):
         context.summary_osv_df = osv_all_df
         
         logger.info(
-            "✓ Разбит счет 84: фин. результат текущего периода выделен (+{:,.0f} тыс. ед.)",
+            "[OK] Разбит счет 84: фин. результат текущего периода выделен (+{:,.0f} тыс. ед.)",
             current_period_turnover
         )
         

@@ -193,7 +193,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         context.journal_df = df_final
 
         logger.info(
-            "✓ Прочие доходы и расходы добавлены: 91.01 — {} позиций, 91.02 — {} позиций",
+            "[OK] Прочие доходы и расходы добавлены: 91.01 — {} позиций, 91.02 — {} позиций",
             len(df_9101),
             len(df_9102),
         )
@@ -265,7 +265,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
         if not asset_sale_types:
             logger.warning(
-                "⚠️ В справочнике 'ПрочиеДоходыНДС' нет записей. "
+                "[!] В справочнике 'ПрочиеДоходыНДС' нет записей. "
                 "Обработка продажи активов будет пропущена."
             )
 
@@ -436,10 +436,10 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
     def _check_unspecified(self, df_9101: pd.DataFrame, df_9102: pd.DataFrame) -> None:
         """Проверяет наличие неучтённых доходов/расходов."""
         if not df_9102.loc[df_9102['вид_дохода_расхода'] == 'не_указано'].empty:
-            logger.warning("⚠️ Есть неучтённые расходы в 91.02!")
+            logger.warning("[!] Есть неучтённые расходы в 91.02!")
 
         if not df_9101.loc[df_9101['вид_дохода_расхода'] == 'не_указано'].empty:
-            logger.warning("⚠️ Есть неучтённые доходы в 91.01!")
+            logger.warning("[!] Есть неучтённые доходы в 91.01!")
 
     # =========================================================================
     # ОБРАБОТКА ППА
@@ -875,7 +875,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
         if df_9101_assets.empty:
             logger.warning(
-                "⚠️ Не удалось распределить осиротевшие расходы: "
+                "[!] Не удалось распределить осиротевшие расходы: "
                 "нет строк выручки по продаже активов"
             )
             return df_9102
@@ -925,7 +925,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
         if df_9102_orphan_dist.empty:
             logger.warning(
-                "⚠️ Не удалось распределить осиротевшие расходы (нет выручки)"
+                "[!] Не удалось распределить осиротевшие расходы (нет выручки)"
             )
             return df_9102
 
@@ -958,7 +958,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
         if abs(sum_before - sum_after) > 0.01:
             logger.warning(
-                "⚠️ Расхождение при распределении: было {:,.2f}, стало {:,.2f}",
+                "[!] Расхождение при распределении: было {:,.2f}, стало {:,.2f}",
                 sum_before,
                 sum_after,
             )
@@ -1029,7 +1029,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             missing_list = df.loc[missing_mask, 'рбп_кредитные_линии'].unique().tolist()
 
             logger.warning(
-                "⚠️ В справочнике КредитОбслуж отсутствуют {} РБП:\n{}",
+                "[!] В справочнике КредитОбслуж отсутствуют {} РБП:\n{}",
                 len(missing_list),
                 "\n".join("  - {}".format(item) for item in missing_list[:10]),
             )
@@ -1087,7 +1087,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         unexpected = actual_groups - expected_groups
 
         if unexpected:
-            logger.warning("⚠️ Неожиданные значения в 'группа_ка': {}", unexpected)
+            logger.warning("[!] Неожиданные значения в 'группа_ка': {}", unexpected)
 
         logger.debug(
             "вид_связи: {}",

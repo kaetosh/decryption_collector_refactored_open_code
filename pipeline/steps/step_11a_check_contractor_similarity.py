@@ -69,7 +69,7 @@ class Step11aCheckContractorSimilarityStep(Step):
         
         if similarity_df.empty:
             logger.info(
-                "✓ Похожих контрагентов не обнаружено (проверено {} позиций)",
+                "[OK] Похожих контрагентов не обнаружено (проверено {} позиций)",
                 len(third_party_contractors),
             )
             return context

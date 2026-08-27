@@ -120,30 +120,30 @@ class Step(ABC):
             if STRICT_CONTRACTOR_CHECK:
                 # Строгий режим: падаем
                 logger.error(
-                    "❌ Критическая ошибка: неизвестные контрагенты на этапе '{}': {}", self.name, e
+                    "[ERR] Критическая ошибка: неизвестные контрагенты на этапе '{}': {}", self.name, e
                 )
                 raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
             else:
                 # Мягкий режим: заменяем на '3 лица' и продолжаем
                 logger.warning(
-                    "⚠️ Мягкий режим: неизвестные контрагенты заменены на '{}'", e.replacement_value
+                    "[!] Мягкий режим: неизвестные контрагенты заменены на '{}'", e.replacement_value
                 )
                 context = self._apply_soft_contractor_handling(context, e)
                 return context
         except ReferenceMismatchError as e:
             e.step_name = self.name
             self._save_reference_mismatch_report(e)
-            logger.error("❌ Ошибка несоответствия данных на этапе '{}': {}", self.name, e)
+            logger.error("[ERR] Ошибка несоответствия данных на этапе '{}': {}", self.name, e)
             raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
             
         except MissingFilesError as e:
             e.step_name = self.name
             self._save_missing_files_report(e)
-            logger.error("❌ Ошибка: отсутствуют файлы выгрузок на этапе '{}': {}", self.name, e)
+            logger.error("[ERR] Ошибка: отсутствуют файлы выгрузок на этапе '{}': {}", self.name, e)
             raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
             
         except Exception as e:
-            logger.error("❌ Ошибка на этапе '{}': {}", self.name, e)
+            logger.error("[ERR] Ошибка на этапе '{}': {}", self.name, e)
             raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
     
     @abstractmethod
@@ -443,12 +443,12 @@ class Step(ABC):
             error.problem_data.to_excel(output_path, index=False)
             
             logger.error(
-                "📁 Проблемные данные сохранены в: {}/{}", output_path.parent.name, output_path.name
+                "[FOLDER] Проблемные данные сохранены в: {}/{}", output_path.parent.name, output_path.name
             )
             
         except PermissionError:
             logger.error(
-                "⚠️ НЕ УДАЛОСЬ сохранить файл '{}': "
+                "[!] НЕ УДАЛОСЬ сохранить файл '{}': "
                 "файл открыт в другой программе (Excel?) или нет прав на запись.\n"
                 "Закройте файл и повторите попытку, либо проверьте права доступа к папке "
                 "{}.\n"
@@ -522,14 +522,14 @@ class Step(ABC):
             df.to_excel(output_path, index=False)
             
             logger.error(
-                "📁 Список отсутствующих файлов сохранён в: {}/{}",
+                "[FOLDER] Список отсутствующих файлов сохранён в: {}/{}",
                 output_path.parent.name,
                 output_path.name,
             )
             
         except PermissionError:
             logger.error(
-                "⚠️ НЕ УДАЛОСЬ сохранить файл '{}': "
+                "[!] НЕ УДАЛОСЬ сохранить файл '{}': "
                 "файл открыт в другой программе (Excel?) или нет прав на запись.\n"
                 "Закройте файл и повторите попытку.",
                 filename,
@@ -681,14 +681,14 @@ class Pipeline:
             
             try:
                 context = step.execute(context)
-                logger.debug("✓ Шаг '{}' успешно завершен", step.name)
+                logger.debug("[OK] Шаг '{}' успешно завершен", step.name)
             except ProcessingStepError:
                 # Уже обработано в Step.execute() — просто пробрасываем
                 raise
             except Exception as e:
                 # ★ ИСПРАВЛЕНИЕ: logger.exception автоматически логирует traceback
                 logger.exception(
-                    "✗ Критическая ошибка на шаге '{}': {}: {}",
+                    "[!!] Критическая ошибка на шаге '{}': {}: {}",
                     step.name,
                     type(e).__name__,
                     e,

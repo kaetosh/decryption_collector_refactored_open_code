@@ -77,7 +77,7 @@ class StepAddExpensesToOpuBase(Step):
         # ★ Защита от отсутствия расходов на накопительном счете
         if df_accum_clean.empty:
             logger.info(
-                "⚠️ Проводки по счету {} отсутствуют. {} не добавлены.",
+                "[!] Проводки по счету {} отсутствуют. {} не добавлены.",
                 self.ACCOUNT_COST_ACCUMULATION,
                 self.OPU_LINE_NAME,
             )
@@ -89,7 +89,7 @@ class StepAddExpensesToOpuBase(Step):
         # ★ Защита от отсутствия расходов на счете ОПУ
         if df_opu.empty:
             logger.info(
-                "⚠️ Проводки по счету {} отсутствуют. {} не добавлены.",
+                "[!] Проводки по счету {} отсутствуют. {} не добавлены.",
                 self.ACCOUNT_OPU,
                 self.OPU_LINE_NAME,
             )
@@ -112,7 +112,7 @@ class StepAddExpensesToOpuBase(Step):
         
         related_party_counts = df_result['вид_связи'].value_counts().to_dict()
         logger.info(
-            "✓ {} добавлены: {} позиций ({})",
+            "[OK] {} добавлены: {} позиций ({})",
             self.OPU_LINE_NAME,
             len(df_result),
             ', '.join(f'{k} — {v}' for k, v in sorted(related_party_counts.items(), key=lambda x: -x[1]))
@@ -472,7 +472,7 @@ class StepAddExpensesToOpuBase(Step):
             )
         
         logger.debug(
-            "✓ Сходимость {}: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
+            "[OK] Сходимость {}: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
             self.OPU_LINE_NAME,
             expenses_osv,
             expenses_from_result,

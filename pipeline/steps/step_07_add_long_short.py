@@ -98,7 +98,7 @@ class Step7AddLongShortTermColumnStep(Step):
             mismatches.to_excel(output_path)
             
             logger.error(
-                "⚠️ Расхождения сумм после разбивки: {} строк. "
+                "[!] Расхождения сумм после разбивки: {} строк. "
                 "Все данные сохранены в {}/{}",
                 len(mismatches),
                 output_path.parent.name,
@@ -106,7 +106,7 @@ class Step7AddLongShortTermColumnStep(Step):
             )
             return False
         
-        logger.debug("✓ Валидация разбивки пройдена: {} групп", len(comparison))
+        logger.debug("[OK] Валидация разбивки пройдена: {} групп", len(comparison))
         return True
     
     def _validate_replacement(self, osv_original: pd.DataFrame, 
@@ -151,7 +151,7 @@ class Step7AddLongShortTermColumnStep(Step):
             mismatches.to_excel(output_path)
             
             logger.warning(
-                "⚠️ Расхождения сумм после замены: {} комбинаций. "
+                "[!] Расхождения сумм после замены: {} комбинаций. "
                 "Все данные сохранены в {}/{}",
                 len(mismatches),
                 output_path.parent.name,
@@ -160,7 +160,7 @@ class Step7AddLongShortTermColumnStep(Step):
             return False
         
         logger.debug(
-            "✓ Валидация замены пройдена: {} комбинаций", len(comparison_replaced)
+            "[OK] Валидация замены пройдена: {} комбинаций", len(comparison_replaced)
         )
         return True
     
@@ -543,7 +543,7 @@ class Step7AddLongShortTermColumnStep(Step):
         diff = (original_sums - updated_sums).abs()
         if (diff > 0.01).any():
             logger.error(
-                "⚠️ Расхождения сумм после рекласса по 97: {}",
+                "[!] Расхождения сумм после рекласса по 97: {}",
                 diff[diff > 0.01].to_dict(),
             )
         
@@ -594,7 +594,7 @@ class Step7AddLongShortTermColumnStep(Step):
         
         long_short_counts = osv_all_df['долгая_короткая_часть'].value_counts().to_dict()
         logger.info(
-            "✓ Выделена долгосрочная/краткосрочная часть: {}",
+            "[OK] Выделена долгосрочная/краткосрочная часть: {}",
             ', '.join(f'{k} — {v}' for k, v in sorted(long_short_counts.items(), key=lambda x: -x[1]) if k != 'не_указано')
         )
         

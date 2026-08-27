@@ -81,7 +81,7 @@ class Step14BuildOpuFoundationStep(Step):
         
         account_counts = df_final['счет'].value_counts().to_dict()
         logger.info(
-            "✓ Основа ОПУ сформирована: {} строк ({})",
+            "[OK] Основа ОПУ сформирована: {} строк ({})",
             len(df_final),
             ', '.join(f'{k}: {v}' for k, v in sorted(account_counts.items(), key=lambda x: -x[1]))
         )
@@ -200,7 +200,7 @@ class Step14BuildOpuFoundationStep(Step):
             )
         
         logger.debug(
-            "✓ Сходимость выручки: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
+            "[OK] Сходимость выручки: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
             revenue_without_vat,
             revenue_from_df9001,
             difference,
@@ -359,7 +359,7 @@ class Step14BuildOpuFoundationStep(Step):
             )
         
         logger.debug(
-            "✓ Сходимость себестоимости: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
+            "[OK] Сходимость себестоимости: ОСВ={:,.2f}, отчёт={:,.2f}, разница={:,.2f}",
             cost_price_osv_9002,
             cost_price_from_df9002,
             difference,
@@ -613,7 +613,7 @@ class Step14BuildOpuFoundationStep(Step):
         
         if unexpected_groups:
             logger.warning(
-                "⚠️ В столбце 'группа_ка' обнаружены неожиданные значения: {}. "
+                "[!] В столбце 'группа_ка' обнаружены неожиданные значения: {}. "
                 "Ожидались только: {}",
                 unexpected_groups,
                 expected_groups,

@@ -35,7 +35,7 @@ class Step5AddReceivableSubtypeStep(Step):
         
         subtype_counts = osv_all_df['подвид_задолженности'].value_counts().to_dict()
         logger.info(
-            "✓ Определены подвиды задолженности: {}",
+            "[OK] Определены подвиды задолженности: {}",
             ', '.join(f'{k} — {v}' for k, v in sorted(subtype_counts.items(), key=lambda x: -x[1]))
         )
         return context
