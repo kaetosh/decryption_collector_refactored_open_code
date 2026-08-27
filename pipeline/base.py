@@ -18,8 +18,7 @@ from config.settings import (
 from pipeline.errors import (
     ReferenceMismatchError,
     MissingFilesError,
-    MissingContractorError,
-    ConvergenceError
+    MissingContractorError
 )
 
 
@@ -131,17 +130,10 @@ class Step(ABC):
                 )
                 context = self._apply_soft_contractor_handling(context, e)
                 return context
-        except ConvergenceError as e:
-            # Существующая обработка для ошибок несоотвествия выгрузок между собой
-            e.step_name = self.name
-            self._save_reference_mismatch_report(e)
-            logger.error("❌ Ошибка несоответствия выгрузок между собой на этапе '{}': {}", self.name, e)
-            raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
         except ReferenceMismatchError as e:
-            # Существующая обработка для других ошибок справочников
             e.step_name = self.name
             self._save_reference_mismatch_report(e)
-            logger.error("❌ Ошибка несоответствия справочнику на этапе '{}': {}", self.name, e)
+            logger.error("❌ Ошибка несоответствия данных на этапе '{}': {}", self.name, e)
             raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
             
         except MissingFilesError as e:
