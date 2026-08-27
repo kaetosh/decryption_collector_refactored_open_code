@@ -297,13 +297,13 @@ class FileProcessor(ABC):
             finally:
                 try:
                     os.unlink(tmp_path)
-                except Exception:
+                except OSError:
                     pass
             # Очистка xlwings для предотвращения "зависших" процессов Excel
             try:
                 wb_xl.close()  # Повторно, на случай исключений выше
                 app.quit()
-            except:
+            except Exception:
                 pass
             # xw.apps.cleanup()
             time.sleep(0.5)  # Паузы для стабилизации
