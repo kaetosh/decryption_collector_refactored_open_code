@@ -644,14 +644,15 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
         return 130  # стандартный код выхода для SIGINT
 
     except FileNotFoundError as e:
-        logger.error("✗ Ошибка: не найдены файлы выгрузок")
-        logger.error("  {}", e)
+        cause = e.__cause__ if e.__cause__ is not None else e
+        logger.error("✗ Ошибка: не найден файл (общая ОСВ, справочник или выгрузка). Подробнее: {}", cause)
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1
 
     except Exception as e:
-        logger.critical("✗ Неожиданная ошибка: {}", e)
+        cause = e.__cause__ if e.__cause__ is not None else e
+        logger.critical("✗ Неожиданная ошибка: {}", cause)
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1
