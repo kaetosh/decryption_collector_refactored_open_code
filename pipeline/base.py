@@ -20,33 +20,16 @@ from pipeline.errors import (
     MissingFilesError,
     MissingContractorError
 )
+from pipeline.constants import (
+    ColumnNames,
+    DataTypes,
+    Prefixes,
+    Values,
+)
 
 
 class ProcessingStepError(Exception):
     pass
-
-# =========================================================================
-# КОНСТАНТЫ КОЛОНОК И ТИПОВ ДАННЫХ
-# =========================================================================
-class ColumnNames:
-    """Названия колонок, используемые в обработке."""
-    BALANCE = 'сальдо, тыс.ед.'
-
-
-class DataTypes:
-    """Типы данных pandas."""
-    OBJECT = 'object'
-    STRING = 'string'
-
-
-class Prefixes:
-    """Префиксы для специальных колонок."""
-    LEVEL = 'level_'
-
-
-class Values:
-    """Специальные значения."""
-    UNSPECIFIED = 'не_указано'
 
 @dataclass(slots=True)
 class ProcessingContext:

@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from loguru import logger
 from logging_handling.logger_config import setup_logger
 from pipeline.base import Pipeline, ProcessingContext
+from pipeline.constants import ColumnNames
 from config.settings import REFERENCE_CONFIGS
 from config.defaults import TOLERANCE_DESCRIPTIONS
 from config.loader import load_params
@@ -57,12 +58,6 @@ from pipeline.steps import (
 )
 
 from io_module import DataLoader, DataSaver
-
-class ColumnNames:
-    SHORT_COMPANY_NAME = "сокращенное_наименование_компании"
-    SEGMENT = "сегмент"
-    PERIOD_TYPE = "тип_периода"
-    DECRYPTION_FILENAME = "название_файла_расшифровки"
 
 def create_preparation_pipeline() -> Pipeline:
     """
