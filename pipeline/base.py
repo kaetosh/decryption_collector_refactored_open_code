@@ -156,6 +156,39 @@ class Step(ABC):
         Наследники должны реализовывать именно его, а не execute.
         """
         pass
+
+    def get_df_from_context(
+        self,
+        context: 'ProcessingContext',
+        key: str,
+        hint: str = "",
+    ) -> pd.DataFrame:
+        """
+        Достаёт таблицу из context.data и проверяет её наличие и непустоту.
+
+        Унифицирует повторяющийся в шагах паттерн
+        "context.data.get(key) + проверка + raise ValueError".
+
+        Args:
+            context: Контекст конвейера.
+            key: Ключ таблицы в context.data.
+            hint: Подсказка к ошибке (например, какой шаг должен
+                создать таблицу).
+
+        Returns:
+            Найденный непустой DataFrame.
+
+        Raises:
+            ValueError: Если таблица отсутствует или пуста.
+        """
+        df = context.data.get(key)
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            reason = "отсутствует" if df is None else "пуста"
+            message = f"В контексте нет таблицы '{key}' ({reason})."
+            if hint:
+                message += f" {hint}"
+            raise ValueError(message)
+        return df
     
     def _validate_input(self, context: 'ProcessingContext'):
         """

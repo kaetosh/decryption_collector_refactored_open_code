@@ -19,11 +19,10 @@ class Step4AddReceivableTypeStep(Step):
         logger.debug("Классификация задолженности")
         
         osv_all_df = context.summary_osv_df.copy()
-        partially_matching_accounts_df = context.data.get('partially_matching_accounts_df')
-        mapping_df = context.data.get('mapping')
-        
-        if partially_matching_accounts_df is None or mapping_df is None:
-            raise ValueError("Необходимые данные отсутствуют в контексте (partially_matching_accounts_df)")
+        partially_matching_accounts_df = self.get_df_from_context(
+            context, 'partially_matching_accounts_df'
+        )
+        mapping_df = self.get_df_from_context(context, 'mapping')
         
         # Используем методы из ReceivableClassifier
         osv_all_df = ReceivableClassifier.map_accounts_to_mapping(osv_all_df, partially_matching_accounts_df)

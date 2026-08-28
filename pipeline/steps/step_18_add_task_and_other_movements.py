@@ -137,12 +137,11 @@ class Step18AddTaskAndOtherMovementsStep(Step):
 
     def _load_data_from_context(self, context: ProcessingContext) -> pd.DataFrame:
         """Загружает проводки из контекста."""
-        transactions_all_df = context.data.get('transactions_all_df', pd.DataFrame())
-        if transactions_all_df.empty:
-            raise ValueError(
-                "В контексте нет сводного отчета по проводкам. "
-                "Убедитесь, что предыдущий шаг (14) выполнен успешно."
-            )
+        transactions_all_df = self.get_df_from_context(
+            context,
+            'transactions_all_df',
+            hint="Убедитесь, что предыдущий шаг (14) выполнен успешно.",
+        )
         logger.debug(
             "Загружено из контекста: проводки={} строк",
             len(transactions_all_df),

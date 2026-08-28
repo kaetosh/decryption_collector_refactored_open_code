@@ -108,13 +108,11 @@ class Step14BuildOpuFoundationStep(Step):
     
     def _get_osv_from_context(self, context: ProcessingContext) -> pd.DataFrame:
         """Получает общую ОСВ из context."""
-        osv_df = context.data.get('osv', pd.DataFrame())
-        
-        if osv_df.empty:
-            raise ValueError(
-                "В контексте нет общей ОСВ. "
-                "Убедитесь, что предыдущие шаги (1-13) выполнены успешно."
-            )
+        osv_df = self.get_df_from_context(
+            context,
+            'osv',
+            hint="Убедитесь, что предыдущие шаги (1-13) выполнены успешно.",
+        )
         
         return osv_df.copy()
     

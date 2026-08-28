@@ -298,13 +298,11 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
                 "Убедитесь, что предыдущие шаги (1-13) выполнены успешно."
             )
 
-        transactions_all_df = context.data.get('transactions_all_df', pd.DataFrame())
-
-        if transactions_all_df.empty:
-            raise ValueError(
-                "В контексте нет сводного отчета по проводкам. "
-                "Убедитесь, что предыдущий шаг (14) выполнен успешно."
-            )
+        transactions_all_df = self.get_df_from_context(
+            context,
+            'transactions_all_df',
+            hint="Убедитесь, что предыдущий шаг (14) выполнен успешно.",
+        )
 
         logger.debug(
             "Загружено из контекста: ОСВ={} строк, проводки={} строк",

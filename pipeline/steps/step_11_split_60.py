@@ -418,11 +418,10 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
             return context
         
         # 2. Получение данных из контекста
-        partially_matching_accounts_df = context.data.get('partially_matching_accounts_df')
-        mapping_df = context.data.get('mapping')
-        
-        if partially_matching_accounts_df is None or mapping_df is None:
-            raise ValueError("Необходимые данные отсутствуют в контексте")
+        partially_matching_accounts_df = self.get_df_from_context(
+            context, 'partially_matching_accounts_df'
+        )
+        mapping_df = self.get_df_from_context(context, 'mapping')
         
         # 3. Классификация задолженности (используем ReceivableClassifier)
         df = ReceivableClassifier.map_accounts_to_mapping(df, partially_matching_accounts_df)
