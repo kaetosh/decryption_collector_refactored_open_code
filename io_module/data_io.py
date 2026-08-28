@@ -10,12 +10,12 @@ from openpyxl.utils import get_column_letter
 from pathlib import Path
 from loguru import logger
 from typing import List, Optional, Tuple
-from config.settings import (OUTPUT_DATA_DIR,
-                             OSV_GENERAL_DIR,
+from config.settings import (OSV_GENERAL_DIR,
                              ACCOUNTS_OSV_DIR,
                              REFERENCE_DATA_FILE,
                              ACCOUNTS_OSV_LEASE_DIR,
                              ACCOUNT_CARDS_DIR)
+from io_module.output_manager import get_output_dir
 from data_processors import FileHandler
 
 
@@ -589,11 +589,7 @@ class DataSaver:
         Returns:
             Путь к сохранённому файлу
         """
-        output_dir = OUTPUT_DATA_DIR
-        if subfolder:
-            output_dir = output_dir / subfolder
-            output_dir.mkdir(parents=True, exist_ok=True)
-    
+        output_dir = get_output_dir(subfolder)
         output_path = output_dir / filename
     
         # =========================================================================
@@ -739,11 +735,7 @@ class DataSaver:
         Returns:
             Путь к сохранённому файлу
         """
-        output_dir = OUTPUT_DATA_DIR
-        if subfolder:
-            output_dir = output_dir / subfolder
-            output_dir.mkdir(parents=True, exist_ok=True)
-        
+        output_dir = get_output_dir(subfolder)
         output_path = output_dir / filename
         
         # Определяем числовые столбцы для форматирования

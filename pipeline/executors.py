@@ -20,6 +20,7 @@ from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError
 from config.settings import REFERENCE_CONFIGS
 from io_module import DataLoader, DataSaver
+from io_module.output_manager import get_run_dir
 
 
 def pause_for_osv_general_export() -> None:
@@ -50,10 +51,10 @@ def pause_for_1c_export(context: ProcessingContext) -> None:
     expected_count = len(context.data.get('expected_filenames', []))
     print("\n" + "=" * 80)
     print(f"[LIST] Сформирован список из {expected_count} регистров к выгрузке.")
-    print("[FOLDER] Список сохранен в папке OUTPUT_DATA.")
+    print(f"[FOLDER] Список сохранен в папке: {get_run_dir()}")
     print()
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
-    print("   1. Откройте файл 'Выгрузить_*.xlsx' в папке OUTPUT_DATA")
+    print(f"   1. Откройте файл 'Выгрузить_*.xlsx' в папке {get_run_dir()}")
     print("   2. Выгрузите указанные регистры из 1С")
     print("   3. Положите все файлы в папку INPUT_DATA в подпапки, указанные в поле 'куда класть' файла 'Выгрузить_*.xlsx'")
     print()
@@ -417,8 +418,8 @@ def save_results(context: ProcessingContext) -> None:
             logger.warning("Нет данных для сохранения")
             return
 
-        DataSaver.save_combined_report(balance_df, summary_osv_df, pnl_df, journal_df, filename)
-        logger.info("Комбинированный отчёт сохранён: {}", filename)
+        output_path = DataSaver.save_combined_report(balance_df, summary_osv_df, pnl_df, journal_df, filename)
+        logger.info("Комбинированный отчёт сохранён: {}", output_path)
 
     except Exception as e:
         logger.error("Ошибка при сохранении результатов: {}", e)

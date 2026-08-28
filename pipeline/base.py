@@ -38,6 +38,9 @@ class ProcessingContext:
     type_period: Optional[str] = None
     name_file_general_osv: Optional[str] = None
 
+    # Идентификатор запуска (ГГГГММДД_ЧЧММСС) — совпадает с именем папки вывода
+    run_id: Optional[str] = None
+
     # общая осв для списка выгрузок и сверки
     common_osv_df: Optional[pd.DataFrame] = None
 
@@ -99,8 +102,9 @@ class ProcessingContext:
             return "None" if df is None else f"{len(df)}x{len(df.columns)}"
 
         params = (
-            f"company={self.company!r}, segment={self.segment!r}, "
-            f"period={self.period!r}, type_period={self.type_period!r}"
+            f"run_id={self.run_id!r}, company={self.company!r}, "
+            f"segment={self.segment!r}, period={self.period!r}, "
+            f"type_period={self.type_period!r}"
         )
         tables = ", ".join(
             f"{name}={shape(getattr(self, name))}"

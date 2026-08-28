@@ -13,10 +13,8 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
 from utils import process_account, format_filename_vectorized
-from config.settings import (
-    OUTPUT_DATA_DIR, 
-    OPU_ACCOUNTS_PREFIXES,
-)
+from config.settings import OPU_ACCOUNTS_PREFIXES
+from io_module.output_manager import get_output_dir
 
 
 class Step1aListExpectedRegistersStep(Step):
@@ -434,7 +432,7 @@ class Step1aListExpectedRegistersStep(Step):
         # 10. СОХРАНЕНИЕ В EXCEL (один лист для ОСВ + карточек + спецотчёты)
         # =========================================================================
         output_filename = f'Выгрузить_{context.company}_{context.period}.xlsx'
-        output_path = OUTPUT_DATA_DIR / output_filename
+        output_path = get_output_dir() / output_filename
         
         try:
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:

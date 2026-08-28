@@ -32,6 +32,7 @@ from pipeline.executors import (
     save_results,
 )
 from cli.arguments import parse_arguments, ask_user_about_traceback
+from io_module.output_manager import configure_run, get_run_id, get_run_dir
 
 
 def main(show_traceback: bool = False, verbose: bool = False) -> int:
@@ -49,11 +50,17 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
     logger.info("=" * 80)
 
     try:
+        # Инициализация вывода: все результаты запуска пишутся
+        # в отдельную папку _OUTPUT_DATA/run_<run_id>
+        configure_run()
+        logger.info("[FOLDER] Результаты запуска сохраняются в: {}", get_run_dir())
+
         # ФАЗА 0
         logger.info("ФАЗА 0: Ожидаем общую ОСВ в INPUT DATA")
         pause_for_osv_general_export()
         logger.info("Проверяем Общую ОСВ...")
         context = initialize_context()
+        context.run_id = get_run_id()
         context.tolerance_params = load_params(context)
 
         # ФАЗА 1
