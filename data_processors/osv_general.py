@@ -124,7 +124,7 @@ class BaseOSVFileProcessor(FileProcessor, ABC):
         
         # Предобработка (добавление столбцов Уровень и Курсив)
         df = self._preprocessor_openpyxl(stream)
-
+        
         # Установка заголовков и очистка (специфично для формата)
         df = self._process_dataframe_optimized(df)
 
@@ -161,7 +161,7 @@ class GeneralOSV_UPPFileProcessor(BaseOSVFileProcessor):
     def _process_dataframe_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
         MAX_HEADER_ROWS = 30
 
-        df = df.replace('', np.nan)
+        df = df.replace('', pd.NA)
         df.dropna(axis=1, how='all', inplace=True)
         df.dropna(axis=0, how='all', inplace=True)
 
@@ -204,38 +204,66 @@ class GeneralOSV_UPPFileProcessor(BaseOSVFileProcessor):
         for col in required_cols:
             if col not in df.columns:
                 raise ValueError(f'Отсутствует обязательный столбец: {col}')
-
+        
         cols = df.columns.tolist()
         target_idx_a = df.columns.get_loc('Сальдо на начало периода')
         target_idx_b = df.columns.get_loc('Оборот за период')
         target_idx_c = df.columns.get_loc('Сальдо на конец периода')
+        
+        print(target_idx_a, target_idx_b, target_idx_c)
 
         new_cols = list(df.columns)
         new_cols[col_index_name_acc] = 'Наименование'
 
-        def find_column_index(cols, df, start_idx, word):
-            for idx in range(start_idx + 1, len(cols)):
-                if df.iloc[0, idx] == word:
-                    return idx
-            return None
-
+        # def find_column_index(cols, df, start_idx, word):
+        #     for idx in range(start_idx + 1, len(cols)):
+        #         if df.iloc[0, idx] == word:
+        #             return idx
+        #     return None
+        def find_column_index(df, start_idx, word):
+            # 1. Берем срез первой строки от нужной позиции
+            row_slice = df.iloc[0, start_idx + 1:]
+            
+            # 2. Метод eq() безопасно сравнит все значения. 
+            # Если встретится pd.NA, он просто вернет False, без ошибок.
+            mask = row_slice.eq(word)
+            
+            # 3. Если совпадение нашлось
+            if mask.any():
+                # mask.argmax() вернет позиционный индекс первого True внутри среза.
+                # Нам нужно прибавить сдвиг (start_idx + 1), чтобы получить абсолютный индекс в df
+                return (start_idx + 1) + mask.argmax()
+                
+            return None        
         new_cols[target_idx_a] = 'Дебет_начало'
-        cred_start_idx = find_column_index(cols, df, target_idx_a, 'Кредит')
+        cred_start_idx = find_column_index(df, target_idx_a, 'Кредит')
+        # cred_start_idx = find_column_index(cols, df, target_idx_a, 'Кредит')
         if cred_start_idx is not None:
             new_cols[cred_start_idx] = 'Кредит_начало'
-
+        
+        
+        
         new_cols[target_idx_b] = 'Дебет_оборот'
-        cred_turn_idx = find_column_index(cols, df, target_idx_b, 'Кредит')
+        cred_turn_idx = find_column_index(df, target_idx_b, 'Кредит')
+        # cred_turn_idx = find_column_index(cols, df, target_idx_b, 'Кредит')
+        
+        
+        
         if cred_turn_idx is not None:
             new_cols[cred_turn_idx] = 'Кредит_оборот'
-
+        
+        
+        
         new_cols[target_idx_c] = 'Дебет_конец'
-        cred_end_idx = find_column_index(cols, df, target_idx_c, 'Кредит')
+        cred_end_idx = find_column_index(df, target_idx_c, 'Кредит')
+        # cred_end_idx = find_column_index(cols, df, target_idx_c, 'Кредит')
         if cred_end_idx is not None:
             new_cols[cred_end_idx] = 'Кредит_конец'
 
         df.columns = new_cols
-
+        
+        
+        
         df = df.loc[:, df.columns.notna()]
         df.columns = df.columns.astype(str)
         df = df.iloc[1:]  # удаляем строку "Дебет Кредит ..."
