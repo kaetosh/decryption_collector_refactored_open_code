@@ -27,6 +27,11 @@ class Step13BuildBalanceBreakdownStep(Step):
     BALANCE_REPORT = 'Баланс'
     BALANCE_COL = 'сальдо, тыс.ед.'
     
+    # Технические столбцы плана счетов, не попадающие в итоговую расшифровку
+    DROP_COLUMNS = ['Примечания', 'Уникальность итогового номера счета', 'Есть в меппинге?']
+    # Столбцы, переносимые в конец расшифровки (после 'Значение')
+    TAIL_COLUMNS = ['Отчетность', 'Статья отчетности']
+    
     # Столбцы, по которым строится маппинг на счёт ФО
     MAPPING_KEYS = [
         'счет',
@@ -197,7 +202,32 @@ class Step13BuildBalanceBreakdownStep(Step):
         # 8. Проверка сходимости баланса
         self._validate_balance_convergence(balance_transcripts, context)
         
+        # 9. Очистка столбцов: удаление технических, перенос служебных в конец
+        balance_transcripts = self._finalize_columns(balance_transcripts)
+        
         return balance_transcripts
+    
+    def _finalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Удаляет технические столбцы плана счетов и переносит служебные
+        ('Отчетность', 'Статья отчетности') в конец, после 'Значение'.
+
+        Устойчиво к отсутствию столбцов в справочнике: удаляются/переносятся
+        только фактически присутствующие столбцы.
+        """
+        df = df.drop(columns=[c for c in self.DROP_COLUMNS if c in df.columns])
+        
+        tail = [c for c in self.TAIL_COLUMNS if c in df.columns]
+        if not tail:
+            return df
+        
+        rest = [c for c in df.columns if c not in tail]
+        # 'Значение' — последний столбец перед переносимыми служебными
+        if 'Значение' in rest:
+            rest.remove('Значение')
+            rest.append('Значение')
+        
+        return df[rest + tail]
     
     def _validate_balance_convergence(self, balance_df: pd.DataFrame, context: ProcessingContext) -> None:
         """
