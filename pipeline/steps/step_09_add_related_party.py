@@ -8,6 +8,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
+from pipeline.step_config import StepConstants
 from io_module import DataLoader
 
 
@@ -19,10 +20,10 @@ class Step9AddRelatedPartyTypeColumnStep(Step):
     на основе справочника.
     """
     
-    # Константы
-    UNSPECIFIED = 'не_указано'
-    THIRD_PARTY = '3 лица'
-    OTHER_GAP = 'Прочие ГАП'
+    # Константы (используем централизованные константы)
+    UNSPECIFIED = StepConstants.UNSPECIFIED
+    THIRD_PARTY = StepConstants.THIRD_PARTY
+    OTHER_GAP = StepConstants.OTHER_GAP
     
     def __init__(self):
         super().__init__(

@@ -7,7 +7,9 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import ReferenceMismatchError  # ← НОВОЕ
+from pipeline.constants import Values
+from pipeline.step_config import StepConstants
+from pipeline.errors import ReferenceMismatchError
 from io_module import DataLoader
 
 
@@ -19,9 +21,9 @@ class Step8AddBioactiveSegmentColumnStep(Step):
     (животные, растения и т.д.) на основе справочника.
     """
     
-    # Константы
-    UNSPECIFIED = 'не_указано'
-    DEFAULT_BIOACTIVE = 'Прочие'
+    # Константы (используем централизованные константы)
+    UNSPECIFIED = StepConstants.UNSPECIFIED
+    DEFAULT_BIOACTIVE = StepConstants.DEFAULT_BIOACTIVE
     
     def __init__(self):
         super().__init__(
