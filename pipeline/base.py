@@ -87,6 +87,30 @@ class ProcessingContext:
             "error": error,
         })
 
+    def __repr__(self) -> str:
+        """
+        Компактное представление для отладки: параметры запуска,
+        размеры таблиц, ключи data и число записанных метрик.
+
+        Сами DataFrame не выводятся, чтобы repr оставался читаемым
+        (например, в сообщениях об ошибках и логах).
+        """
+        def shape(df: Optional[pd.DataFrame]) -> str:
+            return "None" if df is None else f"{len(df)}x{len(df.columns)}"
+
+        params = (
+            f"company={self.company!r}, segment={self.segment!r}, "
+            f"period={self.period!r}, type_period={self.type_period!r}"
+        )
+        tables = ", ".join(
+            f"{name}={shape(getattr(self, name))}"
+            for name in ("common_osv_df", "summary_osv_df", "journal_df", "balance_df", "pnl_df")
+        )
+        return (
+            f"ProcessingContext({params}; {tables}; "
+            f"data_keys={list(self.data.keys())}; metrics={len(self.step_metrics)})"
+        )
+
 class Step(ABC):
     """
     Абстрактный базовый класс для всех шагов обработки.
@@ -622,7 +646,9 @@ class Step(ABC):
         return context
     
     def __repr__(self) -> str:
-        return f"Step({self.name})"
+        if self.description:
+            return f"Step(name={self.name!r}, description={self.description!r})"
+        return f"Step(name={self.name!r})"
 
 class Pipeline:
     """
@@ -647,6 +673,9 @@ class Pipeline:
         self.steps.append(step)
         logger.debug("Добавлен шаг: {}", step.name)
         return self
+    
+    def __repr__(self) -> str:
+        return f"Pipeline(name={self.name!r}, steps={len(self.steps)})"
     
     def run(self, initial_context: ProcessingContext) -> ProcessingContext:
         context = initial_context
