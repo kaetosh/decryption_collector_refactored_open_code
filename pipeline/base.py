@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 import pandas as pd
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from loguru import logger
 from config.settings import (
                              # TOLERANCE,
@@ -57,6 +57,35 @@ class ProcessingContext:
     
     # Прочие данные
     data: Dict[str, Any] = field(default_factory=dict)
+
+    # Метрики выполнения шагов: заполняются декоратором handle_pipeline_errors
+    step_metrics: List[Dict[str, Any]] = field(default_factory=list)
+
+    def record_step(
+        self,
+        step_name: str,
+        status: str,
+        duration_sec: float,
+        error: str = None,
+    ) -> None:
+        """
+        Записывает метрику выполнения шага.
+
+        Используется для итоговой сводки Pipeline.run и для отладки
+        (видно, какой шаг сколько выполнялся и где произошёл сбой).
+
+        Args:
+            step_name: Название шага.
+            status: Статус завершения: 'ok' | 'soft' | 'error'.
+            duration_sec: Длительность шага в секундах.
+            error: Текст ошибки (если статус 'error').
+        """
+        self.step_metrics.append({
+            "step": step_name,
+            "status": status,
+            "duration_sec": duration_sec,
+            "error": error,
+        })
 
 class Step(ABC):
     """
@@ -633,10 +662,13 @@ class Pipeline:
                 context = step.execute(context)
                 logger.debug("[OK] Шаг '{}' успешно завершен", step.name)
             except ProcessingStepError:
-                # Уже обработано в Step.execute() — просто пробрасываем
+                # Уже обработано в декораторе handle_pipeline_errors —
+                # логируем промежуточную сводку и пробрасываем
+                self._log_step_summary(context)
                 raise
             except Exception as e:
                 # ★ ИСПРАВЛЕНИЕ: logger.exception автоматически логирует traceback
+                self._log_step_summary(context)
                 logger.exception(
                     "[!!] Критическая ошибка на шаге '{}': {}: {}",
                     step.name,
@@ -649,7 +681,39 @@ class Pipeline:
                 ) from e
         
         logger.info("Конвейер '{}' успешно завершен", self.name)
+        self._log_step_summary(context)
         return context
+    
+    def _log_step_summary(self, context: ProcessingContext) -> None:
+        """
+        Логирует сводку выполнения шагов: статус и длительность каждого.
+
+        Метрики заполняются декоратором handle_pipeline_errors
+        (context.step_metrics). Сводка помогает при отладке: видно,
+        какой шаг сколько выполнялся и на каком шаге произошёл сбой.
+        """
+        try:
+            metrics = getattr(context, "step_metrics", None)
+            if not metrics:
+                return
+            total = sum(m.get("duration_sec", 0.0) for m in metrics)
+            logger.info(
+                "=== Сводка шагов конвейера '{}' (итого: {:.2f} сек) ===",
+                self.name, total,
+            )
+            for m in metrics:
+                line = "  {:<45} {:<6} {:>8.2f} сек".format(
+                    str(m.get("step", "?"))[:45],
+                    str(m.get("status", "?")),
+                    float(m.get("duration_sec", 0.0)),
+                )
+                error = m.get("error")
+                if error:
+                    line += f" | {error}"
+                logger.info(line)
+        except Exception:
+            # Сводка — вспомогательный механизм, не должна ломать конвейер
+            logger.debug("Не удалось сформировать сводку по шагам")
 
 
 
