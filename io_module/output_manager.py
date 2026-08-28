@@ -11,16 +11,20 @@ _OUTPUT_DATA/run_ГГГГММДД_ЧЧММСС. Все места записи �
 очистка старых папок выполняется функцией cleanup_old_runs() при старте.
 """
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from loguru import logger
 
-from config.settings import OUTPUT_DATA_DIR
+from config.settings import KEEP_LAST_RUNS, OUTPUT_DATA_DIR
 
 # Префикс имени папки запуска внутри _OUTPUT_DATA
 RUN_DIR_PREFIX = "run_"
+
+# Верхняя граница параметра KEEP_LAST_RUNS
+MAX_KEEP_LAST_RUNS = 5
 
 # Состояние текущего запуска (заполняется configure_run)
 _run_id: Optional[str] = None

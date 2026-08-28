@@ -9,14 +9,14 @@ from typing import Optional
 import pandas as pd
 from loguru import logger
 from pathlib import Path
-from datetime import datetime
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.classifiers import ReceivableClassifier
 from pipeline.errors import ConvergenceError
 from io_module import DataLoader
 from utils import find_register_file, find_target_column
-from config.settings import SPECIAL_REPORTS_DIR, STRICT_CONTRACTOR_CHECK, OUTPUT_DATA_DIR
+from config.settings import SPECIAL_REPORTS_DIR, STRICT_CONTRACTOR_CHECK
+from io_module.output_manager import get_output_dir, get_run_id
 
 class Step11Split60AccountDebtByOSStatusStep(Step):
     """
@@ -232,14 +232,12 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         Returns:
             Путь к сохранённому файлу
         """
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Хвост имени файла = идентификатор запуска (совпадает с папкой вывода)
+        timestamp = get_run_id()
         output_path = (
-            Path(OUTPUT_DATA_DIR) / 
+            get_output_dir() /
             f'unknown_contractors_60_invest_{timestamp}.xlsx'
         )
-        
-        # Создаём директорию, если её нет
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Сохраняем в Excel
         unknown_df.to_excel(output_path, index=False)

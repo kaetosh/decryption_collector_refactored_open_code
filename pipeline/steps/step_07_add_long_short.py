@@ -9,14 +9,14 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from loguru import logger
-from pathlib import Path
 from time import time
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
 from io_module import DataLoader
 from utils import find_register_file, set_header_from_row
-from config.settings import SPECIAL_REPORTS_DIR, OUTPUT_DATA_DIR
+from config.settings import SPECIAL_REPORTS_DIR
+from io_module.output_manager import get_output_dir, get_run_id
 
 
 
@@ -88,13 +88,12 @@ class Step7AddLongShortTermColumnStep(Step):
         mismatches = comparison[comparison['разница'] > 0.01]
         
         if not mismatches.empty:
-            from datetime import datetime
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            # Хвост имени файла = идентификатор запуска (совпадает с папкой вывода)
+            timestamp = get_run_id()
             output_path = (
-                Path(OUTPUT_DATA_DIR) / 
+                get_output_dir() /
                 f'validation_split_mismatches_{timestamp}.xlsx'
             )
-            output_path.parent.mkdir(parents=True, exist_ok=True)
             mismatches.to_excel(output_path)
             
             logger.error(
@@ -140,12 +139,9 @@ class Step7AddLongShortTermColumnStep(Step):
         
         if not mismatches.empty:
             # Формируем путь к файлу для сохранения расхождений
-            from datetime import datetime
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_path = Path(OUTPUT_DATA_DIR) / f'validation_mismatches_{type_contract}_{timestamp}.xlsx'
-            
-            # Создаём директорию, если её нет
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Хвост имени файла = идентификатор запуска (совпадает с папкой вывода)
+            timestamp = get_run_id()
+            output_path = get_output_dir() / f'validation_mismatches_{type_contract}_{timestamp}.xlsx'
             
             # Сохраняем ВСЕ расхождения в Excel
             mismatches.to_excel(output_path)

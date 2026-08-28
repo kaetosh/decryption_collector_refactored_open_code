@@ -7,13 +7,10 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
 import pandas as pd
 from typing import Any, Dict, List, Optional
 from loguru import logger
-from config.settings import (
-                             # TOLERANCE,
-                             OUTPUT_DATA_DIR)
+from io_module.output_manager import get_output_dir, get_run_id
 from pipeline.errors import (
     ReferenceMismatchError,
     MissingFilesError,
@@ -468,7 +465,8 @@ class Step(ABC):
             return
         
         try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            # Хвост имени файла = идентификатор запуска (совпадает с папкой вывода)
+            timestamp = get_run_id()
             
             # ★ КОРОТКОЕ имя шага: только номер (например, "step_14", "step_11a", "step_1a")
             step_slug = self._short_step_slug()
@@ -477,9 +475,8 @@ class Step(ABC):
             ref_slug = self._short_slug(error.reference_name or 'unknown', max_len=30)
             
             filename = f"mismatch_{step_slug}_{ref_slug}_{timestamp}.xlsx"
-            output_path = OUTPUT_DATA_DIR / "mismatches" / filename
+            output_path = get_output_dir("mismatches") / filename
             
-            output_path.parent.mkdir(parents=True, exist_ok=True)
             error.problem_data.to_excel(output_path, index=False)
             
             logger.error(
@@ -544,15 +541,14 @@ class Step(ABC):
             return
         
         try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            # Хвост имени файла = идентификатор запуска (совпадает с папкой вывода)
+            timestamp = get_run_id()
             
             # ★ КОРОТКОЕ имя шага
             step_slug = self._short_step_slug()
             
             filename = f"missing_files_{step_slug}_{timestamp}.xlsx"
-            output_path = OUTPUT_DATA_DIR / "mismatches" / filename
-            
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path = get_output_dir("mismatches") / filename
             
             df = pd.DataFrame({
                 'отсутствующий_файл': error.missing_files,
