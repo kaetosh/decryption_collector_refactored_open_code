@@ -6,7 +6,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import (                          # ← НОВОЕ
+from pipeline.errors import (
     MissingOSGroupError,
     ReferenceMismatchError,
     ConvergenceError,

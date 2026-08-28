@@ -8,7 +8,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import ConvergenceError  # ← НОВОЕ
+from pipeline.errors import ConvergenceError
 from io_module import DataLoader, DataSaver
 from utils import find_register_file, cast_columns_to_types, get_required_columns_df
 from config.settings import SPECIAL_REPORTS_DIR

@@ -27,7 +27,6 @@ import pandas as pd
 from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
-# from io_module import DataLoader
 
 
 class StepAddExpensesToOpuBase(Step):
