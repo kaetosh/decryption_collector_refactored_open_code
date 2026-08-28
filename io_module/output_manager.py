@@ -101,3 +101,63 @@ def get_output_dir(subfolder: Optional[str] = None) -> Path:
         output_dir = output_dir / subfolder
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def cleanup_old_runs(keep_last: int = KEEP_LAST_RUNS) -> None:
+    """
+    Удаляет папки прошлых запусков, кроме последних keep_last.
+
+    Безопасность:
+    - удаляются ТОЛЬКО подпапки _OUTPUT_DATA с именами run_*;
+    - любые другие файлы и папки (в том числе оставшиеся от прежних
+      версий программы) никогда не затрагиваются;
+    - текущая папка запуска — самая новая по имени, поэтому учитывается
+      в keep_last и не удаляется.
+
+    Args:
+        keep_last: Сколько последних папок запусков хранить (1..MAX).
+            Значение вне диапазона заменяется на максимум с предупреждением.
+    """
+    if not (1 <= keep_last <= MAX_KEEP_LAST_RUNS):
+        logger.warning(
+            "[!] KEEP_LAST_RUNS = {} вне допустимого диапазона 1..{}, "
+            "используем {}",
+            keep_last,
+            MAX_KEEP_LAST_RUNS,
+            MAX_KEEP_LAST_RUNS,
+        )
+        keep_last = MAX_KEEP_LAST_RUNS
+
+    if not OUTPUT_DATA_DIR.exists():
+        return
+
+    run_dirs = sorted(
+        (
+            d
+            for d in OUTPUT_DATA_DIR.iterdir()
+            if d.is_dir() and d.name.startswith(RUN_DIR_PREFIX)
+        ),
+        key=lambda d: d.name,
+    )
+
+    # Имя run_ГГГГММДД_ЧЧММСС сортируется лексикографически = хронологически,
+    # поэтому последние keep_last папок — это срез [: -keep_last]
+    to_delete = run_dirs[:-keep_last]
+
+    for old_dir in to_delete:
+        try:
+            shutil.rmtree(old_dir)
+            logger.debug("Удалена папка прошлого запуска: {}", old_dir.name)
+        except PermissionError:
+            logger.warning(
+                "[!] Не удалось удалить папку прошлого запуска {}: файлы "
+                "открыты в другой программе (Excel?). Папка будет удалена "
+                "при одном из следующих запусков.",
+                old_dir.name,
+            )
+        except OSError as e:
+            logger.warning(
+                "[!] Не удалось удалить папку прошлого запуска {}: {}",
+                old_dir.name,
+                e,
+            )

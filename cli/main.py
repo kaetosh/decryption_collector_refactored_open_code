@@ -32,7 +32,7 @@ from pipeline.executors import (
     save_results,
 )
 from cli.arguments import parse_arguments, ask_user_about_traceback
-from io_module.output_manager import configure_run, get_run_id, get_run_dir
+from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
 
 
 def main(show_traceback: bool = False, verbose: bool = False) -> int:
@@ -51,8 +51,10 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
 
     try:
         # Инициализация вывода: все результаты запуска пишутся
-        # в отдельную папку _OUTPUT_DATA/run_<run_id>
+        # в отдельную папку _OUTPUT_DATA/run_<run_id>; папки прошлых
+        # запусков сверх KEEP_LAST_RUNS удаляются
         configure_run()
+        cleanup_old_runs()
         logger.info("[FOLDER] Результаты запуска сохраняются в: {}", get_run_dir())
 
         # ФАЗА 0
