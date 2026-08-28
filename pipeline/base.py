@@ -13,12 +13,12 @@ from typing import Any, Dict, Optional
 from loguru import logger
 from config.settings import (
                              # TOLERANCE,
-                             OUTPUT_DATA_DIR,
-                             STRICT_CONTRACTOR_CHECK)
+                             OUTPUT_DATA_DIR)
 from pipeline.errors import (
     ReferenceMismatchError,
     MissingFilesError,
-    MissingContractorError
+    MissingContractorError,
+    ProcessingStepError,
 )
 from pipeline.constants import (
     ColumnNames,
@@ -26,10 +26,8 @@ from pipeline.constants import (
     Prefixes,
     Values,
 )
+from pipeline.decorators import handle_pipeline_errors
 
-
-class ProcessingStepError(Exception):
-    pass
 
 @dataclass(slots=True)
 class ProcessingContext:
@@ -69,65 +67,34 @@ class Step(ABC):
         self.name = name
         self.description = description
     
+    @handle_pipeline_errors
     def execute(self, context: 'ProcessingContext') -> 'ProcessingContext':
         """
         Публичный метод, который запускает шаг.
+
+        Обработка ошибок (сохранение отчётов о проблемных данных, мягкий/
+        строгий режим для контрагентов, оборачивание исключений в
+        ProcessingStepError) вынесена в декоратор handle_pipeline_errors
+        (pipeline/decorators.py).
         """
-        logger.debug("--- Начало этапа: {} ---", self.name)
-        
-        try:
-            # 1. Валидация входа
-            self._validate_input(context)
-            
-            # 2. Бизнес-логика
-            context = self._process(context)
-            
-            # 3. Удаление лишних пробелов
-            context = self._clean_whitespace(context)
-            
-            # 4. Перенос Level_столбцов в конец таблицы
-            context = self._move_and_sort_level_columns(context)
-            
-            # 5. Валидация выхода
-            self._validate_output(context)
-            
-            logger.debug("--- Успешное завершение этапа: {} ---", self.name)
-            
-            return context
-        
-        except MissingContractorError as e:
-            # ★ Специальная обработка для неизвестных контрагентов
-            e.step_name = self.name
-            self._save_reference_mismatch_report(e)
-            
-            if STRICT_CONTRACTOR_CHECK:
-                # Строгий режим: падаем
-                logger.error(
-                    "[ERR] Критическая ошибка: неизвестные контрагенты на этапе '{}': {}", self.name, e
-                )
-                raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
-            else:
-                # Мягкий режим: заменяем на '3 лица' и продолжаем
-                logger.warning(
-                    "[!] Мягкий режим: неизвестные контрагенты заменены на '{}'", e.replacement_value
-                )
-                context = self._apply_soft_contractor_handling(context, e)
-                return context
-        except ReferenceMismatchError as e:
-            e.step_name = self.name
-            self._save_reference_mismatch_report(e)
-            logger.error("[ERR] Ошибка несоответствия данных на этапе '{}': {}", self.name, e)
-            raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
-            
-        except MissingFilesError as e:
-            e.step_name = self.name
-            self._save_missing_files_report(e)
-            logger.error("[ERR] Ошибка: отсутствуют файлы выгрузок на этапе '{}': {}", self.name, e)
-            raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
-            
-        except Exception as e:
-            logger.error("[ERR] Ошибка на этапе '{}': {}", self.name, e)
-            raise ProcessingStepError(f"Сбой на этапе '{self.name}'") from e
+        # 1. Валидация входа
+        self._validate_input(context)
+
+        # 2. Бизнес-логика
+        context = self._process(context)
+
+        # 3. Удаление лишних пробелов
+        context = self._clean_whitespace(context)
+
+        # 4. Перенос Level_столбцов в конец таблицы
+        context = self._move_and_sort_level_columns(context)
+
+        # 5. Валидация выхода
+        self._validate_output(context)
+
+        logger.debug("--- Успешное завершение этапа: {} ---", self.name)
+
+        return context
     
     @abstractmethod
     def _process(self, context: 'ProcessingContext') -> 'ProcessingContext':

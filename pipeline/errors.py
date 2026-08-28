@@ -9,6 +9,9 @@
         ├── MissingContractorError (нет контрагента)
         ├── MissingOSGroupError (нет группы ОС)
         └── ConvergenceError (расхождение сумм)
+
+Отдельно от иерархии PipelineError:
+    ProcessingStepError — обёртка сбоя шага конвейера
 """
 import pandas as pd
 from typing import Optional, Any
@@ -16,6 +19,17 @@ from typing import Optional, Any
 
 class PipelineError(Exception):
     """Базовое исключение для всех ошибок пайплайна."""
+    pass
+
+class ProcessingStepError(Exception):
+    """
+    Ошибка выполнения шага конвейера.
+
+    Создаётся декоратором handle_pipeline_errors (pipeline/decorators.py)
+    при перехвате исходного исключения; оригинал доступен через __cause__.
+    Ранее класс находился в pipeline.base — перенесён сюда, чтобы разорвать
+    циклический импорт base <-> decorators.
+    """
     pass
 
 class InputDataError(PipelineError):
