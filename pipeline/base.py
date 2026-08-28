@@ -697,7 +697,9 @@ class Pipeline:
             if not metrics:
                 return
             total = sum(m.get("duration_sec", 0.0) for m in metrics)
-            logger.info(
+            # DEBUG, а не INFO: сводка — техническая информация для разработчика
+            # (в app.log DEBUG пишется, на консоль пользователя не выводится)
+            logger.debug(
                 "=== Сводка шагов конвейера '{}' (итого: {:.2f} сек) ===",
                 self.name, total,
             )
@@ -710,7 +712,11 @@ class Pipeline:
                 error = m.get("error")
                 if error:
                     line += f" | {error}"
-                logger.info(line)
+                rows = m.get("rows")
+                if rows:
+                    rows_str = ", ".join(f"{k}={v}" for k, v in rows.items())
+                    line += f" | строк: {rows_str}"
+                logger.debug(line)
         except Exception:
             # Сводка — вспомогательный механизм, не должна ломать конвейер
             logger.debug("Не удалось сформировать сводку по шагам")

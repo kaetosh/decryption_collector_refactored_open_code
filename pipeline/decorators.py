@@ -11,6 +11,7 @@
 from functools import wraps
 from time import perf_counter
 
+import pandas as pd
 from loguru import logger
 
 from config.settings import STRICT_CONTRACTOR_CHECK
@@ -20,6 +21,27 @@ from pipeline.errors import (
     MissingContractorError,
 )
 from pipeline.errors import ProcessingStepError
+
+
+def _collect_rows(target) -> dict:
+    """
+    Собирает количество строк основных таблиц контекста.
+
+    Используется для отладки: видно, как меняется объём данных
+    от шага к шагу. Возвращает словарь {имя_таблицы: число_строк};
+    ключи с префиксом 'data.' — таблицы из context.data.
+    """
+    rows = {}
+    for attr in ("common_osv_df", "summary_osv_df", "journal_df", "balance_df", "pnl_df"):
+        df = getattr(target, attr, None)
+        if df is not None:
+            rows[attr] = len(df)
+    data = getattr(target, "data", None)
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, pd.DataFrame):
+                rows[f"data.{key}"] = len(value)
+    return rows
 
 
 def handle_pipeline_errors(func):
@@ -37,6 +59,10 @@ def handle_pipeline_errors(func):
         - MissingFilesError: сохранение отчёта об отсутствующих файлах
         - Exception: общий перехват
 
+    После успешного выполнения шага (включая мягкий режим) в
+    context.step_metrics записывается метрика: статус, длительность
+    и число строк таблиц контекста.
+
     Args:
         func: Метод `execute` шага.
 
@@ -49,7 +75,7 @@ def handle_pipeline_errors(func):
         step_name = self.name
         started = perf_counter()
 
-        def _record(target, status, error=None):
+        def _record(target, status, error=None, rows=None):
             """
             Записывает метрику выполнения шага в target.step_metrics.
 
@@ -63,6 +89,7 @@ def handle_pipeline_errors(func):
                     "status": status,
                     "duration_sec": round(perf_counter() - started, 3),
                     "error": error,
+                    "rows": rows,
                 })
 
         logger.debug("--- Начало этапа: {} ---", step_name)
@@ -70,7 +97,11 @@ def handle_pipeline_errors(func):
         try:
             result = func(self, context)
             # Шаг теоретически может вернуть новый контекст — пишем метрику в него
-            _record(result if hasattr(result, "step_metrics") else context, "ok")
+            target = result if hasattr(result, "step_metrics") else context
+            rows = _collect_rows(target)
+            _record(target, "ok", rows=rows)
+            if rows:
+                logger.debug("Этап '{}': таблицы после шага (строк): {}", step_name, rows)
             return result
 
         except MissingContractorError as e:
@@ -93,7 +124,11 @@ def handle_pipeline_errors(func):
                     e.replacement_value,
                 )
                 result = self._apply_soft_contractor_handling(context, e)
-                _record(result if hasattr(result, "step_metrics") else context, "soft")
+                target = result if hasattr(result, "step_metrics") else context
+                rows = _collect_rows(target)
+                _record(target, "soft", rows=rows)
+                if rows:
+                    logger.debug("Этап '{}': таблицы после шага (строк): {}", step_name, rows)
                 return result
 
         except ReferenceMismatchError as e:
