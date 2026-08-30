@@ -66,6 +66,9 @@ class Step19BuildOpuStep(Step):
     ROW_ID_COL: Final = "__row_id__"
     GROUP_ACCOUNT_COL: Final = "__group_account__"
 
+    DROP_COLUMNS = ['Примечания', 'Уникальность итогового номера счета', 'Есть в меппинге?']
+    TAIL_COLUMNS = ['Отчетность', 'Статья отчетности']
+
     def __init__(self) -> None:
         super().__init__(
             name="Шаг 19: Финальная сборка расшифровки ОПУ",
@@ -553,6 +556,36 @@ class Step19BuildOpuStep(Step):
     # Сборка ОПУ
     # ------------------------------------------------------------------
 
+    def _finalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Удаляет DROP_COLUMNS и переносит TAIL_COLUMNS в конец после 'Значение'.
+
+        Также меняет местами 'Итоговый номер счета' и 'РСБУ Код отчетности',
+        оставляя их в начале: РСБУ Код отчетности, Итоговый номер счета, ...
+
+        Устойчиво к отсутствию столбцов: удаляются/переносятся
+        только фактически присутствующие столбцы.
+        """
+        df = df.drop(columns=[c for c in self.DROP_COLUMNS if c in df.columns])
+
+        if 'Итоговый номер счета' in df.columns and 'РСБУ Код отчетности' in df.columns:
+            cols = list(df.columns)
+            cols.remove('Итоговый номер счета')
+            insert_at = cols.index('РСБУ Код отчетности')
+            cols.insert(insert_at, 'Итоговый номер счета')
+            df = df[cols]
+
+        tail = [c for c in self.TAIL_COLUMNS if c in df.columns]
+        if not tail:
+            return df
+
+        rest = [c for c in df.columns if c not in tail]
+        if 'Значение' in rest:
+            rest.remove('Значение')
+            rest.append('Значение')
+
+        return df[rest + tail]
+
     def _build_opu_report(self, journal_df: pd.DataFrame, chart_of_accounts_df: pd.DataFrame) -> pd.DataFrame:
         """
         Формирует итоговую расшифровку ОПУ:
@@ -608,6 +641,7 @@ class Step19BuildOpuStep(Step):
         opu_template = opu_template[opu_template[self.VALUE_COL] != 0]
 
         opu_template = self._ensure_clean_dtypes(opu_template)
+        opu_template = self._finalize_columns(opu_template)
 
         return opu_template
 
