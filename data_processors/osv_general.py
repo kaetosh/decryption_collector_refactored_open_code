@@ -209,8 +209,6 @@ class GeneralOSV_UPPFileProcessor(BaseOSVFileProcessor):
         target_idx_a = df.columns.get_loc('Сальдо на начало периода')
         target_idx_b = df.columns.get_loc('Оборот за период')
         target_idx_c = df.columns.get_loc('Сальдо на конец периода')
-        
-        print(target_idx_a, target_idx_b, target_idx_c)
 
         new_cols = list(df.columns)
         new_cols[col_index_name_acc] = 'Наименование'
