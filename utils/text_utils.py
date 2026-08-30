@@ -62,7 +62,7 @@ except ImportError:
 # ОЧИСТКА ТЕКСТА
 # =========================================================================
 
-def clean_text_optimized(text: str) -> str:
+def _clean_text_optimized(text: str) -> str:
     """
     Оптимизированная функция очистки текста.
     
@@ -124,36 +124,36 @@ def clean_text_optimized(text: str) -> str:
 _cleaning_cache: Dict[str, str] = {}
 
 
-def clean_company_name(company_name: str) -> str:
+def _clean_company_name(company_name: str) -> str:
     """
     Нормализует название компании для сравнения.
-    
+
     Использует кэширование для производительности.
     Убирает ОПФ, стоп-слова, лемматизирует и сортирует слова.
-    
+
     Настраивается через константы в config/settings.py.
-    
+
     Examples:
-        >>> clean_company_name("ООО Рыба Мясо")
+        >>> _clean_company_name("ООО Рыба Мясо")
         'мясо рыба'
-        >>> clean_company_name("Рыба мясо ООО")
+        >>> _clean_company_name("Рыба мясо ООО")
         'мясо рыба'  # Тот же результат — для fuzzy matching
     """
     import pandas as pd
-    
+
     if not company_name or pd.isna(company_name):
         return ""
-    
+
     if company_name in _cleaning_cache:
         return _cleaning_cache[company_name]
-    
-    normalized = clean_text_optimized(company_name)
-    
+
+    normalized = _clean_text_optimized(company_name)
+
     _cleaning_cache[company_name] = normalized
     return normalized
 
 
-def clear_cleaning_cache() -> None:
+def _clear_cleaning_cache() -> None:
     """Очищает кэш очистки названий."""
     global _cleaning_cache
     _cleaning_cache.clear()
@@ -213,8 +213,8 @@ def find_similar_companies(
     df_a = data_a_clean.to_frame(name='original_a').copy()
     df_b = data_b_clean.to_frame(name='original_b').copy()
     
-    df_a['cleaned_a'] = df_a['original_a'].apply(clean_company_name)
-    df_b['cleaned_b'] = df_b['original_b'].apply(clean_company_name)
+    df_a['cleaned_a'] = df_a['original_a'].apply(_clean_company_name)
+    df_b['cleaned_b'] = df_b['original_b'].apply(_clean_company_name)
     
     # Создаём словарь для быстрого поиска оригинальных названий
     b_cleaned_to_original = defaultdict(list)
@@ -274,6 +274,6 @@ def find_similar_companies(
     df_output = df_output.sort_values('score', ascending=False).reset_index(drop=True)
     
     # Очищаем кэш после использования
-    clear_cleaning_cache()
+    _clear_cleaning_cache()
     
     return df_output
