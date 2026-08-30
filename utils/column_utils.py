@@ -77,25 +77,43 @@ def find_target_column(df,
 
 def process_account(acc) -> str:
     """
-    Нормализует номер счета:
+    Нормализует номер счета (скалярная версия):
     - 98.x -> оставляет как есть
     - Счета из ACCOUNTS_OSV_LEASE (и их субсчета) -> приводит к базовому счету
     - Остальные -> обрезает до первого уровня (2 символа)
     """
     if pd.isna(acc):
         return ''
-    
+
     acc_str = str(acc).strip()
-    
+
     # Специальная обработка для 98-го счета
     if acc_str.startswith('98.'):
         return acc_str
-    
+
     # ★ Динамическая проверка по списку ACCOUNTS_OSV_LEASE
     # Сортируем по длине (убывание), чтобы '76.05.3' проверялся раньше, чем '76.05'
     for lease_acc in sorted(ACCOUNTS_OSV_LEASE, key=len, reverse=True):
         if acc_str == lease_acc or acc_str.startswith(lease_acc + '.'):
             return lease_acc
-    
+
     # Остальные счета -> первые 2 символа
     return acc_str[:2] if len(acc_str) >= 2 else acc_str
+
+
+def normalize_account(series: pd.Series) -> pd.Series:
+    """
+    Векторизованная нормализация счетов для Series (синтетический уровень).
+    По умолчанию 2 символа, для счетов 90 и 91 - 5 символов.
+
+    Отличается от process_account():
+    - process_account: скалярная, с логикой ACCOUNTS_OSV_LEASE
+    - normalize_account: векторная, для реконциляции проводок (Дт/Кт)
+
+    Работает в разы быстрее, чем apply с lambda.
+    """
+    s = series.astype(str)
+    res = s.str[:2].copy()
+    mask_90_91 = s.str.startswith(('90', '91'))
+    res.loc[mask_90_91] = s.loc[mask_90_91].str[:5]
+    return res

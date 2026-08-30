@@ -7,6 +7,7 @@ from .dataframe_utils import (
 from .column_utils import (
     find_target_column,
     process_account,
+    normalize_account,
 )
 from .file_utils import (
     find_missing_files,
@@ -22,6 +23,7 @@ __all__ = [
     # column_utils
     'find_target_column',
     'process_account',
+    'normalize_account',
     # file_utils
     'find_missing_files',
     'find_register_file',

@@ -8,21 +8,8 @@ import pandas as pd
 from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from io_module import DataLoader
-from utils import find_target_column
+from utils import find_target_column, normalize_account
 from pipeline.errors import ConvergenceError
-
-
-def normalize_account(series: pd.Series) -> pd.Series:
-    """
-    Векторизованное приведение счета к синтетическому уровню.
-    По умолчанию 2 символа, для счетов 90 и 91 - 5 символов.
-    Работает в разы быстрее, чем apply с lambda.
-    """
-    s = series.astype(str)
-    res = s.str[:2].copy()
-    mask_90_91 = s.str.startswith(('90', '91'))
-    res.loc[mask_90_91] = s.loc[mask_90_91].str[:5]
-    return res
 
 
 class Step1cReconcileTotalsStep(Step):
