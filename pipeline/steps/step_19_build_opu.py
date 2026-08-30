@@ -560,20 +560,15 @@ class Step19BuildOpuStep(Step):
         """
         Удаляет DROP_COLUMNS и переносит TAIL_COLUMNS в конец после 'Значение'.
 
-        Также меняет местами 'Итоговый номер счета' и 'РСБУ Код отчетности',
-        оставляя их в начале: РСБУ Код отчетности, Итоговый номер счета, ...
-
         Устойчиво к отсутствию столбцов: удаляются/переносятся
         только фактически присутствующие столбцы.
+
+        Внимание: swap 'Итоговый номер счета' / 'РСБУ Код отчетности' здесь
+        не выполняется, потому что 'Итоговый номер счета' уходит в индекс
+        при set_index() в _build_opu_report. Swap делается в
+        data_io._prepare_pnl_df() после reset_index().
         """
         df = df.drop(columns=[c for c in self.DROP_COLUMNS if c in df.columns])
-
-        if 'Итоговый номер счета' in df.columns and 'РСБУ Код отчетности' in df.columns:
-            cols = list(df.columns)
-            cols.remove('Итоговый номер счета')
-            insert_at = cols.index('РСБУ Код отчетности')
-            cols.insert(insert_at, 'Итоговый номер счета')
-            df = df[cols]
 
         tail = [c for c in self.TAIL_COLUMNS if c in df.columns]
         if not tail:

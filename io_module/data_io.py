@@ -704,11 +704,29 @@ class DataSaver:
     @staticmethod
     def _prepare_pnl_df(df: pd.DataFrame) -> pd.DataFrame:
         """
-        Подготавливает DataFrame ОПУ к экспорту.
-        Финализация столбцов (удаление DROP, перенос TAIL, swap) выполняется
-        в step_19._finalize_columns() — здесь только сброс индекса.
+        Подготавливает DataFrame ОПУ к экспорту:
+        - сбрасывает индекс ('Итоговый номер счета' становится первым столбцом);
+        - перемещает 'Итоговый номер счета' на позицию сразу после
+          'РСБУ Код отчетности' (порядок должен совпадать с балансом).
+
+        Drop и TAIL (Отчетность, Статья отчетности) выполняются в
+        step_19._finalize_columns() — здесь только финальный swap.
         """
-        return df.reset_index()
+        df_reset = df.reset_index()
+
+        if 'Итоговый номер счета' not in df_reset.columns:
+            return df_reset
+
+        cols = df_reset.columns.tolist()
+        cols.remove('Итоговый номер счета')
+
+        if 'РСБУ Код отчетности' in cols:
+            insert_idx = cols.index('РСБУ Код отчетности') + 1
+        else:
+            insert_idx = 1
+
+        cols.insert(insert_idx, 'Итоговый номер счета')
+        return df_reset[cols]
     
     # =========================================================================
     # СТАРЫЕ МЕТОДЫ (для обратной совместимости)
