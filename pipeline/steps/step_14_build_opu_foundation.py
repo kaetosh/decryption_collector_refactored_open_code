@@ -10,6 +10,7 @@ from typing import Tuple
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
 from io_module import DataLoader
+from utils import add_ruble_amount_column
 
 
 class Step14BuildOpuFoundationStep(Step):
@@ -46,6 +47,10 @@ class Step14BuildOpuFoundationStep(Step):
         # 1. Загрузка и подготовка данных
         transactions_all_df = context.journal_df.copy()
         osv_df = context.common_osv_df
+        
+        # 1а. Рублёвый эквивалент сумм проводок: курс на дату каждой операции.
+        # Для RUB — курс 1 (столбец равен исходному), единый код-путь далее.
+        transactions_all_df = add_ruble_amount_column(transactions_all_df, context)
         
         # 2. Загрузка справочников
         mapping_opu_df, directory_ufr_df, group_companies_df, company_directory_df = self._load_reference_data(name_company, context)
@@ -156,13 +161,14 @@ class Step14BuildOpuFoundationStep(Step):
         
         # Очистка выручки от НДС
         df9001['выручка_без_ндс_тыс_ед'] = (df9001['Сумма'] / 1000) / (1 + df9001['ндс_ставка'])
+        df9001['выручка_без_ндс_тыс_руб'] = (df9001['Сумма_руб'] / 1000) / (1 + df9001['ндс_ставка'])
         
         # Оставляем только нужные столбцы и группируем
-        df9001 = df9001.loc[:, ['Документ', 'контрагент', 'ном_группа', 'выручка_без_ндс_тыс_ед']]
+        df9001 = df9001.loc[:, ['Документ', 'контрагент', 'ном_группа', 'выручка_без_ндс_тыс_ед', 'выручка_без_ндс_тыс_руб']]
         df9001 = df9001.groupby(
             ['Документ', 'контрагент', 'ном_группа'], 
             as_index=False
-        )['выручка_без_ндс_тыс_ед'].sum()
+        )[['выручка_без_ндс_тыс_ед', 'выручка_без_ндс_тыс_руб']].sum()
         
         # Проверка сходимости с ОСВ
         self._validate_revenue_against_osv(df9001, osv_df, context)
@@ -249,11 +255,12 @@ class Step14BuildOpuFoundationStep(Step):
         
         # Обработка основной себестоимости
         df9002['себестоимость_тыс_ед'] = df9002.loc[:, 'Сумма'] / 1000
-        df9002 = df9002.loc[:, ['Документ', 'ном_группа', 'себестоимость_тыс_ед']]
+        df9002['себестоимость_тыс_руб'] = df9002.loc[:, 'Сумма_руб'] / 1000
+        df9002 = df9002.loc[:, ['Документ', 'ном_группа', 'себестоимость_тыс_ед', 'себестоимость_тыс_руб']]
         df9002 = df9002.groupby(
             ['Документ', 'ном_группа'], 
             as_index=False
-        )['себестоимость_тыс_ед'].sum()
+        )[['себестоимость_тыс_ед', 'себестоимость_тыс_руб']].sum()
         
         # Проверка сходимости с ОСВ
         self._validate_cost_against_osv(df9002, osv_df, turn_df9002_16, context)
@@ -307,7 +314,10 @@ class Step14BuildOpuFoundationStep(Step):
         
         # Расчёт оборота
         df9002_16['оборот, тыс.ед.'] = df9002_16.loc[:, 'Сумма'] / 1000
-        df9002_16 = df9002_16.groupby(['ном_группа'], as_index=False)['оборот, тыс.ед.'].sum()
+        df9002_16['оборот, тыс.руб.'] = df9002_16.loc[:, 'Сумма_руб'] / 1000
+        df9002_16 = df9002_16.groupby(
+            ['ном_группа'], as_index=False
+        )[['оборот, тыс.ед.', 'оборот, тыс.руб.']].sum()
         
         #сегмент по умолчанию
         segment = matching_rows['сегмент'].iloc[0]
@@ -386,30 +396,43 @@ class Step14BuildOpuFoundationStep(Step):
         
         # Выручка по группам (транслируется на каждую строку)
         revenue_sum = df_buyers.groupby('ном_группа')['выручка_без_ндс_тыс_ед'].transform('sum')
+        revenue_sum_rub = df_buyers.groupby('ном_группа')['выручка_без_ндс_тыс_руб'].transform('sum')
         
         # Затраты к распределению (из строк без покупателей)
         cost_to_distribute = df_merged[mask_empty].groupby('ном_группа')['себестоимость_тыс_ед'].sum()
+        cost_to_distribute_rub = df_merged[mask_empty].groupby('ном_группа')['себестоимость_тыс_руб'].sum()
         
         # Маппинг затрат на строки с покупателями
         df_buyers['затраты_группы'] = df_buyers['ном_группа'].map(cost_to_distribute).fillna(0)
+        df_buyers['затраты_группы_руб'] = df_buyers['ном_группа'].map(cost_to_distribute_rub).fillna(0)
         
-        # Коэффициент распределения (защита от деления на 0)
+        # Коэффициент распределения (защита от деления на 0).
+        # Для рублей коэффициент считается по рублёвым суммам независимо —
+        # тогда сумма рублёвого распределения точно равна рублёвым затратам группы
         ratio = np.where(revenue_sum > 0, df_buyers['затраты_группы'] / revenue_sum, 0)
+        ratio_rub = np.where(revenue_sum_rub > 0, df_buyers['затраты_группы_руб'] / revenue_sum_rub, 0)
         
         # Итоговая себестоимость
         df_buyers['Итоговая_себестоимость'] = (
             df_buyers['себестоимость_тыс_ед'].fillna(0) +
             df_buyers['выручка_без_ндс_тыс_ед'] * ratio
         )
+        df_buyers['Итоговая_себестоимость_руб'] = (
+            df_buyers['себестоимость_тыс_руб'].fillna(0) +
+            df_buyers['выручка_без_ндс_тыс_руб'] * ratio_rub
+        )
         
-        df_result = df_buyers.drop(columns=['затраты_группы']).reset_index(drop=True)
+        df_result = df_buyers.drop(columns=['затраты_группы', 'затраты_группы_руб']).reset_index(drop=True)
         
         # Группировка по контрагенту и ном_группе (без разбивки по документам)
         df_result = df_result.groupby(
             ['контрагент', 'ном_группа']
-        )[['выручка_без_ндс_тыс_ед', 'Итоговая_себестоимость']].sum().reset_index()
+        )[['выручка_без_ндс_тыс_ед', 'Итоговая_себестоимость', 'выручка_без_ндс_тыс_руб', 'Итоговая_себестоимость_руб']].sum().reset_index()
         
-        df_result = df_result.rename(columns={'Итоговая_себестоимость': 'себестоимость_тыс_ед'})
+        df_result = df_result.rename(columns={
+            'Итоговая_себестоимость': 'себестоимость_тыс_ед',
+            'Итоговая_себестоимость_руб': 'себестоимость_тыс_руб',
+        })
         
         distributed_count = mask_empty.sum()
         logger.debug(
@@ -430,6 +453,7 @@ class Step14BuildOpuFoundationStep(Step):
         
         # Инвертируем знак выручки (делаем отрицательной)
         df['выручка_без_ндс_тыс_ед'] = -df['выручка_без_ндс_тыс_ед']
+        df['выручка_без_ндс_тыс_руб'] = -df['выручка_без_ндс_тыс_руб']
         
         # Melt
         df_long = df.melt(
@@ -447,6 +471,22 @@ class Step14BuildOpuFoundationStep(Step):
         
         # ★ ЯВНОЕ ПРИВЕДЕНИЕ К STRING: map возвращает object, нужен string
         df_long['счет'] = df_long['счет'].map(account_mapping).astype('string')
+        
+        # Рублёвый эквивалент: второй melt по руб-столбцам.
+        # Порядок строк обоих melt идентичен (один df, те же id_vars и
+        # порядок value_vars), поэтому выравниваем позиционно.
+        account_mapping_rub = {
+            'выручка_без_ндс_тыс_руб': '90.01',
+            'себестоимость_тыс_руб': '90.02'
+        }
+        df_long_rub = df.melt(
+            id_vars=['контрагент', 'ном_группа'],
+            value_vars=['выручка_без_ндс_тыс_руб', 'себестоимость_тыс_руб'],
+            var_name='счет',
+            value_name='оборот, тыс.руб.'
+        )
+        df_long_rub['счет'] = df_long_rub['счет'].map(account_mapping_rub).astype('string')
+        df_long['оборот, тыс.руб.'] = df_long_rub['оборот, тыс.руб.'].to_numpy()
         
         # Удаление нулевых оборотов
         df_long = df_long[df_long['оборот, тыс.ед.'] != 0].reset_index(drop=True)

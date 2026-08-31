@@ -90,7 +90,7 @@ def _get_rates_df(context):
     return df
 
 
-def get_rate_for_date_with_info(context, target_date):
+def get_rate_for_date_with_info(context, target_date, log_miss=True):
     """Возвращает (курс, фактическая дата курса ДД.ММ.ГГГГ) для ближайшей
     даты <= target_date. Фактическая дата может отличаться от запрошенной,
     если курса на запрошенную дату нет (берётся ближайшая предыдущая)."""
@@ -105,7 +105,7 @@ def get_rate_for_date_with_info(context, target_date):
     if earlier.empty:
         raise ValueError('No exchange rate on or before ' + str(target_ts.date()) + ' for currency ' + repr(get_currency(context)))
     row = earlier.iloc[-1]
-    if row[_RATE_DATE_COL].date() != target_ts.date():
+    if log_miss and row[_RATE_DATE_COL].date() != target_ts.date():
         logger.info('No exact rate for {}, using nearest PREVIOUS {} (rate={}).', target_ts.date(), row[_RATE_DATE_COL].date(), row[_RATE_VALUE_COL])
     return float(row[_RATE_VALUE_COL]), row[_RATE_DATE_COL].strftime(_DATE_FORMAT)
 
@@ -155,4 +155,82 @@ def refresh_rub_equivalent(
         return df
     rate = get_rate_for_date(context, context.balance_date)
     df[rub_col] = convert_series(df[source_col], rate).round(2)
+    return df
+
+
+def add_ruble_amount_column(
+    df,
+    context,
+    date_col='Дата',
+    amount_col='Сумма',
+    rub_col='Сумма_руб',
+):
+    '''Добавляет рублёвый эквивалент сумм проводок по курсу на дату операции.
+
+    Для валютных компаний курс берётся из листа Курс_<валюта> на каждую
+    дату операции (ближайшая предшествующая дата, см. get_rate_for_date).
+    Если дата операции не парсится — ValueError со списком проблемных строк.
+    Для рублёвых компаний столбец равен исходному (курс 1) — единый
+    код-путь без ветвлений в бизнес-шагах.
+    '''
+    if not needs_conversion(context):
+        df[rub_col] = df[amount_col].astype(float)
+        return df
+    if date_col not in df.columns:
+        raise ValueError(
+            'Column ' + repr(date_col) + ' not found for currency conversion'
+        )
+    dates = _parse_rate_dates(df[date_col])
+    if dates.isna().any():
+        bad_mask = dates.isna()
+        bad_sample = df.loc[bad_mask, date_col].head(5).astype(str).tolist()
+        raise ValueError(
+            str(int(bad_mask.sum())) + ' rows have unparseable ' + repr(date_col)
+            + '; cannot convert amounts to RUB; sample: ' + repr(bad_sample)
+        )
+    rates_df = _get_rates_df(context)
+    earliest_row = rates_df.iloc[0]
+    earliest_rate = float(earliest_row[_RATE_VALUE_COL])
+    earliest_date = earliest_row[_RATE_DATE_COL]
+
+    rate_by_date = {}
+    boundary_dates = []
+    nearest_prev_count = 0
+    for ts in pd.Series(dates.unique()).sort_values():
+        try:
+            rate, actual_date_str = get_rate_for_date_with_info(context, ts, log_miss=False)
+        except ValueError:
+            # Дата операции раньше самой ранней даты справочника —
+            # "ближайшей предыдущей" не существует. Берём самый ранний
+            # курс справочника и собираем даты для сводного WARNING.
+            rate = earliest_rate
+            actual_date_str = earliest_date.strftime(_DATE_FORMAT)
+            boundary_dates.append(ts)
+        rate_by_date[ts] = rate
+        if pd.to_datetime(actual_date_str, dayfirst=True).date() != ts.date():
+            nearest_prev_count += 1
+
+    if boundary_dates:
+        logger.warning(
+            '[!] Для валюты {} в справочнике нет курсов на даты раньше {}: '
+            '{} дат операций (с {} по {}) переведены по курсу {} от {}. '
+            'Дополните лист курса, чтобы перевод ОПУ был точным.',
+            get_currency(context),
+            earliest_date.strftime(_DATE_FORMAT),
+            len(boundary_dates),
+            boundary_dates[0].strftime(_DATE_FORMAT),
+            boundary_dates[-1].strftime(_DATE_FORMAT),
+            earliest_rate,
+            earliest_date.strftime(_DATE_FORMAT),
+        )
+    logger.debug(
+        'Конвертация {} -> {} ({}): уникальных дат операций {}; '
+        'точно по справочнику {}; по ближайшей предыдущей {}; по раннему курсу {}.',
+        amount_col, rub_col, get_currency(context),
+        len(rate_by_date),
+        len(rate_by_date) - nearest_prev_count,
+        nearest_prev_count - len(boundary_dates),
+        len(boundary_dates),
+    )
+    df[rub_col] = df[amount_col].astype(float) * dates.map(rate_by_date)
     return df

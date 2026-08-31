@@ -18,6 +18,7 @@ from .currency_utils import (
     get_last_rate_date,
     convert_series,
     refresh_rub_equivalent,
+    add_ruble_amount_column,
 )
 from .file_utils import (
     find_missing_files,
@@ -47,4 +48,5 @@ __all__ = [
     'get_last_rate_date',
     'convert_series',
     'refresh_rub_equivalent',
+    'add_ruble_amount_column',
 ]
