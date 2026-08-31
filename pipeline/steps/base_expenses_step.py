@@ -428,7 +428,7 @@ class StepAddExpensesToOpuBase(Step):
         result = np.select(conditions, choices, default='не_указано')
         return pd.Series(result, dtype='string')
     
-        def _create_remainder_rows(
+    def _create_remainder_rows(
         self,
         df_opu: pd.DataFrame,
         remainder: float,
