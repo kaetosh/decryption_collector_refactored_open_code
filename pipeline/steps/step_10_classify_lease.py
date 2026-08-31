@@ -10,7 +10,7 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ConvergenceError
 from io_module import DataLoader, DataSaver
-from utils import find_register_file, cast_columns_to_types, get_required_columns_df
+from utils import find_register_file, cast_columns_to_types, get_required_columns_df, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR
 
 class Step10ClassifyLeaseSourceStep(Step):
@@ -418,8 +418,17 @@ class Step10ClassifyLeaseSourceStep(Step):
                     index=df.index
                 )
             else:
-                # Для числовых и других типов
-                df[col] = self.UNSPECIFIED
+                # Для числовых и других типов — пропущенные значения (NaN/NA),
+                # а НЕ строковая заглушка: строка в числовом столбце после
+                # pd.concat делает столбец object и ломает _restore_dtypes.
+                try:
+                    df[col] = pd.Series(
+                        [None] * len(df),
+                        dtype=ref_dtype,
+                        index=df.index,
+                    )
+                except (TypeError, ValueError):
+                    df[col] = pd.NA
         
         return df
     
@@ -488,6 +497,10 @@ class Step10ClassifyLeaseSourceStep(Step):
         
         # 7. Восстанавливаем ВСЕ типы
         osv_all_df = self._restore_dtypes(osv_all_df, original_dtypes)
+        
+        # 7а. Валютная компания: строки 01.03/02.03 заменены данными
+        # ведомости амортизации — рублёвый эквивалент нужно пересчитать
+        osv_all_df = refresh_rub_equivalent(osv_all_df, context)
         
         # 8. Проверка сходимости сумм
         sum_after = osv_all_df[osv_all_df['счет'].isin(self.ACCOUNTS_01_03)]['сальдо, тыс.ед.'].sum()

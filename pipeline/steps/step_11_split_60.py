@@ -14,7 +14,7 @@ from pipeline.base import Step, ProcessingContext
 from pipeline.classifiers import ReceivableClassifier
 from pipeline.errors import ConvergenceError
 from io_module import DataLoader
-from utils import find_register_file, find_target_column
+from utils import find_register_file, find_target_column, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR, STRICT_CONTRACTOR_CHECK
 from io_module.output_manager import get_output_dir, get_run_id
 
@@ -486,6 +486,10 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
                 osv_all_df[col] = osv_all_df[col].fillna(self.UNSPECIFIED)
         
         logger.debug("Разбиение счета 60 завершено. Добавлено {} строк.", len(df))
+        
+        # Валютная компания: счёт 60 разбит на инвест/не-инвест —
+        # пересчитываем рублёвый эквивалент
+        osv_all_df = refresh_rub_equivalent(osv_all_df, context)
         
         context.summary_osv_df = osv_all_df
         

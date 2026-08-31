@@ -133,3 +133,26 @@ def get_last_rate_date(context):
 def convert_series(series, rate):
     '''Multiply a numeric Series by the rate. returns new Series.'''
     return series.astype(float) * float(rate)
+
+
+def refresh_rub_equivalent(
+    df,
+    context,
+    source_col='сальдо, тыс.ед.',
+    rub_col='сальдо, тыс.руб.',
+):
+    '''Пересчитывает рублёвый эквивалент сальдо после мутаций строк сводной ОСВ.
+
+    Шаги 6/7/10/11/12 добавляют, разбивают или заменяют строки сводной ОСВ:
+    в новых строках рублёвый столбец NaN, в изменённых — устаревший.
+    Курс на дату баланса един для всего баланса, поэтому инвариант
+    "руб = ед × курс" всегда верен — столбец просто пересчитывается из
+    исходного. Для рублёвых компаний df возвращается без изменений.
+    '''
+    if not needs_conversion(context):
+        return df
+    if source_col not in df.columns:
+        return df
+    rate = get_rate_for_date(context, context.balance_date)
+    df[rub_col] = convert_series(df[source_col], rate).round(2)
+    return df

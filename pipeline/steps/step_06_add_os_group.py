@@ -12,7 +12,7 @@ from pipeline.errors import (
     ConvergenceError,
 )
 from io_module import DataLoader
-from utils import find_register_file, find_target_column
+from utils import find_register_file, find_target_column, refresh_rub_equivalent
 from config.settings import ACCOUNTS_OSV_DIR, CONTRACTOR_KEYWORDS, CALC_TYPE_KEYWORDS
 
 class Step6AddOSGroupColumnStep(Step):
@@ -474,6 +474,10 @@ class Step6AddOSGroupColumnStep(Step):
                 final_nan_count,
             )
             raise ValueError(f"Столбец 'группа_ос_аренды_лизинга' содержит {final_nan_count} пустых значений")
+        
+        # Валютная компания: для строк 76.07 сальдо заменено детализацией —
+        # пересчитываем рублёвый эквивалент
+        osv_all_df = refresh_rub_equivalent(osv_all_df, context)
         
         context.summary_osv_df = osv_all_df
         

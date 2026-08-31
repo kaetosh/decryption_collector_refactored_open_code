@@ -14,7 +14,7 @@ from time import time
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
 from io_module import DataLoader
-from utils import find_register_file, set_header_from_row
+from utils import find_register_file, set_header_from_row, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR
 from io_module.output_manager import get_output_dir, get_run_id
 
@@ -586,6 +586,11 @@ class Step7AddLongShortTermColumnStep(Step):
         
         # Финальная очистка
         osv_all_df = osv_all_df.reset_index(drop=True)
+        
+        # Валютная компания: строки 97.21 разбиты на долгую/короткую части —
+        # пересчитываем рублёвый эквивалент
+        osv_all_df = refresh_rub_equivalent(osv_all_df, context)
+        
         context.summary_osv_df = osv_all_df
         
         long_short_counts = osv_all_df['долгая_короткая_часть'].value_counts().to_dict()

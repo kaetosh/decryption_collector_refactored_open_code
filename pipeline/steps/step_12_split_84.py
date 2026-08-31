@@ -14,7 +14,7 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ConvergenceError
 from io_module import DataLoader
-from utils import find_register_file
+from utils import find_register_file, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR
 
 class Step12Split84AccountBalanceStep(Step):
@@ -277,6 +277,10 @@ class Step12Split84AccountBalanceStep(Step):
         osv_all_df = self._split_account_84(osv_all_df, current_period_turnover)
         
         logger.debug("Разбиение счёта 84 завершено.")
+        
+        # Валютная компания: счёт 84 разбит на НРП прошлых/текущего периода —
+        # пересчитываем рублёвый эквивалент
+        osv_all_df = refresh_rub_equivalent(osv_all_df, context)
         
         context.summary_osv_df = osv_all_df
         

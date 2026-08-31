@@ -17,6 +17,7 @@ from .currency_utils import (
     get_balance_rate,
     get_last_rate_date,
     convert_series,
+    refresh_rub_equivalent,
 )
 from .file_utils import (
     find_missing_files,
@@ -45,4 +46,5 @@ __all__ = [
     'get_balance_rate',
     'get_last_rate_date',
     'convert_series',
+    'refresh_rub_equivalent',
 ]
