@@ -22,6 +22,8 @@ Created on Wed Jul  8 15:52:05 2026
 - account_accumulation: накопительный счет ('44' или '26')
 - opu_line_name: название строки ОПУ ('Коммерческие расходы' или 'Управленческие расходы')
 """
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -188,25 +190,28 @@ class StepAddExpensesToOpuBase(Step):
             )
             return pd.DataFrame()
         
-        # Оставляем только необходимые столбцы
-        df_accum_clean = df_accum.loc[:, ['Субконто Кт_1', 'Сумма']]
+                # Оставляем только необходимые столбцы
+        # ★ Вариант B: берём рублёвый эквивалент СУММАРНО на дату баланса
+        df_accum_clean = df_accum.loc[:, ['Субконто Кт_1', 'Сумма', 'Сумма_руб']]
         df_accum_clean = df_accum_clean.rename(columns={
             'Субконто Кт_1': 'контрагент',
-            'Сумма': 'оборот, тыс.ед.'
+            'Сумма': 'оборот, тыс.ед.',
+            'Сумма_руб': 'оборот, тыс.руб.',
         })
-        
+
         # Переводим в тысячи
         df_accum_clean['оборот, тыс.ед.'] = df_accum_clean['оборот, тыс.ед.'] / 1000
-        
+        df_accum_clean['оборот, тыс.руб.'] = df_accum_clean['оборот, тыс.руб.'] / 1000
+
         # Обогащение данными из справочника ВидСвязиКА
         df_accum_clean = self._enrich_with_contractor_info(df_accum_clean, context)
-        
+
         # Группируем по контрагенту
         df_accum_clean = df_accum_clean.groupby(
             ['группа_ка', 'сегмент_ка', 'контрагент'],
             as_index=False
-        )['оборот, тыс.ед.'].sum()
-        
+        )[['оборот, тыс.ед.', 'оборот, тыс.руб.']].sum()
+
         logger.debug(
             "Обработано проводок Дт {}: {} уникальных контрагентов, "
             "сумма={:,.2f} тыс.ед.",
@@ -214,7 +219,7 @@ class StepAddExpensesToOpuBase(Step):
             len(df_accum_clean),
             df_accum_clean['оборот, тыс.ед.'].sum(),
         )
-        
+
         return df_accum_clean
     
     def _enrich_with_contractor_info(
@@ -423,10 +428,11 @@ class StepAddExpensesToOpuBase(Step):
         result = np.select(conditions, choices, default='не_указано')
         return pd.Series(result, dtype='string')
     
-    def _create_remainder_rows(
+        def _create_remainder_rows(
         self,
         df_opu: pd.DataFrame,
-        remainder: float
+        remainder: float,
+        remainder_rub: Optional[float] = None,
     ) -> pd.DataFrame:
         """Создаёт строки для остатка (расходы без контрагентов)."""
         df_remainder = df_opu[['ном_группа', 'сегмент', 'доля_ном_группы']].copy()
@@ -435,6 +441,11 @@ class StepAddExpensesToOpuBase(Step):
         df_remainder['сегмент_ка'] = 'не_указано'
         df_remainder['вид_связи'] = 'не_указано'
         df_remainder['оборот_распределенный'] = remainder * df_remainder['доля_ном_группы']
+        # ★ Распределяем рублёвый остаток пропорционально тем же долям
+        if remainder_rub is not None:
+            df_remainder['оборот_распределенный_руб'] = remainder_rub * df_remainder['доля_ном_группы']
+        else:
+            df_remainder['оборот_распределенный_руб'] = remainder * df_remainder['доля_ном_группы']
         return df_remainder
     
     def _add_service_columns(self, df: pd.DataFrame) -> pd.DataFrame:
