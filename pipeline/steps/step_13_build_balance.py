@@ -12,6 +12,7 @@ from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import MissingMappingError
+from utils import needs_conversion
 
 
 class Step13BuildBalanceBreakdownStep(Step):
@@ -26,6 +27,8 @@ class Step13BuildBalanceBreakdownStep(Step):
     UNSPECIFIED = 'не_указано'
     BALANCE_REPORT = 'Баланс'
     BALANCE_COL = 'сальдо, тыс.ед.'
+    # Рублёвый эквивалент значения (только для валютных компаний)
+    RUB_VALUE_COL = 'Значение_руб'
     
     # Технические столбцы плана счетов, не попадающие в итоговую расшифровку
     DROP_COLUMNS = ['Примечания', 'Уникальность итогового номера счета', 'Есть в меппинге?']
@@ -169,6 +172,7 @@ class Step13BuildBalanceBreakdownStep(Step):
             
         Returns:
             DataFrame баланса с колонкой 'Значение'
+            (для валютных компаний также 'Значение_руб')
         """
         # 1. Загрузка плана счетов
         # ★ ИСПРАВЛЕНИЕ: используем имена столбцов вместо usecols с индексами
@@ -196,6 +200,22 @@ class Step13BuildBalanceBreakdownStep(Step):
             .fillna(0)
         )
         
+        # 6а. Валютная компания: параллельный рублёвый столбец.
+        # Оригинал ('Значение') не изменяется — сверки идут в валюте.
+        if needs_conversion(context) and 'сальдо, тыс.руб.' in osv_all_df.columns:
+            sum_rub_by_account = osv_all_df.groupby('счет_фо')['сальдо, тыс.руб.'].sum()
+            balance_transcripts[self.RUB_VALUE_COL] = (
+                balance_transcripts.index
+                .map(sum_rub_by_account)
+                .fillna(0)
+                .astype('float64')
+                .round(2)
+            )
+            logger.debug(
+                "Добавлен столбец '{}': рублёвый эквивалент 'Значение'",
+                self.RUB_VALUE_COL,
+            )
+        
         # 7. Удаление нулевых строк
         balance_transcripts = balance_transcripts[balance_transcripts['Значение'] != 0]
         
@@ -222,10 +242,12 @@ class Step13BuildBalanceBreakdownStep(Step):
             return df
         
         rest = [c for c in df.columns if c not in tail]
-        # 'Значение' — последний столбец перед переносимыми служебными
-        if 'Значение' in rest:
-            rest.remove('Значение')
-            rest.append('Значение')
+        # 'Значение' и 'Значение_руб' (валютные компании) — последние столбцы
+        # перед переносимыми служебными
+        value_cols = [c for c in ('Значение', self.RUB_VALUE_COL) if c in rest]
+        for c in value_cols:
+            rest.remove(c)
+        rest.extend(value_cols)
         
         return df[rest + tail]
     
@@ -237,6 +259,12 @@ class Step13BuildBalanceBreakdownStep(Step):
         (с учётом знака: актив — положительный, пассив — отрицательный,
         или наоборот — зависит от формата).
         """
+        if self.RUB_VALUE_COL in balance_df.columns:
+            logger.debug(
+                "Сумма баланса в рублях: {:,.2f} тыс. руб.",
+                balance_df[self.RUB_VALUE_COL].sum(),
+            )
+        
         balance_sum = balance_df['Значение'].sum()
         abs_balance = abs(int(balance_sum))
         
