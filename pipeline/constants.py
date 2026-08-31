@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Константы, используемые в пайплайне обработки данных.
 
@@ -16,6 +16,7 @@ class ColumnNames:
     SEGMENT = "сегмент"
     PERIOD_TYPE = "тип_периода"
     DECRYPTION_FILENAME = "название_файла_расшифровки"
+    CURRENCY = "валюта"
 
 
 class DataTypes:

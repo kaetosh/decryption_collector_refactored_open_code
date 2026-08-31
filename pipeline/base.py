@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Базовые классы для построения конвейера обработки.
 Реализуют паттерны Command и Chain of Responsibility.
@@ -33,6 +33,7 @@ class ProcessingContext:
     segment: Optional[str] = None
     period: Optional[str] = None
     type_period: Optional[str] = None
+    currency: Optional[str] = "RUB"
     name_file_general_osv: Optional[str] = None
 
     # Идентификатор запуска (ГГГГММДД_ЧЧММСС) — совпадает с именем папки вывода

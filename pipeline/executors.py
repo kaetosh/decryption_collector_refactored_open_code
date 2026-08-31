@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Оркестрация фаз выполнения приложения.
 
@@ -99,6 +99,7 @@ REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
             ColumnNames.SHORT_COMPANY_NAME,
             ColumnNames.DECRYPTION_FILENAME,
             ColumnNames.PERIOD_TYPE,
+            ColumnNames.CURRENCY,
         ),
     ),
     "выгрузки": ReferenceSpec(sheet_name="Выгрузки"),
@@ -292,6 +293,17 @@ def _validate_and_enrich_company_info(context: ProcessingContext) -> None:
     # Извлекаем и валидируем обязательные поля через вспомогательную функцию
     context.segment = _get_required_field(row, ColumnNames.SEGMENT, context.company)
     context.type_period = _get_required_field(row, ColumnNames.PERIOD_TYPE, context.company)
+    # Currency of the company (new reference column). Default = RUB.
+    if (
+        ColumnNames.CURRENCY in row.index
+        and pd.notna(row[ColumnNames.CURRENCY])
+        and str(row[ColumnNames.CURRENCY]).strip()
+    ):
+        context.currency = str(row[ColumnNames.CURRENCY]).strip().upper()
+        logger.debug("Company currency: {}", context.currency)
+    else:
+        context.currency = "RUB"
+        logger.debug("Company currency is not set; using RUB.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
