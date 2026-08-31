@@ -9,6 +9,7 @@
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,16 @@ from pipeline.errors import ReferenceMismatchError
 from config.settings import REFERENCE_CONFIGS
 from io_module import DataLoader, DataSaver
 from io_module.output_manager import get_run_dir
+from utils.currency_utils import (
+    needs_conversion,
+    get_currency,
+    get_rate_for_date_with_info,
+    get_last_rate_date,
+)
+
+# Формат даты перевода валютных остатков баланса (совпадает с форматом
+# колонки «дата» в справочниках Курс_AED / Курс_CNY)
+BALANCE_DATE_FORMAT = '%d.%m.%Y'
 
 
 def pause_for_osv_general_export() -> None:
@@ -147,6 +158,16 @@ REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
     "виды_рбп_аренда_лизинг": ReferenceSpec(
         sheet_name="ВидыРБП_АрендаЛизинг",
         strings=("виды_рбп_аренда_лизинг",),
+    ),
+    "курс_aed": ReferenceSpec(
+        sheet_name="Курс_AED",
+        strings=(),
+        required=False,
+    ),
+    "курс_cny": ReferenceSpec(
+        sheet_name="Курс_CNY",
+        strings=(),
+        required=False,
     ),
 }
 
@@ -340,6 +361,115 @@ def initialize_context() -> ProcessingContext:
         len(context.references)
     )
     return context
+
+
+def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = True) -> None:
+    """
+    Запрашивает у пользователя дату перевода валютных остатков в рубли
+    для расшифровки баланса (вариант А — один раз в cli.main).
+
+    Дата нужна только компаниям с валютой, отличной от RUB. Если дата
+    уже задана заранее (CLI-флаг --balance-date), вопрос не задаётся.
+
+    В неинтерактивном режиме (--no-interactive / недоступный stdin),
+    а также при EOF/Ctrl+C используется последняя дата из справочника
+    курса соответствующей валюты — с предупреждением в логе.
+
+    Args:
+        context: Контекст обработки (валюта должна быть уже заполнена).
+        interactive: Разрешено ли задавать вопросы пользователю.
+    """
+    if not needs_conversion(context):
+        logger.debug(
+            "Валюта компании {} — перевод остатков не требуется, дата баланса не нужна.",
+            get_currency(context),
+        )
+        return
+
+    if context.balance_date:
+        rate, rate_date = get_rate_for_date_with_info(context, context.balance_date)
+        if rate_date == context.balance_date:
+            logger.info(
+                "Остатки будут переведены в рубли по курсу {} на заданную дату {}.",
+                currency,
+                rate_date,
+            )
+        else:
+            logger.info(
+                "Остатки будут переведены в рубли по курсу {} на ближайшую доступную "
+                "в справочнике дату {} (задано {}).",
+                currency,
+                rate_date,
+                context.balance_date,
+            )
+        logger.info("Курс перевода остатков баланса: {}", rate)
+        context.balance_date = rate_date
+        return
+
+    currency = get_currency(context)
+
+    def _fallback() -> None:
+        last_date = get_last_rate_date(context)
+        context.balance_date = last_date
+        logger.warning(
+            "[!] Дата перевода остатков не задана. Используется последняя дата "
+            "из справочника курса {}: {}. (Задать явно: --balance-date ДД.ММ.ГГГГ)",
+            currency,
+            last_date,
+        )
+
+    if not interactive:
+        _fallback()
+        return
+
+    prompt = (
+        f"\nОстатки по данной компании в валюте {currency}. "
+        f"Введите дату, на которую нужно перевести остатки в рубли "
+        f"для расшифровки баланса (ДД.ММ.ГГГГ): "
+    )
+
+    while True:
+        try:
+            raw = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            _fallback()
+            return
+
+        if not raw:
+            print("[!] Дата не введена. Повторите ввод (ДД.ММ.ГГГГ) или нажмите Ctrl+C.")
+            continue
+
+        try:
+            datetime.strptime(raw, BALANCE_DATE_FORMAT)
+        except ValueError:
+            print(f"[!] Некорректная дата: {raw!r}. Ожидается формат ДД.ММ.ГГГГ, например 31.12.2025.")
+            continue
+
+        # Сразу проверяем наличие курса на выбранную дату (ближайшую <=)
+        # и показываем его пользователю до запуска конвейера
+        try:
+            rate, rate_date = get_rate_for_date_with_info(context, raw)
+        except ValueError as e:
+            print(f"[!] {e}")
+            continue
+
+        context.balance_date = rate_date
+        if rate_date == raw:
+            logger.info(
+                "Остатки будут переведены в рубли по курсу {} на дату {}.",
+                currency,
+                rate_date,
+            )
+        else:
+            logger.info(
+                "Остатки будут переведены в рубли по курсу {} на ближайшую доступную "
+                "в справочнике дату {} (запрошено {}).",
+                currency,
+                rate_date,
+                raw,
+            )
+        logger.info("Курс перевода остатков баланса: {}", rate)
+        return
 
 
 def _get_output_filename(company_name: str, period: str, context: ProcessingContext) -> str:

@@ -34,6 +34,16 @@ def parse_arguments() -> argparse.Namespace:
         help='Не задавать интерактивных вопросов (для автоматического режима)'
     )
 
+    parser.add_argument(
+        '--balance-date',
+        type=str,
+        default=None,
+        help='Дата перевода валютных остатков в рубли для расшифровки баланса, '
+             'формат ДД.ММ.ГГГГ (только для компаний с валютой, отличной от RUB; '
+             'если не задана — запрашивается интерактивно, а без TTY берётся '
+             'последняя дата из справочника курса)'
+    )
+
     # parse_known_args вместо parse_args - не падает, если аргументы не распознаны
     args, unknown = parser.parse_known_args()
     return args

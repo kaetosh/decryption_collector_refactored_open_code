@@ -6,7 +6,7 @@
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from utils import find_target_column
+from utils import find_target_column, needs_conversion, get_rate_for_date, convert_series
 
 class Step2FlatSummaryOSVStep(Step):
     """
@@ -36,6 +36,22 @@ class Step2FlatSummaryOSVStep(Step):
         
         # 2. Фильтруем нулевые сальдо
         osv_all_df = osv_all_df[osv_all_df['Сальдо, тыс.ед.'] != 0].copy()
+        
+        # 2а. Для валютных компаний добавляем рублёвый эквивалент сальдо
+        # (курс на дату баланса, заданную в ask_balance_date_if_needed).
+        # Оригинальный столбец 'Сальдо, тыс.ед.' не изменяется — все сверки
+        # и проверки продолжают работать в валюте компании.
+        if needs_conversion(context):
+            rate = get_rate_for_date(context, context.balance_date)
+            osv_all_df['Сальдо, тыс.руб.'] = convert_series(
+                osv_all_df['Сальдо, тыс.ед.'], rate
+            ).round(2)
+            logger.info(
+                "Сводная ОСВ: добавлен рублёвый эквивалент сальдо "
+                "(курс {} на дату {}).",
+                rate,
+                context.balance_date,
+            )
         
         # 3. Удаляем все ненужные столбцы одним вызовом
         cols_to_drop = [

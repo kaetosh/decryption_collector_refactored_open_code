@@ -29,13 +29,19 @@ from pipeline.executors import (
     pause_for_osv_general_export,
     pause_for_1c_export,
     initialize_context,
+    ask_balance_date_if_needed,
     save_results,
 )
 from cli.arguments import parse_arguments, ask_user_about_traceback
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
 
 
-def main(show_traceback: bool = False, verbose: bool = False) -> int:
+def main(
+    show_traceback: bool = False,
+    verbose: bool = False,
+    balance_date: str | None = None,
+    no_interactive: bool = False,
+) -> int:
     """Главная функция приложения."""
     # Настраиваем логирование
     if verbose:
@@ -64,6 +70,13 @@ def main(show_traceback: bool = False, verbose: bool = False) -> int:
         context = initialize_context()
         context.run_id = get_run_id()
         context.tolerance_params = load_params(context)
+
+        # Дата перевода валютных остатков (для компаний с валютой != RUB):
+        # приоритет — CLI-флаг --balance-date, затем интерактивный вопрос;
+        # без TTY (--no-interactive) — последняя дата из справочника курса
+        if balance_date and not context.balance_date:
+            context.balance_date = balance_date
+        ask_balance_date_if_needed(context, interactive=not no_interactive)
 
         # ФАЗА 1
         logger.info("ФАЗА 1: Формирование списка выгрузок из 1С")
@@ -132,7 +145,12 @@ def entry_point() -> int:
         show_traceback = ask_user_about_traceback()
         verbose = False
 
-    return main(show_traceback=show_traceback, verbose=verbose)
+    return main(
+        show_traceback=show_traceback,
+        verbose=verbose,
+        balance_date=args.balance_date,
+        no_interactive=args.no_interactive,
+    )
 
 
 if __name__ == "__main__":

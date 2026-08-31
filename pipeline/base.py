@@ -34,6 +34,12 @@ class ProcessingContext:
     period: Optional[str] = None
     type_period: Optional[str] = None
     currency: Optional[str] = "RUB"
+
+    # Дата перевода валютных остатков в рубли для расшифровки баланса
+    # (формат ДД.ММ.ГГГГ). Запрашивается у пользователя в cli.main
+    # или передаётся флагом --balance-date. Актуальна только для
+    # компаний с валютой, отличной от RUB.
+    balance_date: Optional[str] = None
     name_file_general_osv: Optional[str] = None
 
     # Идентификатор запуска (ГГГГММДД_ЧЧММСС) — совпадает с именем папки вывода
