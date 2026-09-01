@@ -35,6 +35,9 @@ class Step19BuildOpuStep(Step):
     TARGET_ACCOUNT_COL: Final = "счет_фо"
     UNMAPPED_ACCOUNT: Final = "не_указано"
 
+    # Техпорог чистки околонулевых строк (НЕ выносить в лист «Параметры» — решение пользователя)
+    ZERO_ROWS_EPSILON: Final = 1e-6
+
     RETAINED_EARNINGS_CODE: Final = "240010200"
     # MAX_PROFIT_DIFF: Final = 1000
 
@@ -84,6 +87,10 @@ class Step19BuildOpuStep(Step):
         journal_df = context.journal_df.copy()
 
         self._prepare_amount_column(journal_df)
+        # Чистка околонулевых строк ДО сверки ЧП vs НРП: сумма сверки
+        # считается по journal_df после чистки, аномальные строки не
+        # попадают ни в сверку, ни в итоговый pnl_df.
+        journal_df = self._drop_zero_amount_rows(journal_df)
         self._check_profit_vs_balance(context.balance_df, journal_df, context)
 
         mapping_ref = self._get_reference(context, self.MAPPING_REF)
@@ -290,6 +297,53 @@ class Step19BuildOpuStep(Step):
             )
 
         df[self.AMOUNT_COL] = converted.fillna(0.0).astype("float64").array
+
+    def _drop_zero_amount_rows(self, journal_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Удаляет околонулевые строки по валютному столбцу 'оборот, тыс.ед.'.
+
+        Строки с abs('оборот, тыс.ед.') < ZERO_ROWS_EPSILON (0 или ~1e-12)
+        дают аномальный курс руб/ед в итоговом ОПУ. Фильтр выполняется
+        ТОЛЬКО по валютному столбцу: рублёвый столбец 'оборот, тыс.руб.'
+        не проверяется, чтобы не ломать сходимость в рублях для строк
+        с ед≈0 и руб≠0.
+        """
+        zero_mask = journal_df[self.AMOUNT_COL].abs() < self.ZERO_ROWS_EPSILON
+        zero_count = int(zero_mask.sum())
+
+        if not zero_count:
+            logger.debug(
+                "Околонулевых строк по столбцу '{}' (порог {:g}) не найдено.",
+                self.AMOUNT_COL,
+                self.ZERO_ROWS_EPSILON,
+            )
+            return journal_df
+
+        if self.RUB_AMOUNT_COL in journal_df.columns:
+            dropped_rub = pd.to_numeric(
+                journal_df.loc[zero_mask, self.RUB_AMOUNT_COL], errors="coerce"
+            )
+            dropped_rub_sum = float(dropped_rub.fillna(0.0).sum())
+            logger.info(
+                "[Чистка] Удалено {} околонулевых строк: abs('{}') < {:g}. "
+                "Сумма '{}' по удалённым строкам: {:,.4f} (контроль потерь).",
+                zero_count,
+                self.AMOUNT_COL,
+                self.ZERO_ROWS_EPSILON,
+                self.RUB_AMOUNT_COL,
+                dropped_rub_sum,
+            )
+        else:
+            logger.info(
+                "[Чистка] Удалено {} околонулевых строк: abs('{}') < {:g}. "
+                "Столбец '{}' отсутствует (не валютная компания) — контроль потерь не требуется.",
+                zero_count,
+                self.AMOUNT_COL,
+                self.ZERO_ROWS_EPSILON,
+                self.RUB_AMOUNT_COL,
+            )
+
+        return journal_df.loc[~zero_mask].copy()
 
     # ------------------------------------------------------------------
     # Сверка ОПУ и баланса
