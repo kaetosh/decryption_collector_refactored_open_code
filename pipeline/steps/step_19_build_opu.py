@@ -11,6 +11,7 @@ from loguru import logger
 
 from pipeline.base import ProcessingContext, Step
 from pipeline.errors import MissingMappingError
+from utils import needs_conversion
 
 
 class Step19BuildOpuStep(Step):
@@ -26,7 +27,9 @@ class Step19BuildOpuStep(Step):
 
     OPU_REPORT: Final = "ОПУ"
     AMOUNT_COL: Final = "оборот, тыс.ед."
+    RUB_AMOUNT_COL: Final = "оборот, тыс.руб."
     VALUE_COL: Final = "Значение"
+    RUB_VALUE_COL: Final = "Значение_руб"
     REPORT_TYPE_COL: Final = "Отчетность"
     ACCOUNT_COL: Final = "Итоговый номер счета"
     TARGET_ACCOUNT_COL: Final = "счет_фо"
@@ -93,7 +96,7 @@ class Step19BuildOpuStep(Step):
         context.journal_df = journal_df
 
         chart_ref = self._get_reference(context, self.CHART_OF_ACCOUNTS_REF)
-        context.pnl_df = self._build_opu_report(journal_df, chart_ref)
+        context.pnl_df = self._build_opu_report(journal_df, chart_ref, context)
 
         logger.info("[OK] Собрана расшифровка ОПУ: {} строк отчетности", len(context.pnl_df))
         
@@ -575,13 +578,14 @@ class Step19BuildOpuStep(Step):
             return df
 
         rest = [c for c in df.columns if c not in tail]
-        if 'Значение' in rest:
-            rest.remove('Значение')
-            rest.append('Значение')
+        value_cols = [c for c in (self.VALUE_COL, self.RUB_VALUE_COL) if c in rest]
+        for c in value_cols:
+            rest.remove(c)
+        rest.extend(value_cols)
 
         return df[rest + tail]
 
-    def _build_opu_report(self, journal_df: pd.DataFrame, chart_of_accounts_df: pd.DataFrame) -> pd.DataFrame:
+    def _build_opu_report(self, journal_df: pd.DataFrame, chart_of_accounts_df: pd.DataFrame, context: ProcessingContext) -> pd.DataFrame:
         """
         Формирует итоговую расшифровку ОПУ:
         - берет из плана счетов строки с отчетностью 'ОПУ';
@@ -616,6 +620,12 @@ class Step19BuildOpuStep(Step):
 
         grouped = journal_df.assign(**{self.GROUP_ACCOUNT_COL: journal_target.array})
         sums_by_account = grouped.groupby(self.GROUP_ACCOUNT_COL, dropna=False)[self.AMOUNT_COL].sum()
+        
+        # Для валютных компаний — параллельная агрегация рублёвого столбца
+        if needs_conversion(context) and self.RUB_AMOUNT_COL in journal_df.columns:
+            sums_by_account_rub = grouped.groupby(self.GROUP_ACCOUNT_COL, dropna=False)[self.RUB_AMOUNT_COL].sum()
+        else:
+            sums_by_account_rub = None
 
         opu_template[self.ACCOUNT_COL] = template_account.array
 
@@ -633,6 +643,14 @@ class Step19BuildOpuStep(Step):
         )
 
         opu_template[self.VALUE_COL] = mapped_values.fillna(0.0).astype("float64").array
+        
+        # Рублёвый эквивалент (для валютных компаний)
+        if sums_by_account_rub is not None:
+            mapped_values_rub = pd.Series(
+                opu_template.index.map(sums_by_account_rub),
+                index=opu_template.index,
+            )
+            opu_template[self.RUB_VALUE_COL] = mapped_values_rub.fillna(0.0).astype("float64").array
         opu_template = opu_template[opu_template[self.VALUE_COL] != 0]
 
         opu_template = self._ensure_clean_dtypes(opu_template)

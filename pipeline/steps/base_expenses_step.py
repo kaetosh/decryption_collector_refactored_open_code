@@ -273,15 +273,16 @@ class StepAddExpensesToOpuBase(Step):
             return pd.DataFrame()
         
         # Оставляем только необходимые столбцы
-        df_opu = df_opu.loc[:, ['Субконто Дт_1', 'Сумма']]
+        df_opu = df_opu.loc[:, ['Субконто Дт_1', 'Сумма', 'Сумма_руб']]
         df_opu = df_opu.rename(columns={'Субконто Дт_1': 'ном_группа'})
         
         # Группируем по ном_группе
-        df_opu = df_opu.groupby('ном_группа', as_index=False)['Сумма'].sum()
+        df_opu = df_opu.groupby('ном_группа', as_index=False)[['Сумма', 'Сумма_руб']].sum()
         
         # Переводим в тысячи
         df_opu['оборот, тыс.ед.'] = df_opu['Сумма'] / 1000
-        df_opu = df_opu.loc[:, ['ном_группа', 'оборот, тыс.ед.']]
+        df_opu['оборот, тыс.руб.'] = df_opu['Сумма_руб'] / 1000
+        df_opu = df_opu.loc[:, ['ном_группа', 'оборот, тыс.ед.', 'оборот, тыс.руб.']]
         
         logger.debug(
             "Обработано проводок Дт {}: {} ном_групп, сумма={:,.2f} тыс.ед.",
@@ -367,16 +368,20 @@ class StepAddExpensesToOpuBase(Step):
         
         # 1. Расчёт долей ном_групп
         total_opu = df_opu['оборот, тыс.ед.'].sum()
+        total_opu_rub = df_opu['оборот, тыс.руб.'].sum() if 'оборот, тыс.руб.' in df_opu.columns else None
         df_opu['доля_ном_группы'] = df_opu['оборот, тыс.ед.'] / total_opu
         
         # 2. Cross-join: каждая строка df_accum_clean × каждая ном_группа
+        _df_opu_join = df_opu[['ном_группа', 'сегмент', 'доля_ном_группы', 'оборот, тыс.руб.']] \
+            .rename(columns={'оборот, тыс.руб.': 'оборот_руб_группы'}).assign(key=1)
         df_cross = df_accum_clean.assign(key=1).merge(
-            df_opu[['ном_группа', 'сегмент', 'доля_ном_группы']].assign(key=1),
+            _df_opu_join,
             on='key'
         ).drop('key', axis=1)
         
         # 3. Распределение оборота пропорционально долям
         df_cross['оборот_распределенный'] = df_cross['оборот, тыс.ед.'] * df_cross['доля_ном_группы']
+        df_cross['оборот_распределенный_руб'] = df_cross['оборот_руб_группы'] * df_cross['доля_ном_группы']
         
         # 4. Определение вид_связи
         df_cross['вид_связи'] = self._calculate_connection_type(df_cross)
@@ -384,9 +389,11 @@ class StepAddExpensesToOpuBase(Step):
         # 5. Добавление остатка (расходы без контрагентов)
         total_accum_clean = df_accum_clean['оборот, тыс.ед.'].sum()
         remainder = total_opu - total_accum_clean
+        total_accum_clean_rub = df_accum_clean['оборот, тыс.руб.'].sum() if 'оборот, тыс.руб.' in df_accum_clean.columns else 0
+        remainder_rub = total_opu_rub - total_accum_clean_rub if 'оборот, тыс.руб.' in df_accum_clean.columns else None
         
         if remainder > 0:
-            df_remainder = self._create_remainder_rows(df_opu, remainder)
+            df_remainder = self._create_remainder_rows(df_opu, remainder, remainder_rub)
             df_result = pd.concat([df_cross, df_remainder], ignore_index=True)
             logger.debug(
                 "Добавлен остаток: {:,.2f} тыс.ед. ({:.1%} от общей суммы)",
@@ -397,8 +404,11 @@ class StepAddExpensesToOpuBase(Step):
             df_result = df_cross
         
         # 6. Финальная очистка
-        df_result = df_result.drop(columns=['оборот, тыс.ед.', 'доля_ном_группы'])
-        df_result = df_result.rename(columns={'оборот_распределенный': 'оборот, тыс.ед.'})
+        df_result = df_result.drop(columns=['оборот, тыс.ед.', 'оборот, тыс.руб.', 'оборот_руб_группы', 'доля_ном_группы'])
+        df_result = df_result.rename(columns={
+            'оборот_распределенный': 'оборот, тыс.ед.',
+            'оборот_распределенный_руб': 'оборот, тыс.руб.'
+        })
         
         # 7. Добавление служебных столбцов
         df_result = self._add_service_columns(df_result)

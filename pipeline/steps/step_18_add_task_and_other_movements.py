@@ -57,8 +57,10 @@ class Step18AddTaskAndOtherMovementsStep(Step):
 
         # Рассчитываем обороты: доходы (кредит 99) со знаком минус, расходы с плюсом. Переводим в тыс.ед.
         df99['оборот, тыс.ед.'] = df99['Сумма'] / 1000
+        df99['оборот, тыс.руб.'] = df99['Сумма_руб'] / 1000
         mask_credit = df99['Кт'] == self.ACCOUNT_GAINS_AND_LOSSES
         df99.loc[mask_credit, 'оборот, тыс.ед.'] *= -1
+        df99.loc[mask_credit, 'оборот, тыс.руб.'] *= -1
 
         # Выделяем сумму налога на прибыль (корреспонденция 99 и 68)
         mask_tax = (
@@ -68,6 +70,8 @@ class Step18AddTaskAndOtherMovementsStep(Step):
         
         tax_profit = df99.loc[mask_tax, 'оборот, тыс.ед.'].sum()
         other_value = df99.loc[~mask_tax, 'оборот, тыс.ед.'].sum()
+        tax_profit_rub = df99.loc[mask_tax, 'оборот, тыс.руб.'].sum()
+        other_value_rub = df99.loc[~mask_tax, 'оборот, тыс.руб.'].sum()
 
         # Получаем сегмент компании
         segment_company = companies_df.loc[
@@ -80,6 +84,7 @@ class Step18AddTaskAndOtherMovementsStep(Step):
             new_rows_data.append({
                 'счет': '99.02',
                 'оборот, тыс.ед.': tax_profit,
+                'оборот, тыс.руб.': tax_profit_rub,
                 'доход_расход': 'Налог на прибыль',
                 'вид_дохода_расхода': 'Налог на прибыль',
                 'счет_фо': '1300000000'
@@ -88,6 +93,7 @@ class Step18AddTaskAndOtherMovementsStep(Step):
             new_rows_data.append({
                 'счет': '99.09',
                 'оборот, тыс.ед.': other_value,
+                'оборот, тыс.руб.': other_value_rub,
                 'доход_расход': 'Прочее',
                 'вид_дохода_расхода': 'Прочее',
                 'счет_фо': '1300000100'

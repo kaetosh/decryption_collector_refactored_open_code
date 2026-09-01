@@ -342,7 +342,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
         # Переводим суммы в тысячи
         df_9101['оборот, тыс.ед.'] = df_9101['Сумма'] / -1000
+        df_9101['оборот, тыс.руб.'] = df_9101['Сумма_руб'] / -1000
         df_9102['оборот, тыс.ед.'] = df_9102['Сумма'] / 1000
+        df_9102['оборот, тыс.руб.'] = df_9102['Сумма_руб'] / 1000
 
         # Подтягиваем вид_дохода_расхода из справочника Меппинг_опу
         df_9101 = self._add_income_expense_type(df_9101, reference_df, is_income=True)
@@ -1201,7 +1203,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         df_combined = df_combined.groupby(
             existing_group_cols,
             as_index=False
-        )['оборот, тыс.ед.'].sum()
+        )[['оборот, тыс.ед.', 'оборот, тыс.руб.']].sum()
 
         logger.debug(
             "Группировка: {} → {} строк",
