@@ -707,32 +707,35 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             logger.debug("НДС по продаже активов не обнаружен")
             return df_9101, df_9102
 
-        # Суммируем НДС по Документу
-        vat_by_doc = (
-            df_9102_vat
-            .groupby('Документ', as_index=False)['оборот, тыс.ед.']
-            .sum()
-            .rename(columns={'оборот, тыс.ед.': 'ндс_тыс_ед'})
-        )
+        # Суммируем НДС по Документу (валюта и рубли)
+        vat_agg = df_9102_vat.groupby('Документ', as_index=False)[['оборот, тыс.ед.', 'оборот, тыс.руб.']].sum()
+        vat_by_doc = vat_agg.rename(columns={
+            'оборот, тыс.ед.': 'ндс_тыс_ед',
+            'оборот, тыс.руб.': 'ндс_тыс_руб',
+        })
 
         # Применяем к df_9101
         if mask_9101_assets.any():
             asset_rows = df_9101.loc[
                 mask_9101_assets,
-                ['Документ', 'оборот, тыс.ед.']
+                ['Документ', 'оборот, тыс.ед.', 'оборот, тыс.руб.']
             ].copy()
 
             vat_map = vat_by_doc.set_index('Документ')['ндс_тыс_ед']
+            vat_map_rub = vat_by_doc.set_index('Документ')['ндс_тыс_руб']
 
             nds_values = asset_rows['Документ'].map(vat_map).fillna(0)
+            nds_values_rub = asset_rows['Документ'].map(vat_map_rub).fillna(0)
 
             # Доходы со знаком МИНУС, поэтому для уменьшения
             # по модулю СКЛАДЫВАЕМ с положительным НДС.
             # Пример: было -1000, НДС=+160 → стало -1000 + 160 = -840
             updated_turnover = asset_rows['оборот, тыс.ед.'] + nds_values
+            updated_turnover_rub = asset_rows['оборот, тыс.руб.'] + nds_values_rub
 
             # Обновляем df_9101 по индексу фактических строк
             df_9101.loc[updated_turnover.index, 'оборот, тыс.ед.'] = updated_turnover
+            df_9101.loc[updated_turnover_rub.index, 'оборот, тыс.руб.'] = updated_turnover_rub
 
             adjusted = int((nds_values > 0).sum())
         else:
@@ -929,11 +932,17 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             )
             return df_9102
 
-        # Распределяем оборот
+        # Распределяем оборот (валюта)
         df_9102_orphan_dist['оборот, тыс.ед.'] = (
             df_9102_orphan_dist['оборот, тыс.ед.'] *
             df_9102_orphan_dist['доля_контрагента']
         )
+        # Распределяем рублёвый эквивалент тем же коэффициентом
+        if 'оборот, тыс.руб.' in df_9102_orphan_dist.columns:
+            df_9102_orphan_dist['оборот, тыс.руб.'] = (
+                df_9102_orphan_dist['оборот, тыс.руб.'] *
+                df_9102_orphan_dist['доля_контрагента']
+            )
 
         df_9102_orphan_dist = df_9102_orphan_dist.drop(columns=['доля_контрагента'])
 

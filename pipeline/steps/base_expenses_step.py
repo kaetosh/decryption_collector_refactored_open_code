@@ -368,12 +368,15 @@ class StepAddExpensesToOpuBase(Step):
         
         # 1. Расчёт долей ном_групп
         total_opu = df_opu['оборот, тыс.ед.'].sum()
-        total_opu_rub = df_opu['оборот, тыс.руб.'].sum() if 'оборот, тыс.руб.' in df_opu.columns else None
         df_opu['доля_ном_группы'] = df_opu['оборот, тыс.ед.'] / total_opu
         
         # 2. Cross-join: каждая строка df_accum_clean × каждая ном_группа
-        _df_opu_join = df_opu[['ном_группа', 'сегмент', 'доля_ном_группы', 'оборот, тыс.руб.']] \
-            .rename(columns={'оборот, тыс.руб.': 'оборот_руб_группы'}).assign(key=1)
+        # Добавляем оборот группы в исходной валюте для расчёта курса группы
+        _df_opu_join = df_opu[['ном_группа', 'сегмент', 'доля_ном_группы', 'оборот, тыс.ед.', 'оборот, тыс.руб.']] \
+            .rename(columns={
+                'оборот, тыс.ед.': 'оборот_группы',
+                'оборот, тыс.руб.': 'оборот_руб_группы'
+            }).assign(key=1)
         df_cross = df_accum_clean.assign(key=1).merge(
             _df_opu_join,
             on='key'
@@ -381,7 +384,11 @@ class StepAddExpensesToOpuBase(Step):
         
         # 3. Распределение оборота пропорционально долям
         df_cross['оборот_распределенный'] = df_cross['оборот, тыс.ед.'] * df_cross['доля_ном_группы']
-        df_cross['оборот_распределенный_руб'] = df_cross['оборот_руб_группы'] * df_cross['доля_ном_группы']
+        # Курс группы = руб / ед; рублёвый эквивалент = распределённый * курс_группы
+        # Это гарантирует, что эффективный курс по распределённым расходам
+        # равен курсу ОПУ-группы (по датам операций группы), а не аномально высокий
+        df_cross['rate_группы'] = df_cross['оборот_руб_группы'] / df_cross['оборот_группы']
+        df_cross['оборот_распределенный_руб'] = df_cross['оборот_распределенный'] * df_cross['rate_группы']
         
         # 4. Определение вид_связи
         df_cross['вид_связи'] = self._calculate_connection_type(df_cross)
@@ -389,11 +396,9 @@ class StepAddExpensesToOpuBase(Step):
         # 5. Добавление остатка (расходы без контрагентов)
         total_accum_clean = df_accum_clean['оборот, тыс.ед.'].sum()
         remainder = total_opu - total_accum_clean
-        total_accum_clean_rub = df_accum_clean['оборот, тыс.руб.'].sum() if 'оборот, тыс.руб.' in df_accum_clean.columns else 0
-        remainder_rub = total_opu_rub - total_accum_clean_rub if 'оборот, тыс.руб.' in df_accum_clean.columns else None
         
         if remainder > 0:
-            df_remainder = self._create_remainder_rows(df_opu, remainder, remainder_rub)
+            df_remainder = self._create_remainder_rows(df_opu, remainder)
             df_result = pd.concat([df_cross, df_remainder], ignore_index=True)
             logger.debug(
                 "Добавлен остаток: {:,.2f} тыс.ед. ({:.1%} от общей суммы)",
@@ -404,7 +409,7 @@ class StepAddExpensesToOpuBase(Step):
             df_result = df_cross
         
         # 6. Финальная очистка
-        df_result = df_result.drop(columns=['оборот, тыс.ед.', 'оборот, тыс.руб.', 'оборот_руб_группы', 'доля_ном_группы'])
+        df_result = df_result.drop(columns=['оборот, тыс.ед.', 'оборот, тыс.руб.', 'оборот_руб_группы', 'оборот_группы', 'rate_группы', 'доля_ном_группы'])
         df_result = df_result.rename(columns={
             'оборот_распределенный': 'оборот, тыс.ед.',
             'оборот_распределенный_руб': 'оборот, тыс.руб.'
@@ -442,20 +447,28 @@ class StepAddExpensesToOpuBase(Step):
         self,
         df_opu: pd.DataFrame,
         remainder: float,
-        remainder_rub: Optional[float] = None,
     ) -> pd.DataFrame:
-        """Создаёт строки для остатка (расходы без контрагентов)."""
-        df_remainder = df_opu[['ном_группа', 'сегмент', 'доля_ном_группы']].copy()
+        """Создаёт строки для остатка (расходы без контрагентов).
+
+        Использует курс группы (rate_группы = оборот_руб_группы / оборот_группы)
+        для расчёта рублёвого эквивалента, что гарантирует корректный курс
+        даже при очень малых долях номенклатурных групп.
+        """
+        df_remainder = df_opu[['ном_группа', 'сегмент', 'доля_ном_группы', 'оборот, тыс.ед.', 'оборот, тыс.руб.']].copy()
+        df_remainder = df_remainder.rename(columns={
+            'оборот, тыс.ед.': 'оборот_группы',
+            'оборот, тыс.руб.': 'оборот_руб_группы'
+        })
         df_remainder['контрагент'] = 'не_указано'
         df_remainder['группа_ка'] = 'не_указано'
         df_remainder['сегмент_ка'] = 'не_указано'
         df_remainder['вид_связи'] = 'не_указано'
         df_remainder['оборот_распределенный'] = remainder * df_remainder['доля_ном_группы']
-        # ★ Распределяем рублёвый остаток пропорционально тем же долям
-        if remainder_rub is not None:
-            df_remainder['оборот_распределенный_руб'] = remainder_rub * df_remainder['доля_ном_группы']
-        else:
-            df_remainder['оборот_распределенный_руб'] = remainder * df_remainder['доля_ном_группы']
+        # Курс группы = руб / ед; рублёвый эквивалент = распределённый * курс_группы
+        df_remainder['rate_группы'] = df_remainder['оборот_руб_группы'] / df_remainder['оборот_группы']
+        df_remainder['оборот_распределенный_руб'] = df_remainder['оборот_распределенный'] * df_remainder['rate_группы']
+        # Удаляем технические столбцы
+        df_remainder = df_remainder.drop(columns=['оборот_группы', 'оборот_руб_группы', 'rate_группы'])
         return df_remainder
     
     def _add_service_columns(self, df: pd.DataFrame) -> pd.DataFrame:
