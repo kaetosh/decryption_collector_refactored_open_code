@@ -22,6 +22,7 @@ from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import MissingMappingError
+from utils.currency_utils import get_rate_deviation_limit, get_rate_for_date, get_rate_median
 
 class Step17AddOtherIncomeExpensesToOpuStep(Step):
     """
@@ -89,6 +90,11 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             df_9101['сегмент'].unique().tolist(),
             df_9102['сегмент'].unique().tolist(),
         )
+
+        # 3а. Контроль подразумеваемого курса на входе в шаг (Фаза 3.3,
+        # задача «аномальный курс 92,48 RUB/AED»): ловит «ядовитые» строки,
+        # пришедшие из исходных данных/конвертации шага 14.
+        self._log_rate_anomalies(df_9101, df_9102, context, 'вход шага 17: после фильтрации')
 
         # 4. Извлечение контрагентов для обеих таблиц
         df_9101 = self._extract_contractors(
@@ -178,6 +184,12 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             mapping_segment_ka,
             segment_company
         )
+
+        # 10а. Контроль подразумеваемого курса перед агрегацией (Фаза 3.3):
+        # технические столбцы (Документ/Дата/Сумма/Сумма_руб) ещё на месте —
+        # если «ядовитая» строка появилась здесь, а на входе шага её не было,
+        # она рождена одним из обработчиков шага 17.
+        self._log_rate_anomalies(df_9101, df_9102, context, 'выход шага 17: перед агрегацией')
 
         # 11. Добавление служебных столбцов
         df_9101 = self._add_service_columns(df_9101, self.ACCOUNT_OTHER_INCOME)
@@ -1135,6 +1147,88 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         result = np.select(conditions, choices, default='не_указано')
 
         return pd.Series(result, index=df.index, dtype='string')
+
+    # =========================================================================
+    # КОНТРОЛЬ ПОДРАЗУМЕВАЕМОГО КУРСА (Фаза 3.3)
+    # =========================================================================
+
+    def _log_rate_anomalies(
+        self,
+        df_9101: pd.DataFrame,
+        df_9102: pd.DataFrame,
+        context: ProcessingContext,
+        stage: str,
+    ) -> None:
+        """Контроль подразумеваемого курса строк 91.x (Фаза 3.3; задача
+        «Диагностика аномального курса 92,48 RUB/AED» — см. AGENTS.md).
+
+        Проверяет в разрезе проводок (до агрегации groupby-sum в
+        _merge_with_main_df):
+        1. Сумма_руб = Сумма × курс(дата операции) — ловит перезапись
+           рублёвого эквивалента между шагом 14 и текущей точкой;
+        2. «Ядовитые» строки: оборот ед.≈0 при оборот руб.≠0 — именно они
+           при суммировании в группу дают аномальный курс в итоговом ОПУ.
+        Все операции шага 17 над суммами линейны, поэтому расхождение между
+        точками «вход» и «выход» локализует мутацию внутри шага.
+        Пишет WARNING в лог (app.log), конвейер не прерывает.
+        """
+        try:
+            median_rate = get_rate_median(context)
+            deviation_limit = get_rate_deviation_limit(context)
+        except (ValueError, KeyError) as e:
+            logger.debug('Контроль курса ({}): пропущен — {}', stage, e)
+            return
+
+        for label, df_91 in (('91.01', df_9101), ('91.02', df_9102)):
+            amount_col = 'оборот, тыс.ед.'
+            rub_col = 'оборот, тыс.руб.'
+            if amount_col not in df_91.columns or rub_col not in df_91.columns:
+                continue
+
+            amt = pd.to_numeric(df_91[amount_col], errors='coerce')
+            rub = pd.to_numeric(df_91[rub_col], errors='coerce')
+            poison_mask = (amt.abs() <= 1e-6) & (rub.abs() > 1e-6)
+
+            mismatch_mask = pd.Series(False, index=df_91.index)
+            if {'Дата', 'Сумма', 'Сумма_руб'}.issubset(df_91.columns):
+                dates = pd.to_datetime(df_91['Дата'], errors='coerce')
+                summ = pd.to_numeric(df_91['Сумма'], errors='coerce')
+                summ_rub = pd.to_numeric(df_91['Сумма_руб'], errors='coerce')
+                rate_by_date = {}
+                for ts in pd.Series(dates.dropna().unique()).sort_values():
+                    try:
+                        rate_by_date[ts] = get_rate_for_date(context, ts)
+                    except ValueError:
+                        continue
+                expected_rub = summ * dates.map(rate_by_date)
+                mismatch_mask = (
+                    (summ_rub - expected_rub).abs()
+                    > deviation_limit * expected_rub.abs()
+                ) & summ.notna() & summ_rub.notna() & expected_rub.notna()
+
+            anomaly_mask = poison_mask | mismatch_mask
+            if not anomaly_mask.any():
+                logger.debug(
+                    'Контроль курса ({}, {}): аномалий не обнаружено (строк {}) — '
+                    'Сумма_руб соответствует Сумма×курс(дата), ядовитых строк нет',
+                    stage, label, len(df_91),
+                )
+                continue
+
+            info_cols = [c for c in (
+                'Документ', 'Дата', 'Сумма', 'Сумма_руб', 'счет',
+                'доход_расход', 'вид_дохода_расхода', 'контрагент',
+            ) if c in df_91.columns]
+            problem = df_91.loc[anomaly_mask, info_cols].copy()
+            problem[amount_col] = amt[anomaly_mask]
+            problem[rub_col] = rub[anomaly_mask]
+            logger.warning(
+                '[!] Контроль курса ({}, {}): {} строк(и) с подозрительным руб/ед '
+                '(медиана листа курса {}; порог отклонения {:.0%}). Примеры:\n{}',
+                stage, label, int(anomaly_mask.sum()),
+                median_rate, deviation_limit,
+                problem.head(10).to_string(index=False),
+            )
 
     # =========================================================================
     # СЛУЖЕБНЫЕ СТОЛБЦЫ И ОБЪЕДИНЕНИЕ

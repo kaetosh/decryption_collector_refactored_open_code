@@ -6,6 +6,8 @@ import warnings
 import pandas as pd
 from loguru import logger
 
+from config.defaults import DEFAULTS
+
 _RUB = 'RUB'
 
 # Company currency -> reference registry key
@@ -130,6 +132,31 @@ def get_last_rate_date(context):
     return last[_RATE_DATE_COL].strftime(_DATE_FORMAT)
 
 
+def get_rate_median(context):
+    '''Медиана курсов листа Курс_<валюта> — база автоконтроля подразумеваемого курса.
+
+    Используется: (а) в add_ruble_amount_column (контроль применённых курсов),
+    (б) в контрольных точках шагов ОПУ (поиск «ядовитых» строк ед≈0/руб≠0
+    и перезаписей рублёвого эквивалента — задача про курс 92,48 RUB/AED).
+    '''
+    rates_df = _get_rates_df(context)
+    return float(rates_df[_RATE_VALUE_COL].median())
+
+
+def get_rate_deviation_limit(context):
+    '''Порог отклонения курса от медианы — tolerance_rate_deviation.
+
+    Берётся из context.tolerance_params (лист «Параметры»); при отсутствии —
+    дефолт из config/defaults.py. Устойчив к контекстам без tolerance_params.
+    '''
+    tolerance_params = getattr(context, 'tolerance_params', None)
+    if not isinstance(tolerance_params, dict):
+        tolerance_params = {}
+    return float(
+        tolerance_params.get('tolerance_rate_deviation', DEFAULTS.get('tolerance_rate_deviation', 0.3))
+    )
+
+
 def convert_series(series, rate):
     '''Multiply a numeric Series by the rate. returns new Series.'''
     return series.astype(float) * float(rate)
@@ -172,6 +199,10 @@ def add_ruble_amount_column(
     Если дата операции не парсится — ValueError со списком проблемных строк.
     Для рублёвых компаний столбец равен исходному (курс 1) — единый
     код-путь без ветвлений в бизнес-шагах.
+
+    Автоконтроль: каждый применённый курс сверяется с медианой курсов листа;
+    отклонение больше tolerance_rate_deviation (лист «Параметры», дефолт в
+    config/defaults.py) — WARNING. Защита от ошибочных значений в листе курса.
     '''
     if not needs_conversion(context):
         df[rub_col] = df[amount_col].astype(float)
@@ -194,6 +225,7 @@ def add_ruble_amount_column(
     earliest_date = earliest_row[_RATE_DATE_COL]
 
     rate_by_date = {}
+    rate_date_by_date = {}
     boundary_dates = []
     nearest_prev_count = 0
     for ts in pd.Series(dates.unique()).sort_values():
@@ -207,6 +239,7 @@ def add_ruble_amount_column(
             actual_date_str = earliest_date.strftime(_DATE_FORMAT)
             boundary_dates.append(ts)
         rate_by_date[ts] = rate
+        rate_date_by_date[ts] = actual_date_str
         if pd.to_datetime(actual_date_str, dayfirst=True).date() != ts.date():
             nearest_prev_count += 1
 
@@ -223,14 +256,53 @@ def add_ruble_amount_column(
             earliest_rate,
             earliest_date.strftime(_DATE_FORMAT),
         )
+    # ── Автоконтроль курса: отклонение применённого курса от медианы листа ──
+    # Ловит ошибочные значения в листе Курс_<валюта> (кейс: курс 92,48 RUB/AED
+    # в листе Курс_AED — см. AGENTS.md). Порог — tolerance_rate_deviation
+    # (лист «Параметры», дефолт в config/defaults.py).
+    median_rate = get_rate_median(context)
+    deviation_limit = get_rate_deviation_limit(context)
+    if median_rate > 0 and deviation_limit > 0:
+        deviation_groups: dict[tuple[float, str], list] = {}
+        for ts in sorted(rate_by_date):
+            applied_rate = rate_by_date[ts]
+            if abs(applied_rate / median_rate - 1.0) > deviation_limit:
+                deviation_groups.setdefault((applied_rate, rate_date_by_date[ts]), []).append(ts)
+        for (applied_rate, rate_date_str), op_dates in deviation_groups.items():
+            logger.warning(
+                '[!] Автоконтроль курса {}: применён курс {} от {}, отклонение от медианы '
+                'листа курса ({}) составляет {:.0%} при пороге {:.0%}. '
+                'Дат операций: {} (с {} по {}). Проверьте лист Курс_{} на ошибочные значения.',
+                get_currency(context),
+                applied_rate,
+                rate_date_str,
+                median_rate,
+                abs(applied_rate / median_rate - 1.0),
+                deviation_limit,
+                len(op_dates),
+                op_dates[0].strftime(_DATE_FORMAT),
+                op_dates[-1].strftime(_DATE_FORMAT),
+                get_currency(context),
+            )
     logger.debug(
         'Конвертация {} -> {} ({}): уникальных дат операций {}; '
-        'точно по справочнику {}; по ближайшей предыдущей {}; по раннему курсу {}.',
+        'точно по справочнику {}; по ближайшей предыдущей {}; по раннему курсу {}. '
+        'Медиана курса листа: {}; порог отклонения курса: {:.0%}.',
         amount_col, rub_col, get_currency(context),
         len(rate_by_date),
         len(rate_by_date) - nearest_prev_count,
         nearest_prev_count - len(boundary_dates),
         len(boundary_dates),
+        median_rate,
+        deviation_limit,
+    )
+    logger.debug(
+        'Маппинг дата операции -> (курс, дата курса) ({}): {}',
+        get_currency(context),
+        ' | '.join(
+            f'{ts.strftime(_DATE_FORMAT)} -> ({rate_by_date[ts]}, {rate_date_by_date[ts]})'
+            for ts in sorted(rate_by_date)
+        ),
     )
     df[rub_col] = df[amount_col].astype(float) * dates.map(rate_by_date)
     return df
