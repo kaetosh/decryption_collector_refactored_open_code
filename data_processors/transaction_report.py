@@ -14,7 +14,7 @@ Created on Mon Aug 25 12:20:46 2025
 import pandas as pd
 from pathlib import Path
 from loguru import logger
-from utils import cast_columns_to_types
+from utils import cast_columns_to_types, detect_txt_encoding
 
 from data_processors.file_processor import FileProcessor
 
@@ -32,12 +32,21 @@ class Posting_UPPFileProcessor(FileProcessor):
         file_path: Path, 
         keyword: str = 'дата', 
         encoding: str = 'cp1251',
-        max_lines_to_read: int = 50
+        max_lines_to_read: int = 50,
+        errors: str = 'strict',
     ) -> int:
-        """Находит физический номер строки с заголовком."""
+        """Находит физический номер строки с заголовком.
+
+        Args:
+            file_path: Путь к TXT-файлу.
+            keyword: Ключевое слово в строке заголовка (без учёта регистра).
+            encoding: Кодировка файла.
+            max_lines_to_read: Сколько первых строк просматривать.
+            errors: Режим обработки ошибок декодирования ('strict'/'replace').
+        """
         keyword_lower = keyword.lower()
         
-        with open(file_path, 'r', encoding=encoding) as f:
+        with open(file_path, 'r', encoding=encoding, errors=errors) as f:
             for physical_line_idx, line in enumerate(f):
                 if physical_line_idx >= max_lines_to_read:
                     break
@@ -54,13 +63,25 @@ class Posting_UPPFileProcessor(FileProcessor):
         )
     
     def _load_txt_file(self, file_path: Path) -> pd.DataFrame:
-        """Загружает TXT-файл с автоопределением заголовка."""
-        header_row = self._find_header_row(file_path, 'дата')
+        """Загружает TXT-файл с автоопределением кодировки и заголовка."""
+        encoding, encoding_errors = detect_txt_encoding(file_path)
+        logger.debug(
+            "Загрузка {}: кодировка {}, errors={}",
+            file_path.name, encoding, encoding_errors,
+        )
+        
+        header_row = self._find_header_row(
+            file_path,
+            'дата',
+            encoding=encoding,
+            errors=encoding_errors,
+        )
         
         df = pd.read_csv(
             file_path,
             sep='\t',
-            encoding='cp1251',
+            encoding=encoding,
+            encoding_errors=encoding_errors,
             skiprows=range(header_row),
             header=0,
             skip_blank_lines=False,

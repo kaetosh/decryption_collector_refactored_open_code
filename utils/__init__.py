@@ -24,6 +24,7 @@ from .currency_utils import (
     add_ruble_amount_column,
 )
 from .file_utils import (
+    detect_txt_encoding,
     find_missing_files,
     find_register_file,
     format_filename_vectorized,
@@ -39,6 +40,7 @@ __all__ = [
     'process_account',
     'normalize_account',
     # file_utils
+    'detect_txt_encoding',
     'find_missing_files',
     'find_register_file',
     'format_filename_vectorized',

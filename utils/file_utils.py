@@ -8,8 +8,73 @@ Created on Mon Jun 22 09:30:02 2026
 # utils/file_utils.py
 import pandas as pd
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from loguru import logger
+
+# ---------------------------------------------------------------------------
+# Определение кодировки текстовых (TXT) выгрузок 1С
+# ---------------------------------------------------------------------------
+
+# Порядок важен: utf-8-sig проверяется первым — cp1251 почти всегда "декодирует"
+# UTF-8-байты без ошибки (кракозябрами), поэтому строгую пробу UTF-8 надо делать раньше.
+TXT_ENCODING_CANDIDATES = ('utf-8-sig', 'cp1251', 'cp866')
+
+# Объём начала файла (байт), используемый для пробы декодирования
+ENCODING_SAMPLE_SIZE = 5 * 1024 * 1024  # 5 МБ
+
+
+def detect_txt_encoding(
+    file_path: Path,
+    sample_size: int = ENCODING_SAMPLE_SIZE,
+) -> Tuple[str, str]:
+    """Определяет кодировку текстового файла по его началу.
+
+    Порядок определения:
+      1. BOM (utf-8-sig / utf-16) — однозначная идентификация;
+      2. строгая проба декодирования сэмпла по TXT_ENCODING_CANDIDATES;
+      3. если ни одна не подошла — cp1251 с заменой неопределимых байтов
+         (errors='replace') и предупреждением в лог.
+
+    Args:
+        file_path: Путь к текстовому файлу.
+        sample_size: Сколько байт от начала файла использовать для пробы.
+
+    Returns:
+        Tuple[str, str]: пара (кодировка, режим ошибок) — пригодна для
+        open(..., encoding=..., errors=...) и
+        pd.read_csv(..., encoding=..., encoding_errors=...).
+    """
+    file_path = Path(file_path)
+
+    with open(file_path, 'rb') as f:
+        sample = f.read(sample_size)
+    head = sample[:4]
+
+    # 1. BOM (utf-8-sig заодно убирает BOM при последующем текстовом чтении)
+    if head.startswith(b'\xef\xbb\xbf'):
+        logger.debug("Кодировка {}: utf-8-sig (обнаружен BOM)", file_path.name)
+        return 'utf-8-sig', 'strict'
+    if head.startswith((b'\xff\xfe', b'\xfe\xff')):
+        logger.debug("Кодировка {}: utf-16 (обнаружен BOM)", file_path.name)
+        return 'utf-16', 'strict'
+
+    # 2. Строгая проба по кандидатам
+    for encoding in TXT_ENCODING_CANDIDATES:
+        try:
+            sample.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        logger.debug("Кодировка {}: {} (строгая проба сэмпла)", file_path.name, encoding)
+        return encoding, 'strict'
+
+    # 3. Последний рубеж — читаем с заменой неопределимых байтов
+    logger.warning(
+        "Кодировка {} не определена однозначно — читаем как cp1251 "
+        "с заменой неопределимых байтов (errors='replace')",
+        file_path.name,
+    )
+    return 'cp1251', 'replace'
+
 
 def format_filename_vectorized(df: pd.DataFrame) -> list:
     """Векторизованное формирование имен файлов (работает в разы быстрее apply)"""

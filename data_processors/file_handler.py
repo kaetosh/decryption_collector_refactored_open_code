@@ -12,6 +12,7 @@ from data_processors.osv_account import AccountOSV_UPPFileProcessor, AccountOSV_
 from data_processors.osv_general import GeneralOSV_UPPFileProcessor, GeneralOSV_NonUPPFileProcessor
 from data_processors.analisys_account import Analisys_UPPFileProcessor, Analisys_NonUPPFileProcessor
 from data_processors.transaction_report import Posting_UPPFileProcessor, Posting_NonUPPFileProcessor
+from utils import detect_txt_encoding
 
 
 class FileHandler:
@@ -194,20 +195,15 @@ class FileHandler:
                 f"получен '{type_register}'"
             )
         
-        # Читаем первые 20 строк для анализа (разные кодировки)
-        first_lines_text = ""
-        for encoding in ['utf-8', 'cp1251', 'utf-8-sig']:
-            try:
-                with open(file_path, 'r', encoding=encoding) as f:
-                    first_lines_text = ''.join(f.readline() for _ in range(20)).lower()
-                break
-            except UnicodeDecodeError:
-                continue
+        # Читаем первые 20 строк для анализа (кодировка определяется автоматически)
+        encoding, encoding_errors = detect_txt_encoding(file_path)
+        with open(file_path, 'r', encoding=encoding, errors=encoding_errors) as f:
+            first_lines_text = ''.join(f.readline() for _ in range(20)).lower()
         
         if not first_lines_text:
             raise ValueError(
-                f"Не удалось прочитать TXT-файл {file_path.name} "
-                f"ни в одной из стандартных кодировок (utf-8, cp1251)"
+                f"TXT-файл {file_path.name} пуст: не удалось прочитать "
+                f"его первые строки в кодировке {encoding}"
             )
         
         # Анализируем паттерны из PROCESSORS_CONFIG['posting']
