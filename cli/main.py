@@ -93,7 +93,10 @@ def main(
 
         for key, value in context.tolerance_params.items():
             description = TOLERANCE_DESCRIPTIONS.get(key, key)
-            formatted_value = f"{value:,.0f}".replace(",", " ")
+            if key == "tolerance_rate_deviation":
+                formatted_value = f"{value * 100:.0f}%"
+            else:
+                formatted_value = f"{value:,.0f}".replace(",", " ")
             lines.append(f"  • {description}: {formatted_value}")
 
         logger.info("\n".join(lines))
