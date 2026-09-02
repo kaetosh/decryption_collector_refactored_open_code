@@ -19,6 +19,7 @@ from loguru import logger
 from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError
+from pipeline.step_config import OpuReportConstants
 from config.settings import REFERENCE_CONFIGS
 from io_module import DataLoader, DataSaver
 from io_module.output_manager import get_run_dir
@@ -529,6 +530,33 @@ def _get_output_filename(company_name: str, period: str, context: ProcessingCont
         return f"balance_breakdown_{company_name}_{period}.xlsx"
 
 
+def _prepare_journal_for_output(
+    journal_df: pd.DataFrame,
+    context: ProcessingContext,
+) -> pd.DataFrame:
+    """Готовит journal_df к сохранению на лист «исходники ОПУ».
+
+    Для рублёвых компаний (needs_conversion=False) удаляет служебный
+    столбец «оборот, тыс.руб.»: перевод в рубли не выполняется, поэтому
+    он всегда равен «оборот, тыс.ед.» и вводит пользователя в заблуждение.
+    Для валютных компаний столбец сохраняется — в нём результат
+    конвертации по курсу на дату операции (см. add_ruble_amount_column).
+    context.journal_df не изменяется — правится только копия для файла.
+    """
+    if journal_df is None or needs_conversion(context):
+        return journal_df
+
+    rub_col = OpuReportConstants.RUB_AMOUNT_COL
+    if rub_col in journal_df.columns:
+        journal_df = journal_df.drop(columns=[rub_col])
+        logger.debug(
+            "Лист «исходники ОПУ»: столбец '{}' удалён — валюта RUB, "
+            "значения равны 'оборот, тыс.ед.'",
+            rub_col,
+        )
+    return journal_df
+
+
 def save_results(context: ProcessingContext) -> None:
     """
     Сохранить результаты обработки в один комбинированный отчёт.
@@ -555,6 +583,10 @@ def save_results(context: ProcessingContext) -> None:
 
         pnl_df = context.pnl_df
         journal_df = context.journal_df
+
+        # Рублёвым компаниям служебный «оборот, тыс.руб.» в исходниках ОПУ
+        # не нужен — он равен «оборот, тыс.ед.» (перевод не выполняется)
+        journal_df = _prepare_journal_for_output(journal_df, context)
 
         if all(df is None for df in [balance_df, summary_osv_df, pnl_df, journal_df]):
             logger.warning("Нет данных для сохранения")

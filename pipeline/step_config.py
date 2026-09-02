@@ -83,6 +83,11 @@ class OpuReportConstants:
     """Константы для отчета ОПУ (Steps 17, 19)."""
     OPU_REPORT = "ОПУ"
     AMOUNT_COL = "оборот, тыс.ед."
+    RUB_AMOUNT_COL = "оборот, тыс.руб."
+    # Для валютных компаний RUB_AMOUNT_COL — конвертация по курсу на дату
+    # операции; для рублёвых — копия AMOUNT_COL (перевод не выполняется),
+    # поэтому из листа «исходники ОПУ» при сохранении он удаляется
+    # (см. _prepare_journal_for_output в pipeline/executors.py).
     VALUE_COL = "Значение"
     REPORT_TYPE_COL = "Отчетность"
     ACCOUNT_COL = "Итоговый номер счета"

@@ -12,6 +12,25 @@
 ---
 
 ## Завершённые задачи
+### ✅ Служебный «оборот, тыс.руб.» на листе «исходники ОПУ» для RUB
+- **Дата:** сессия 02.09.2026
+- **Суть:** в итоговом Excel у рублёвых компаний на листе «исходники ОПУ» столбец «оборот, тыс.руб.» всегда равен «оборот, тыс.ед.» (перевод в рубли не выполняется) и вызывает недоумение у пользователя.
+- **Решение:** перед сохранением `save_results` вызывает `_prepare_journal_for_output` (pipeline/executors.py): при `needs_conversion=False` столбец удаляется из копии journal_df для файла; `context.journal_df` не изменяется. Константа `RUB_AMOUNT_COL` перенесена в `OpuReportConstants` (pipeline/step_config.py), шаг 19 ссылается на неё вместо литерала.
+- **Инварианты:** для валютных компаний столбец сохраняется (в нём результат конвертации); листы «Расшифровка_ББЛ»/«Расшифровка_ОПУ»/«исходники ББЛ» не затронуты; сверки и метрики шагов работают в валюте компании, как прежде.
+- **Файлы:** `pipeline/executors.py` (_prepare_journal_for_output + вызов в save_results), `pipeline/step_config.py` (OpuReportConstants.RUB_AMOUNT_COL), `pipeline/steps/step_19_build_opu.py` (ссылка на константу)
+- **Итог:** реализовано, покрыто смоуком (_smoke_rub_fx_control.py, секция 8): RUB — столбец удалён, AED — сохранён, None проходит насквозь.
+
+---
+
+### ✅ Ошибка контроля курса на шаге 17 для RUB-компаний
+- **Дата:** сессия 02.09.2026
+- **Суть:** при тестировании обработки отсутствия листа курса RUB-компания ошибочно падала на шаге 17: `MissingCurrencyRateError «В справочнике отсутствует курс для валюты 'RUB'… добавьте лист Курс_RUB»`. Контрольная точка `_log_rate_anomalies` вызывала `get_rate_median` → `_get_rates_df`, а в `_CURRENCY_RATE_KEYS` ключа для RUB нет (и не требуется — перевод в рубли для RUB не выполняется, Сумма_руб = Сумма). Локальный `except (ValueError, KeyError)` исключение не ловил: `MissingCurrencyRateError` наследуется от `ReferenceMismatchError` → `PipelineError`.
+- **Решение:** ранний выход в `_log_rate_anomalies` при `needs_conversion(context) == False` — тот же паттерн защиты, что в `_prepare_fx_columns`. Одновременно покрыты обе контрольные точки (вход/выход шага 17).
+- **Инварианты:** для валютных компаний обработка ошибки не изменена: при отсутствии листа курса `MissingCurrencyRateError` фатальна (в реальном прогоне возникает раньше — на шаге 14 в `add_ruble_amount_column`).
+- **Файлы:** `pipeline/steps/step_17_add_other_income_and_expenses.py` (_log_rate_anomalies — защита needs_conversion); `_smoke_rub_fx_control.py` (одноразовый смоук, шаблон `_*` в .gitignore)
+- **Итог:** реализовано. Смоук: RUB — обе контрольные точки и `_prepare_fx_columns` без ошибок; USD без листа курса — `MissingCurrencyRateError` сохраняется.
+
+---
 
 ### ✅ Перевод валютных значений в рубли (AED/CNY)
 - **Дата:** сессия 01.09.2026

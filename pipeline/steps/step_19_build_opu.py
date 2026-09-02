@@ -27,8 +27,8 @@ class Step19BuildOpuStep(Step):
     """
 
     OPU_REPORT: Final = "ОПУ"
-    AMOUNT_COL: Final = "оборот, тыс.ед."
-    RUB_AMOUNT_COL: Final = "оборот, тыс.руб."
+    AMOUNT_COL: Final = OpuReportConstants.AMOUNT_COL
+    RUB_AMOUNT_COL: Final = OpuReportConstants.RUB_AMOUNT_COL
     VALUE_COL: Final = "Значение"
     RUB_VALUE_COL: Final = "Значение_руб"
     REPORT_TYPE_COL: Final = "Отчетность"
