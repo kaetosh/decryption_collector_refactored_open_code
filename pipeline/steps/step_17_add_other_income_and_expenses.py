@@ -1212,7 +1212,21 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         Все операции шага 17 над суммами линейны, поэтому расхождение между
         точками «вход» и «выход» локализует мутацию внутри шага.
         Пишет WARNING в лог (app.log), конвейер не прерывает.
+
+        Для рублёвых компаний (needs_conversion=False) контроль не выполняется:
+        перевод в рубли не производится (Сумма_руб = Сумма, см.
+        add_ruble_amount_column), проверка подразумеваемого курса не имеет
+        смысла, а листа курса Курс_RUB в справочнике нет и не требуется.
         """
+        if not needs_conversion(context):
+            logger.debug(
+                'Контроль курса ({}): пропущен — валюта компании RUB, '
+                'перевод в рубли не выполняется, контроль подразумеваемого '
+                'курса не требуется.',
+                stage,
+            )
+            return
+
         try:
             median_rate = get_rate_median(context)
             deviation_limit = get_rate_deviation_limit(context)
