@@ -173,3 +173,31 @@ class MissingContractorError(ReferenceMismatchError):
 class MissingCardError(MissingFilesError):
     """Карточка счета не найдена в папке account_cards."""
     pass
+
+
+class MissingCurrencyRateError(ReferenceMismatchError):
+    """
+    Курс валюты отсутствует в справочнике.
+
+    Возникает, когда для валюты компании не настроен лист курсов
+    в справочнике (например, нет листа Курс_USD для компании с валютой USD).
+
+    Attributes:
+        currency: Код валюты, для которой отсутствует курс
+    """
+
+    def __init__(
+        self,
+        message: str,
+        currency: Optional[str] = None,
+        problem_data: Optional[pd.DataFrame] = None,
+        reference_name: Optional[str] = None,
+        **metadata: Any
+    ):
+        self.currency = currency
+        super().__init__(
+            message=message,
+            problem_data=problem_data,
+            reference_name=reference_name,
+            **metadata
+        )

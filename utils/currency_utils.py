@@ -7,6 +7,7 @@ import pandas as pd
 from loguru import logger
 
 from config.defaults import DEFAULTS
+from pipeline.errors import MissingCurrencyRateError
 
 _RUB = 'RUB'
 
@@ -69,7 +70,15 @@ def _get_rates_df(context):
     currency = get_currency(context)
     key = _CURRENCY_RATE_KEYS.get(currency, None)
     if key is None:
-        raise ValueError('No rate reference configured for currency ' + repr(currency))
+        raise MissingCurrencyRateError(
+            message=(
+                f"В справочнике отсутствует курс для валюты '{currency}'. "
+                f"Необходимо добавить лист с курсом валюты '{currency}' в файл 'Справочники.xlsx' "
+                f"(формат имени листа: 'Курс_{currency}') и перезапустить программу."
+            ),
+            currency=currency,
+            reference_name=f"курс_{currency.lower()}",
+        )
     rate_df = context.references.get(key) if context.references else None
     if rate_df is None or rate_df.empty:
         raise ValueError('Rate reference ' + repr(key) + ' is empty for currency ' + repr(currency))
