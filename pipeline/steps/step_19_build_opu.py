@@ -11,6 +11,7 @@ from loguru import logger
 
 from pipeline.base import ProcessingContext, Step
 from pipeline.errors import MissingMappingError
+from pipeline.step_config import OpuReportConstants
 from utils import needs_conversion
 
 
@@ -309,6 +310,14 @@ class Step19BuildOpuStep(Step):
         с ед≈0 и руб≠0.
         """
         zero_mask = journal_df[self.AMOUNT_COL].abs() < self.ZERO_ROWS_EPSILON
+
+        # FX-строки «Курсовые разницы» (Step 17): ед = 0, руб ≠ 0 — выживают
+        # в чистке, иначе теряется курсовой хвост (Фаза 3.3).
+        if 'доход_расход' in journal_df.columns:
+            zero_mask = zero_mask & (
+                journal_df['доход_расход'] != OpuReportConstants.FX_DIFFERENCE_LABEL
+            )
+
         zero_count = int(zero_mask.sum())
 
         if not zero_count:

@@ -118,6 +118,18 @@ def get_rate_for_date(context, target_date):
     return rate
 
 
+def get_earliest_rate(context):
+    '''Самый ранний курс листа Курс_<валюта>.
+
+    Зеркалит fallback в add_ruble_amount_column: для дат раньше начала
+    листа курса «ближайшей предыдущей» даты не существует — берётся
+    самый ранний курс справочника.
+    '''
+    rates_df = _get_rates_df(context)
+    row = rates_df.iloc[0]
+    return float(row[_RATE_VALUE_COL])
+
+
 def get_balance_rate(context):
     rates_df = _get_rates_df(context)
     last = rates_df.iloc[-1]

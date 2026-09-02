@@ -22,7 +22,14 @@ from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import MissingMappingError
-from utils.currency_utils import get_rate_deviation_limit, get_rate_for_date, get_rate_median
+from pipeline.step_config import OpuReportConstants
+from utils.currency_utils import (
+    get_earliest_rate,
+    get_rate_deviation_limit,
+    get_rate_for_date,
+    get_rate_median,
+    needs_conversion,
+)
 
 class Step17AddOtherIncomeExpensesToOpuStep(Step):
     """
@@ -46,6 +53,33 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
 
     # Допуск для проверки сходимости с ОСВ (в тыс.ед.)
     # TOLERANCE_OSV = 1000
+
+    # Ключи группировки 91.01/91.02 при объединении с основной расшифровкой
+    # ОПУ (_merge_with_main_df). Используются и в _prepare_fx_columns —
+    # группы курсовых разниц должны совпадать с группами агрегации 1-в-1.
+    GROUP_COLS = (
+        'счет',
+        'вид_дохода_расхода',
+        'доход_расход',
+        'контрагент',
+        'объект для изм ппа',
+        'группа_ка',
+        'сегмент_ка',
+        'сегмент',
+        'вид_связи',
+        'рбп_кредитные_линии',
+        'рбп_проценты',
+    )
+
+    # Служебные столбцы/константы курсовых разниц (значения — единый
+    # источник в OpuReportConstants, используется также в step_19)
+    FX_COL = OpuReportConstants.FX_COL
+    RUB_BASE_COL = OpuReportConstants.RUB_BASE_COL
+    FX_DIFFERENCE_LABEL = OpuReportConstants.FX_DIFFERENCE_LABEL
+    FX_ABS_FLOOR = OpuReportConstants.FX_ABS_FLOOR
+
+    # Техпорог «нулевой» суммы группы, тыс.ед. (см. _split_fx_difference_rows)
+    FX_ZERO_AMOUNT_EPSILON = 1e-9
 
     def __init__(self):
         super().__init__(
@@ -191,15 +225,22 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         # она рождена одним из обработчиков шага 17.
         self._log_rate_anomalies(df_9101, df_9102, context, 'выход шага 17: перед агрегацией')
 
+        # 10б. Подготовка курсовых разниц (Фаза 3.3, задача «курс 92,48 RUB/AED»):
+        # вычисляет _руб_баз (руб по «курсу признания» = курс на дату первой
+        # операции группы) и _fx (хвост курсовой разницы). Выполняется ДО
+        # _add_service_columns, пока живы Дата/Сумма/Сумма_руб.
+        self._prepare_fx_columns(df_9101, df_9102, context)
+
         # 11. Добавление служебных столбцов
         df_9101 = self._add_service_columns(df_9101, self.ACCOUNT_OTHER_INCOME)
         df_9102 = self._add_service_columns(df_9102, self.ACCOUNT_OTHER_EXPENSE)
 
-        # 12. Объединение с main_df
+        # 12. Объединение с main_df (с выделением FX-строк при необходимости)
         df_final = self._merge_with_main_df(
             context.journal_df,
             df_9101,
-            df_9102
+            df_9102,
+            context,
         )
 
         context.journal_df = df_final
@@ -1222,12 +1263,95 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
             problem = df_91.loc[anomaly_mask, info_cols].copy()
             problem[amount_col] = amt[anomaly_mask]
             problem[rub_col] = rub[anomaly_mask]
-            logger.warning(
-                '[!] Контроль курса ({}, {}): {} строк(и) с подозрительным руб/ед '
+            logger.debug(
+                'Контроль курса ({}, {}): {} строк(и) с подозрительным руб/ед '
                 '(медиана листа курса {}; порог отклонения {:.0%}). Примеры:\n{}',
                 stage, label, int(anomaly_mask.sum()),
                 median_rate, deviation_limit,
                 problem.head(10).to_string(index=False),
+            )
+
+    # =========================================================================
+    # КУРСОВЫЕ РАЗНИЦЫ (Фаза 3.3, задача «курс 92,48 RUB/AED»)
+    # =========================================================================
+
+    def _prepare_fx_columns(
+        self,
+        df_9101: pd.DataFrame,
+        df_9102: pd.DataFrame,
+        context: ProcessingContext,
+    ) -> None:
+        """
+        Вычисляет служебные столбцы ``_руб_баз`` и ``_fx`` для проводок 91.01/91.02.
+
+        ``_руб_баз`` — рублёвый эквивалент по «курсу признания» группы
+        (курс на дату первой/min операции группы). ``_fx`` — хвост курсовой
+        разницы = оборот_руб − _руб_баз. Мутация in-place: новые столбцы
+        добавляются в df_9101/df_9102.
+
+        Для рублёвых компаний (needs_conversion=False) и строк с NaT-датой
+        fx = 0 (нечего разделять).
+        """
+        if not needs_conversion(context):
+            return
+
+        if 'Дата' not in df_9101.columns and 'Дата' not in df_9102.columns:
+            logger.debug('_prepare_fx_columns: столбец «Дата» отсутствует — пропуск')
+            return
+
+        for label, df_91 in (('91.01', df_9101), ('91.02', df_9102)):
+            if 'Дата' not in df_91.columns:
+                df_91[self.RUB_BASE_COL] = 0.0
+                df_91[self.FX_COL] = 0.0
+                continue
+
+            dates = pd.to_datetime(df_91['Дата'], errors='coerce')
+            valid_mask = dates.notna()
+
+            # Ключи группировки — подмножество GROUP_COLS, которое есть в df_91
+            group_keys = [c for c in self.GROUP_COLS if c in df_91.columns]
+
+            # Базовая дата группы = min('Дата') среди валидатных строк
+            # Для строк с NaT-датой базовая дата = NaT → fx = 0
+            base_date = dates.groupby(
+                [df_91[c] for c in group_keys],
+                sort=False,
+                dropna=False,
+            ).transform('min') if group_keys else dates
+
+            base_date = pd.to_datetime(base_date, errors='coerce')
+
+            # Кэш курсов по уникальным базовым датам
+            unique_base_dates = base_date.dropna().unique()
+            rate_cache: dict = {}
+            for ts in sorted(unique_base_dates):
+                try:
+                    rate_cache[ts] = get_rate_for_date(context, ts)
+                except ValueError:
+                    # Дата раньше начала листа курса — берём самый ранний курс
+                    rate_cache[ts] = get_earliest_rate(context)
+
+            base_rate = base_date.map(rate_cache).fillna(0.0)
+
+            # Оборот ед. и руб.
+            amount_col = 'оборот, тыс.ед.'
+            rub_col = 'оборот, тыс.руб.'
+            amount = pd.to_numeric(df_91.get(amount_col, 0.0), errors='coerce').fillna(0.0)
+            rub_amount = pd.to_numeric(df_91.get(rub_col, 0.0), errors='coerce').fillna(0.0)
+
+            # _руб_баз = оборот_ед × базовый_курс
+            df_91[self.RUB_BASE_COL] = (amount * base_rate).round(6)
+            # _fx = оборот_руб − _руб_баз
+            df_91[self.FX_COL] = (rub_amount - df_91[self.RUB_BASE_COL]).round(6)
+
+            # NaT-дата → fx = 0 (нечего разделять)
+            df_91.loc[~valid_mask, self.FX_COL] = 0.0
+            df_91.loc[~valid_mask, self.RUB_BASE_COL] = 0.0
+
+            logger.debug(
+                '_prepare_fx_columns ({}): {} строк, из них с fx≠0: {}',
+                label, len(df_91),
+                int((df_91[self.FX_COL].abs() > self.FX_ABS_FLOOR).sum()),
             )
 
     # =========================================================================
@@ -1272,27 +1396,23 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         main_df: pd.DataFrame,
         df_9101: pd.DataFrame,
         df_9102: pd.DataFrame,
+        context: ProcessingContext,
     ) -> pd.DataFrame:
-        """Объединяет 91.01 и 91.02 с основной расшифровкой ОПУ."""
+        """
+        Объединяет 91.01 и 91.02 с основной расшифровкой ОПУ.
+
+        При наличии служебных столбцов ``_руб_баз`` / ``_fx`` (см.
+        ``_prepare_fx_columns``) выполняет выделение курсовых разниц в
+        отдельные строки «Курсовые разницы» (Фаза 3.3, задача
+        «курс 92,48 RUB/AED»).
+        """
         logger.debug("Объединение с основной расшифровкой ОПУ")
 
         # Объединяем 91.01 и 91.02
         df_combined = pd.concat([df_9101, df_9102], ignore_index=True)
 
-        # Группировка по указанным столбцам
-        group_cols = [
-            'счет',
-            'вид_дохода_расхода',
-            'доход_расход',
-            'контрагент',
-            'объект для изм ппа',
-            'группа_ка',
-            'сегмент_ка',
-            'сегмент',
-            'вид_связи',
-            'рбп_кредитные_линии',
-            'рбп_проценты'
-        ]
+        # Группировка по указанным столбцам (GROUP_COLS — константа класса)
+        group_cols = list(self.GROUP_COLS)
 
         # Оставляем только существующие столбцы
         existing_group_cols = [
@@ -1303,16 +1423,36 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         for col in existing_group_cols:
             df_combined[col] = df_combined[col].fillna('не_указано').astype('string')
 
+        # Числовые столбцы для суммирования
+        sum_cols = ['оборот, тыс.ед.', 'оборот, тыс.руб.']
+        has_fx = (
+            self.RUB_BASE_COL in df_combined.columns
+            and self.FX_COL in df_combined.columns
+        )
+        if has_fx:
+            sum_cols.extend([self.RUB_BASE_COL, self.FX_COL])
+
         df_combined = df_combined.groupby(
             existing_group_cols,
             as_index=False
-        )[['оборот, тыс.ед.', 'оборот, тыс.руб.']].sum()
+        )[sum_cols].sum()
 
         logger.debug(
             "Группировка: {} → {} строк",
             len(df_9101) + len(df_9102),
             len(df_combined),
         )
+
+        # Выделение FX-строк (Фаза 3.3)
+        if has_fx:
+            df_combined = self._split_fx_difference_rows(df_combined, context)
+
+        # Удаляем служебные столбцы
+        if has_fx:
+            df_combined = df_combined.drop(
+                columns=[self.RUB_BASE_COL, self.FX_COL],
+                errors='ignore',
+            )
 
         # Объединяем с main_df
         df_final = pd.concat([main_df, df_combined], ignore_index=True)
@@ -1345,6 +1485,95 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         )
 
         return df_final
+
+    def _split_fx_difference_rows(
+        self,
+        df: pd.DataFrame,
+        context: ProcessingContext,
+    ) -> pd.DataFrame:
+        """
+        Выделяет курсовые разницы в отдельные строки ОПУ.
+
+        Для групп, где |fx| > FX_ABS_FLOOR и (ед ≈ 0 ИЛИ подразумеваемый
+        курс отличается от базового больше чем на deviation_limit),
+        основная строка получает руб = _руб_баз, а хвост уходит в
+        отдельную строку с доход_расход = FX_DIFFERENCE_LABEL и ед = 0.
+
+        Суммарные ед/руб по ОПУ не меняются (инвариант).
+        """
+        amount_col = 'оборот, тыс.ед.'
+        rub_col = 'оборот, тыс.руб.'
+
+        if amount_col not in df.columns or rub_col not in df.columns:
+            return df
+
+        fx = df[self.FX_COL]
+        rub_base = df[self.RUB_BASE_COL]
+        amount = df[amount_col]
+
+        # Порог отклонения курса
+        try:
+            deviation_limit = get_rate_deviation_limit(context)
+        except (ValueError, KeyError):
+            deviation_limit = 0.3
+
+        # Подразумеваемый курс группы vs базовый курс
+        base_implied = pd.Series(0.0, index=df.index, dtype='float64')
+        implied = pd.Series(0.0, index=df.index, dtype='float64')
+        nonzero_mask = amount.abs() > self.FX_ZERO_AMOUNT_EPSILON
+        if nonzero_mask.any():
+            base_implied[nonzero_mask] = (
+                rub_base[nonzero_mask] / amount[nonzero_mask]
+            )
+            implied[nonzero_mask] = (
+                df.loc[nonzero_mask, rub_col] / amount[nonzero_mask]
+            )
+        # Явный перевод inf → NaN (вместо deprecated use_inf_as_na)
+        base_implied = base_implied.replace([float('inf'), float('-inf')], float('nan'))
+        implied = implied.replace([float('inf'), float('-inf')], float('nan'))
+
+        # Условие разделения: |fx| > порог И (ед ≈ 0 ИЛИ |implied/баз_implied − 1| > порог)
+        rate_ratio = pd.Series(0.0, index=df.index)
+        valid_base = base_implied.abs() > 1e-12
+        rate_ratio[valid_base] = (
+            implied[valid_base] / base_implied[valid_base]
+        )
+        rate_deviation = (rate_ratio - 1.0).abs()
+
+        split_mask = (
+            (fx.abs() > self.FX_ABS_FLOOR)
+            & (
+                (amount.abs() <= self.FX_ZERO_AMOUNT_EPSILON)
+                | (rate_deviation > deviation_limit)
+            )
+        )
+
+        if not split_mask.any():
+            logger.debug('_split_fx_difference_rows: разделение не требуется')
+            return df
+
+        # Основные строки (неразделённые + основные части разделённых)
+        df_main = df.copy()
+        # Для разделённых строк: руб = _руб_баз
+        df_main.loc[split_mask, rub_col] = rub_base[split_mask]
+
+        # FX-строки
+        df_fx = df.loc[split_mask].copy()
+        df_fx[amount_col] = 0.0
+        df_fx[rub_col] = fx[split_mask]
+        df_fx['доход_расход'] = self.FX_DIFFERENCE_LABEL
+
+        fx_count = len(df_fx)
+        fx_total = float(fx[split_mask].sum())
+
+        logger.info(
+            'Выделено {} строк «{}» на {:.4f} тыс.руб (порог {:.2f} тыс.руб, '
+            'отклонение курса {:.0%})',
+            fx_count, self.FX_DIFFERENCE_LABEL, fx_total,
+            self.FX_ABS_FLOOR, deviation_limit,
+        )
+
+        return pd.concat([df_main, df_fx], ignore_index=True)
 
     def _extract_contractors(
         self,
