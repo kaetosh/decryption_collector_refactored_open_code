@@ -1,565 +1,101 @@
 # Руководство для ИИ-агента (AGENTS.md)
 
 ## Архитектура и запуск
-* **Паттерн Pipeline (Конвейер):** Все шаги наследуются от `Step` (`pipeline/base.py:115`) и реализуют только метод `_process(context)`. **НЕ переопределяйте `execute`** — он обёрнут декоратором `handle_pipeline_errors` (`pipeline/decorators.py:47`).
-* **Точка входа:** `main.py:1` — тонкий лаунчер для совместимости (`python main.py`). Вся оркестрация — в `cli/main.py:38` (`main()` / `entry_point()`). Альтернативный запуск: `python -m cli.main`. Аргументы CLI — в `cli/arguments.py:12` (`parse_arguments()`, `ask_user_about_traceback()`).
-* **Фабрики пайплайнов:** Состав конвейера задаётся в `pipeline/factories.py:37` (`create_preparation_pipeline()`) и `pipeline/factories.py:52` (`create_main_pipeline()`). Не хардкодьте список шагов в `main.py`/`cli/main.py`.
-* **Оркестрация фаз:** Инициализация контекста, реестр справочников и паузы — в `pipeline/executors.py` (`initialize_context()`, `REFERENCE_REGISTRY`, `pause_for_osv_general_export()`, `pause_for_1c_export()`, `save_results()`). Сохранение — через `io_module/data_io.py:490` (`DataLoader`/`DataSaver`) и `io_module/output_manager.py:39`.
-* **Контекст данных:** Состояние передаётся через `ProcessingContext` (`pipeline/base.py:29`). Главные таблицы — `common_osv_df` (общая ОСВ с Фазы 0), `summary_osv_df` (сводная ОСВ после Step 2), `journal_df` (проводки, с Step 1c), `balance_df` (Step 13), `pnl_df` (Step 19). Промежуточные таблицы — в `context.data` (доступ через `Step.get_df_from_context()`). Идентификатор запуска — `context.run_id` (ГГГГММДД_ЧЧММСС, совпадает с именем папки вывода), метрики шагов — `context.step_metrics`.
-* **Запуск и зависание на `input()` (КРИТИЧНО):** При запуске без аргументов (F5 в IDE) приложение работает интерактивно: на Фазе 0 ждёт Enter после выкладки общей ОСВ (`executors.py:26`), на Фазе 1 — после выгрузки регистров (`executors.py:47`), плюс один вопрос `y/n` про трассировку (`cli/arguments.py:42`). Чтобы избежать зависания в фоне/CI/без TTY, передавайте аргументы CLI (`-t`, `-v`, `--no-interactive`). Логика выбора режима — `cli/main.py:121` (`entry_point()`).
+* **Паттерн Pipeline:** шаги наследуются от `Step` (`pipeline/base.py:115`), реализуют только `_process(context)`. **НЕ переопределяйте `execute`** — обёрнут декоратором `handle_pipeline_errors` (`pipeline/decorators.py:47`).
+* **Точка входа:** `main.py:1` -> `cli/main.py:38` (`main()` / `entry_point()`). Альтернатива: `python -m cli.main`. Аргументы: `cli/arguments.py:12`.
+* **Фабрики:** `pipeline/factories.py:37` (`create_preparation_pipeline()`) и `:52` (`create_main_pipeline()`). Не хардкодьте шаги.
+* **Оркестрация:** `pipeline/executors.py` — `initialize_context()`, `REFERENCE_REGISTRY`, паузы, `save_results()`. Сохранение: `io_module/data_io.py:490` + `io_module/output_manager.py:39`.
+* **Контекст:** `ProcessingContext` (`pipeline/base.py:29`). Главные таблицы — `common_osv_df`, `summary_osv_df`, `journal_df`, `balance_df`, `pnl_df`. Промежуточные — в `context.data` (доступ через `Step.get_df_from_context()`). `context.run_id` = `ГГГГММДД_ЧЧММСС`.
+* **Зависание на `input()` (КРИТИЧНО):** запуск без аргументов — интерактивный режим. Для CI/фона передавайте `-t`, `-v`, `--no-interactive`. Логика — `cli/main.py:121`.
 
-## Автоматическая постобработка и валидация в базовом классе
-Каждый шаг при вызове `Step.execute()` (`pipeline/base.py:124`, декоратор `pipeline/decorators.py:47`) автоматически выполняет цепочку. *Не пишите для них ручной код внутри своих шагов:*
+## Автоматическая постобработка и валидация
+При вызове `Step.execute()` (`base.py:124`) автоматически (не пишите ручной код):
+1. `_validate_input(context)` — валидация входа
+2. `_process(context)` — бизнес-логика (единственное место для кода шага)
+3. `_clean_whitespace(context)` (`base.py:395`) — очистка пробелов в `summary_osv_df`/`journal_df`
+4. `_move_and_sort_level_columns(context)` (`base.py:405`) — `Level_*` в конец по возрастанию
+5. `_validate_output(context)` (`base.py:201`) — запрет `object`-колонок (иначе `TypeError`). Приводите через `cast_columns_to_types()` (`utils/dataframe_utils.py:13`)
+6. Контроль сходимости баланса: если есть `сальдо, тыс.ед.`, сумма проверяется на `0` с допуском `tolerance_balance` (дефолт `config/defaults.py:12`). Для ОПУ-расходов — `_validate_against_osv()` в `base_expenses_step.py:451`.
 
-1. **Валидация входа** — `_validate_input(context)` (переопределяется при необходимости).
-2. **Бизнес-логика** — `_process(context)` (единственное место для кода шага).
-3. **Очистка пробелов** — `_clean_whitespace(context)` (`base.py:395`) удаляет лишние пробелы во всех строковых колонках `summary_osv_df` / `journal_df`.
-4. **Сортировка Level-колонок** — `_move_and_sort_level_columns(context)` (`base.py:405`) — колонки `Level_*` (регистронезависимо) в конец и по возрастанию номера.
-5. **Строгий контроль типов на выходе** — `_validate_output(context)` (`base.py:201`): в `common_osv_df`/`summary_osv_df`/`journal_df` не должно остаться колонок `object` (иначе `TypeError`). Приводите типы через `utils.dataframe_utils.cast_columns_to_types()` (`utils/dataframe_utils.py:13`).
-6. **Контроль сходимости баланса** — там же: если есть `сальдо, тыс.ед.` (`pipeline/constants.py:12`), сумма проверяется на `0` с допуском `context.tolerance_params['tolerance_balance']` (лист «Параметры», дефолт — `config/defaults.py:12`). При превышении — `ValueError`. Для ОПУ-шагов расходов — отдельная проверка через `_validate_against_osv()` в `pipeline/steps/base_expenses_step.py:451`.
-
-Дополнительно декоратор `handle_pipeline_errors` (`decorators.py:47`) после каждого шага (включая мягкий режим) пишет метрику в `context.step_metrics` (`status`: `ok`/`soft`/`error`, `duration_sec`, `rows`) и логирует сводку в `Pipeline._log_step_summary()` (`base.py:749`, уровень DEBUG — видно в `app.log`, не в консоли).
+Декоратор `handle_pipeline_errors` (`decorators.py:47`) пишет метрики в `context.step_metrics` и логирует сводку (`base.py:749`, DEBUG).
 
 ## Константы
-* **Общие константы** — `pipeline/constants.py:10` (`ColumnNames`, `DataTypes`, `Prefixes`, `Values`). Импортируйте оттуда, не дублируйте строки типа `сальдо, тыс.ед.`, `level_`, `не_указано`.
-* **Бизнес-константы шагов** — `pipeline/step_config.py:12` (`StepConstants`, `DebtTypeConstants`, `LeaseConstants`, `AccountConstants`, `OpuReportConstants`, `BalanceReportConstants`). Примеры: `StepConstants.THIRD_PARTY`, `LeaseConstants.TOLERANCE_76`, `AccountConstants.CONVERGENCE_TOLERANCE_84`.
+* Общие — `pipeline/constants.py:10` (`ColumnNames`, `DataTypes`, `Prefixes`, `Values`). Импортируйте, не дублируйте.
+* Бизнес-константы шагов — `pipeline/step_config.py:12` (`StepConstants`, `DebtTypeConstants`, `LeaseConstants`, `AccountConstants`, `OpuReportConstants`, `BalanceReportConstants`).
 
 ## Работа со справочниками и обработка ошибок
-* **Справочники:** Хранятся в `_REFERENCE_DATA/Справочники.xlsx`. Единая точка правды — `REFERENCE_REGISTRY` в `pipeline/executors.py:83` (`ReferenceSpec` + `REFERENCE_REGISTRY`). Загрузка — `_load_all_references()` -> `DataLoader.load_reference_data()` (`io_module/data_io.py:427`), очистка пробелов через `Step.clean_whitespace()`. Инициализация — `initialize_context()` (`executors.py:300`) вызывается в `cli/main.py:64`.
-  - `ПланСчетов` (`план_счетов_фо`) — план счетов ФО (РСБУ Код отчетности, Итоговый номер счета)
-  - `ПланСчетовБУ` (`план_счетов_бу`) — план счетов БУ (компания, код, наименование, субконто 1-3)
-  - `Меппинг_бб` (`меппинг_баланс`) — маппинг баланса (вид/подвид задолженности, группы ОС, вид связи)
-  - `Меппинг_опу` (`меппинг_опу`) — маппинг ОПУ (доход_расход, вид_дохода_расхода, сегмент, вид_связи)
-  - `КомпанииГруппы` (`компании_группы`) — метаданные компаний (имя файла расшифровки, сегмент, тип_периода)
-  - `Выгрузки` (`выгрузки`) — настройки регистров для экспорта из 1С
-  - `СправочникУФР` (`справочник_уфр`) — сегменты по номенклатурным группам
-  - `ВидСвязиКА` (`вид_связи_ка`) — группы контрагентов для вида связи
-  - `ППА` (`справочник_ппа`) — ППА (IFRS 16): группы ОС, виды взаиморасчетов, контрагенты, договоры
-  - `КредитОбслуж` (`кредит_обслуж`) — кредитные линии
-  - `ПрочиеДоходыНДС` (`прочие_доходы_ндс`) — прочие доходы НДС
-  - `ВидыРБП_АрендаЛизинг` (`виды_рбп_аренда_лизинг`) — виды РБП аренды/лизинга
-  - `Параметры` (`параметры`) — допуски сходимости (лист **необязательный**: `required=False`, при отсутствии используются дефолты из `config/defaults.py`; см. подраздел ниже)
+* **Справочники:** единая точка — `REFERENCE_REGISTRY` (`pipeline/executors.py:83`, `ReferenceSpec`). Загрузка -> `DataLoader.load_reference_data()` (`io_module/data_io.py:427`). Ключевые: `ПланСчетов`, `ПланСчетовБУ`, `Меппинг_бб`, `Меппинг_опу`, `КомпанииГруппы`, `Выгрузки`, `СправочникУФР`, `ВидСвязиКА`, `ППА`, `КредитОбслуж`, `ПрочиеДоходыНДС`, `ВидыРБП_АрендаЛизинг`, `Параметры`.
+* **Допуски сходимости:** лист «Параметры» -> `load_params(context)` (`config/loader.py:14`) -> `context.tolerance_params`. Валидация по `SCHEMA` (`config/defaults.py:20`), fallback — `DEFAULTS`. Ключевые: `tolerance_balance` (5000), `tolerance_reconciliation` (1050), `tolerance_leased_os` (3000), `tolerance_pnl_balance` (1050), `tolerance_rate_deviation` (0.3).
 
-### Параметры допусков сходимости (лист «Параметры»)
-Допуски вынесены в лист «Параметры» и **не задаются в коде**. Механизм:
-- **Загрузка:** `config/loader.py:14` (`load_params(context)`) читает `context.references['параметры']` и возвращает `dict` -> `context.tolerance_params` (вызывается в `cli/main.py:66` сразу после `initialize_context()`). При старте логируются фактические допуски (`cli/main.py:79`, описания — `config/defaults.py:27` `TOLERANCE_DESCRIPTIONS`).
-- **Колонки листа:** `параметр`, `описание`, `ед. изм.`, `тип данных значения`, `значение`.
-- **Валидация:** каждый параметр сверяется со `SCHEMA` в `config/defaults.py:20` (тип, `min`/`max`, `nullable`). Неизвестные — warning и пропуск; невалидные — warning и дефолт.
-- **Fallback:** лист отсутствует/пуст/ошибка — `DEFAULTS` из `config/defaults.py:12`.
-- **Доступ:** только `context.tolerance_params['<имя>']`. Новые допуски — в справочник + при необходимости в `SCHEMA`/`DEFAULTS`/`TOLERANCE_DESCRIPTIONS`.
+| Исключение | Поведение |
+|---|---|
+| `MissingContractorError` | `STRICT_CONTRACTOR_CHECK=True` -> `ProcessingStepError`; `False` -> замена на `3 лица`, статус `soft` |
+| `ReferenceMismatchError` и подвиды | сохранение `problem_data` в Excel (`_save_reference_mismatch_report()` -> `output_manager.py:88`), `ProcessingStepError` |
+| `MissingFilesError` / `MissingCardError` | сохранение списка файлов, `ProcessingStepError` |
+| `Exception` | обёртка в `ProcessingStepError` (`from e`) |
 
-Параметры и где применяются (дефолты):
-- `tolerance_balance` (`5000.0`) — Актив = Пассив. `base.py:250` + `step_13`.
-- `tolerance_reconciliation` (`1050.0`) — регистры vs Общая ОСВ. `step_01c`, `step_14`, `base_expenses_step`.
-- `tolerance_leased_os` (`3000.0`) — арендованные ОС (01.03/02.03 vs Ведомость амортизации). `step_10`.
-- `tolerance_pnl_balance` (`1050.0`) — ОПУ vs Баланс (ЧП = НРП). `step_19`.
-
-*Примечание:* в шагах 6/11/12 ещё внутренние допуски `TOLERANCE_76`, `CONVERGENCE_TOLERANCE_84` (100 000) — в справочник не вынесены, см. `pipeline/step_config.py:44`.
-
-* **Кастомные исключения пайплайна (`pipeline/errors.py:13`):**
-  - `PipelineError` — базовое. `InputDataError` -> `MissingFilesError` / `MissingCardError` — проблемы входных данных.
-  - `ReferenceMismatchError` — несоответствие справочникам (проблемные строки сохраняются в Excel в `_OUTPUT_DATA/run_<run_id>/mismatches/`). Подклассы: `MissingMappingError`, `MissingContractorError`, `MissingOSGroupError`, `MissingSubtypeError`, `ConvergenceError`.
-  - `ProcessingStepError` (`errors.py:24`, ранее был в `base.py`) — обёртка сбоя шага; создаётся декоратором `handle_pipeline_errors`, оригинал — в `__cause__`. Не бросайте его вручную из шагов — бросайте доменные исключения.
-
-* **Обработка ошибок (декоратор `handle_pipeline_errors`, `pipeline/decorators.py:47`):**
-
-  | Исключение | Поведение |
-  |---|---|
-  | `MissingContractorError` | `STRICT_CONTRACTOR_CHECK=True` -> лог `error` + `ProcessingStepError`; `False` -> сохранение отчёта + замена на `replacement_value` (`3 лица`), статус `soft`, шаг продолжается |
-  | `ReferenceMismatchError` и подвиды | сохранение `problem_data` в Excel (`Step._save_reference_mismatch_report()` -> `io_module/output_manager.py:88` `get_output_dir('mismatches')`), лог `error`, `ProcessingStepError` |
-  | `MissingFilesError` / `MissingCardError` | сохранение списка файлов (`_save_missing_files_report()`), лог `error`, `ProcessingStepError` |
-  | `Exception` | лог `error`, оборачивание в `ProcessingStepError` (`from e` — цепочка сохраняется) |
-
-  `Pipeline.run()` (`base.py:713`) дополнительно логирует сводку шагов при сбое и пробрасывает `ProcessingStepError`. Для нового типа ошибки: добавьте класс в `errors.py` и ветку в `decorators.py` (см. `README.md:112`).
-
-* **Мягкий режим для контрагентов:** `config/settings.py:48` `STRICT_CONTRACTOR_CHECK = False` — неизвестные контрагенты заменяются на `3 лица` (столбец из `error.target_column`) вместо падения. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:652`).
+`STRICT_CONTRACTOR_CHECK = False` (`config/settings.py:48`) — мягкий режим. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:652`).
 
 ## Встроенные хелперы и утилиты
-*Не изобретайте велосипед, используйте готовое:*
-* **Чтение Excel:** всегда `engine='openpyxl'`.
-* **Определение заголовков из 1С:** `utils.dataframe_utils.set_header_from_row(df, search_text)` (`utils/dataframe_utils.py`).
-* **Приведение типов:** `utils.dataframe_utils.cast_columns_to_types(df, type_mapping)` (`utils/dataframe_utils.py:13`) — используйте перед `_validate_output`, чтобы не остаться с `object`.
-* **Доступ к таблицам контекста:** `Step.get_df_from_context(context, key, hint='')` (`pipeline/base.py:161`) — достаёт `context.data[key]` и проверяет наличие/непустоту с понятным `ValueError`. Используйте вместо ручного `context.data.get()` + `if None/empty`. Применяется в `step_04`, `step_11`, `step_14`, `step_17`, `step_18`, `base_expenses_step`.
-* **Нормализация счетов:** `utils.column_utils.process_account(acc)` (скалярная) / `normalize_account(series)` (векторизованная, 5 символов для 90/91). (`utils/column_utils.py`).
-* **Fuzzy Matching:** `utils.text_utils.find_similar_companies(series_a, series_b)` (`utils/text_utils.py`, `rapidfuzz`) — используется в `step_11a`.
-* **Логирование:** только `from loguru import logger` (`logging_handling/logger_config.py:40` `setup_logger()`). Консоль — `INFO`, файл `app.log` — `DEBUG` (перезаписывается при каждом запуске). Уровни `ERROR`/`CRITICAL` не обрезаются (`logger_config.py:33`).
-* **Пути вывода:** никогда не используйте `OUTPUT_DATA_DIR` напрямую для записи результатов шага. Используйте `io_module/output_manager.py:88` `get_output_dir(subfolder)` и `get_run_id()` — хвост имён файлов `_<run_id>` совпадает с папкой запуска. Ручной `Path(OUTPUT_DATA_DIR) / ...` и `datetime.now()` в шагах — антипаттерн (см. правки `step_07`, `step_11`).
+* Чтение Excel: `engine=\'openpyxl\''
+* Заголовки из 1С: `utils.dataframe_utils.set_header_from_row(df, search_text)`
+* Приведение типов: `utils.dataframe_utils.cast_columns_to_types(df, type_mapping)` (`utils/dataframe_utils.py:13`)
+* Доступ к `context.data`: `Step.get_df_from_context(context, key, hint=\'\')` (`base.py:161`) — единственный корректный способ
+* Нормализация счетов: `utils.column_utils.process_account(acc)` / `normalize_account(series)`
+* Fuzzy Matching: `utils.text_utils.find_similar_companies(series_a, series_b)` (rapidfuzz)
+* Логирование: `from loguru import logger` (`logging_handling/logger_config.py:40`). Консоль — INFO, `app.log` — DEBUG (перезаписывается).
+* Пути вывода: только `io_module/output_manager.py:88` `get_output_dir(subfolder)` + `get_run_id()`. Не используйте `OUTPUT_DATA_DIR` напрямую.
 
-## Структура проекта
-```
-├── main.py                     # тонкий лаунчер -> cli/main.py  (совместимость: python main.py)
-├── cli/
-│   ├── arguments.py            # argparse-флаги (-t/-v/--no-interactive) + интерактивный вопрос
-│   └── main.py                 # main(): Фаза 0 -> Фаза 1 -> пауза -> Фаза 2 -> save_results
-├── pipeline/
-│   ├── base.py                 # Step, ProcessingContext, Pipeline (+ _log_step_summary)
-│   ├── decorators.py           # handle_pipeline_errors — единая обработка ошибок + метрики
-│   ├── errors.py               # иерархия исключений (включая ProcessingStepError)
-│   ├── constants.py            # ColumnNames, DataTypes, Prefixes, Values
-│   ├── step_config.py          # бизнес-константы шагов (DebtTypeConstants, LeaseConstants …)
-│   ├── factories.py            # create_preparation_pipeline / create_main_pipeline
-│   ├── executors.py            # REFERENCE_REGISTRY, initialize_context, паузы, save_results
-│   ├── classifiers/            # ReceivableClassifier
-│   └── steps/                  # 1a–19 + base_expenses_step
-├── data_processors/            # парсеры выгрузок 1С (osv_general.py: fix find_column_index — .eq() безопасен для pd.NA)
-├── io_module/
-│   ├── data_io.py              # DataLoader / DataSaver (save_combined_report — 4 листа)
-│   └── output_manager.py       # run_id / run_dir / get_output_dir / cleanup_old_runs (KEEP_LAST_RUNS)
-├── config/
-│   ├── settings.py             # пути, REFERENCE_CONFIGS, STRICT_CONTRACTOR_CHECK, KEEP_LAST_RUNS, LOG_LEVEL
-│   ├── defaults.py             # DEFAULTS / SCHEMA / TOLERANCE_DESCRIPTIONS
-│   └── loader.py               # load_params()
-├── utils/                      # column_utils, dataframe_utils, text_utils, file_utils
-└── logging_handling/           # logger_config.py — консоль INFO, app.log DEBUG
-```
+## Структура пайплайна (Фаза 2)
+Состав — `pipeline/factories.py:52`. Шаги 1b-19, 6 этапов:
 
-## Структура пайплайна (6 этапов, 21 шаг)
-Приложение — 3 фазы (`cli/main.py:38`):
-1. **Фаза 0:** `pause_for_osv_general_export()` -> `initialize_context()` (общая ОСВ + справочники + `load_params()`)
-2. **Фаза 1:** `create_preparation_pipeline()` (Step 1a) -> `pause_for_1c_export()` — ручная выгрузка из 1С
-3. **Фаза 2:** `create_main_pipeline()` (Steps 1b–19, 6 этапов)
+| Этап | Шаги | Назначение |
+|---|---|---|
+| Загрузка и подготовка | 1b, 1c, 2 | Проверка файлов, реконциляция ОСВ, флэттенинг |
+| Классификация (баланс) | 3-9 | Счета, тип/подвид задолженности, группы ОС, долгая/короткая часть, биоактивный, вид связи |
+| Специальные расчёты | 10-12 | Источник аренды, разбиение 60 (инвест/не-инвест), разбиение 84 (НРП) |
+| Сборка баланса | 13 | Расшифровка по маппингу ФО |
+| Классификация (ОПУ) | 14-18 | Выручка/себестоимость, управленческие/коммерческие расходы, прочие доходы/расходы, налог |
+| Сборка ОПУ | 19 | Маппинг на счета ФО, увязка ЧП = НРП |
 
-Состав Фазы 2 задаётся в `pipeline/factories.py:52`:
-
-### Этап 1: Загрузка и подготовка данных (баланс + ОПУ)
-| Шаг | Файл | Описание |
-|-----|------|----------|
-| 1b | `step_01b_verify_files.py` | Проверка наличия файлов выгрузок |
-| 1c | `step_01c_reconcile_totals.py` | Реконциляция итогов ОСВ vs выгрузки; загружает `journal_df` для всех шагов ОПУ |
-| 2 | `step_02_flat_osv.py` | Флэттенинг сводной ОСВ |
-
-### Этап 2: Добавление классификационных столбцов (баланс)
-| Шаг | Файл | Описание |
-|-----|------|----------|
-| 3 | `step_03_add_account.py` | deepest Level_ -> `счет` |
-| 4 | `step_04_add_debt_type.py` | ДЗ/КЗ через `ReceivableClassifier` |
-| 5 | `step_05_add_debt_subtype.py` | Подвид задолженности |
-| 6 | `step_06_add_os_group.py` | Группы ОС аренды/лизинга |
-| 7 | `step_07_add_long_short.py` | Долгая/короткая часть |
-| 8 | `step_08_add_bioactive.py` | Биоактивный сегмент (01/02) |
-| 9 | `step_09_add_related_party.py` | Вид связи |
-
-### Этап 3: Специальные расчёты (баланс)
-| Шаг | Файл | Описание |
-|-----|------|----------|
-| 10 | `step_10_classify_lease.py` | Источник аренды (ГСК/ГАП) |
-| 11 | `step_11_split_60.py` | Разбиение 60 на инвест/не-инвест |
-| 11a | `step_11a_check_contractor_similarity.py` | Fuzzy-проверка контрагентов (неблокирующий) |
-| 12 | `step_12_split_84.py` | Разбиение 84 (НРП) |
-
-### Этап 4: Сборка баланса
-| Шаг | Файл | Описание |
-|-----|------|----------|
-| 13 | `step_13_build_balance.py` | Сборка расшифровки баланса по маппингу ФО; `_finalize_columns()` удаляет тех. столбцы плана счетов и переносит `Отчетность`/`Статья отчетности` в конец |
-
-### Этап 5: Добавление классификационных столбцов (ОПУ)
-| Шаг | Файл | Описание |
-|-----|------|----------|
-| 14 | `step_14_build_opu_foundation.py` | Основа ОПУ: 90.01/90.02, распределение себестоимости |
-| 15 | `step_15_add_admin_expenses_to_opu.py` | Управленческие расходы (90.08/26) — `StepAddExpensesToOpuBase` |
-| 16 | `step_16_add_comm_expenses_to_opu.py` | Коммерческие расходы (90.07/44) — `StepAddExpensesToOpuBase` |
-| 17 | `step_17_add_other_income_and_expenses.py` | Прочие доходы/расходы (91.01/91.02) |
-| 18 | `step_18_add_task_and_other_movements.py` | Налог на прибыль и прочие движения (99) |
-
-### Этап 6: Сборка ОПУ
-| Шаг | Файл | Описание |
-|-----|------|----------|
-| 19 | `step_19_build_opu.py` | Сборка ОПУ, увязка ЧП = НРП (`tolerance_pnl_balance`) |
-
-## Ключевые шаги — подробное описание
-### Step 1c — Реконциляция (`step_01c_reconcile_totals.py`)
-Сверяет обороты/остатки общей ОСВ и выгрузок. При расхождении > `tolerance_reconciliation` — `ReferenceMismatchError`. Загружает `journal_df` в контекст.
-
-### Step 14 — Основа ОПУ (`step_14_build_opu_foundation.py`)
-90.01 (выручка) + 90.02 (себестоимость), распределение себестоимости пропорционально выручке. Обогащение через `меппинг_опу`/`справочник_уфр`/`компании_группы`. Сохраняет `transactions_all_df` в `context.data` (читается через `get_df_from_context()` в 15–18). Результат — `context.journal_df`.
-
-### Steps 15-16 — Расходы ОПУ (`pipeline/steps/base_expenses_step.py`)
-Тонкие обёртки над `StepAddExpensesToOpuBase` (`account_opu`, `account_accumulation`, `opu_line_name`). Валидация сходимости с ОСВ — `_validate_against_osv()` (`tolerance_reconciliation`).
-
-### Step 17 — Прочие доходы/расходы (`step_17_add_other_income_and_expenses.py`)
-~1270 строк: продажа активов (НДС, контрагенты, осиротевшие расходы), кредитные линии (`КредитОбслуж`), проценты, изменение условий ППА (`ППА`), `группа_ка`/`сегмент_ка`/`вид_связи`.
-
-### Step 18 — Налог и прочие движения (`step_18_add_task_and_other_movements.py`)
-Проводки 99, исключение реформации (90/91/84/99), выделение налога (99 vs 68).
-
-### Step 19 — Сборка ОПУ (`step_19_build_opu.py`)
-Маппинг на счета ФО через `меппинг_опу`, контроль увязки ЧП vs НРП (`tolerance_pnl_balance`). Результат — `context.pnl_df`.
+**Ключевые шаги:**
+- **1c** (`step_01c_reconcile_totals.py`) — реконциляция итогов ОСВ vs выгрузки, загрузка `journal_df`
+- **14** (`step_14_build_opu_foundation.py`) — 90.01/90.02, распределение себестоимости, `transactions_all_df` в `context.data`
+- **15-16** (`base_expenses_step.py`) — управленческие (90.08/26) и коммерческие (90.07/44) расходы
+- **17** (`step_17_add_other_income_and_expenses.py`) — прочие доходы/расходы (91.01/91.02), ~1270 строк
+- **18** (`step_18_add_task_and_other_movements.py`) — налог на прибыль (99), исключение реформации
+- **19** (`step_19_build_opu.py`) — сборка ОПУ, увязка ЧП = НРП (`tolerance_pnl_balance`)
 
 ## ProcessingContext — структура данных
-`ProcessingContext` (`pipeline/base.py:29`, `__repr__` — `base.py:90`) — dataclass через весь пайплайн:
+`ProcessingContext` (`pipeline/base.py:29`, `__repr__` — `base.py:90`):
 
 | Поле | Тип | Описание |
-|------|-----|----------|
-| `company` | `str` | Сокращённое наименование компании |
-| `segment` | `str` | Сегмент компании |
-| `period` | `str` | Период (год) |
-| `type_period` | `str` | Тип периода (из справочника) |
+|---|---|---|
+| `company`, `segment`, `period`, `type_period` | `str` | Метаданные компании |
 | `name_file_general_osv` | `str` | Имя файла общей ОСВ |
-| `run_id` | `str` | Идентификатор запуска `ГГГГММДД_ЧЧММСС` (`output_manager.py:34`, совпадает с `run_<run_id>`) |
-| `common_osv_df` | `DataFrame` | Общая ОСВ (Фаза 0) |
-| `summary_osv_df` | `DataFrame` | Сводная ОСВ после Step 2 |
-| `journal_df` | `DataFrame` | Проводки (Step 1c -> обновляется в 14/19) |
-| `balance_df` | `DataFrame` | Расшифровка баланса (Step 13) |
-| `pnl_df` | `DataFrame` | Расшифровка ОПУ (Step 19) |
+| `run_id` | `str` | Идентификатор запуска `ГГГГММДД_ЧЧММСС` |
+| `common_osv_df` | DataFrame | Общая ОСВ (Фаза 0) |
+| `summary_osv_df` | DataFrame | Сводная ОСВ (после Step 2) |
+| `journal_df` | DataFrame | Проводки (Step 1c -> обновляется в 14/19) |
+| `balance_df` | DataFrame | Расшифровка баланса (Step 13) |
+| `pnl_df` | DataFrame | Расшифровка ОПУ (Step 19) |
 | `references` | `dict[str, DataFrame]` | Справочники из `Справочники.xlsx` |
-| `tolerance_params` | `dict[str, float]` | Допуски (`load_params()` в `cli/main.py:66`) |
-| `step_metrics` | `list[dict]` | Метрики шагов (`decorators.py:85`, `record_step()` `base.py:64`, сводка `base.py:749`) |
-| `data` | `dict[str, Any]` | Вспомогательное (`expected_filenames`, `transactions_all_df`, `mapping` …) — читайте через `get_df_from_context()` |
-
-Хелпер `Step.get_df_from_context(context, key, hint='')` (`base.py:161`) — единственный корректный способ достать таблицу из `context.data`.
-
-## Выводные данные
-Каждый запуск пишет в `_OUTPUT_DATA/run_<run_id>/` (`io_module/output_manager.py:39` `configure_run()` / `get_run_dir()` / `get_output_dir()`). Внутри — комбинированный отчёт (`DataSaver.save_combined_report()` — листы `Расшифровка_ББЛ`/`исходники ББЛ`/`Расшифровка_ОПУ`/`исходники ОПУ`), `Выгрузить_<компания>_<период>.xlsx`, `mismatches/` и `warnings/` (хвост имён — `<run_id>`).
-
-Хранение: `config/settings.py:91` `KEEP_LAST_RUNS` (1–5, дефолт 5, clamp в `output_manager.py:121`). При старте `cleanup_old_runs()` (`cli/main.py:57`) удаляет только папки `run_*` сверх лимита; остальные файлы `_OUTPUT_DATA` не трогает. Занятая папка (файл открыт в Excel) — `PermissionError` -> warning, удалится позже.
+| `tolerance_params` | `dict[str, float]` | Допуски (`load_params()`) |
+| `step_metrics` | `list[dict]` | Метрики шагов (`decorators.py:85`) |
+| `data` | `dict[str, Any]` | Вспомогательное (читайте через `get_df_from_context()`) |
 
 ## Логирование и отладка
-* **Консоль** — `INFO` (`logging_handling/logger_config.py:40`), формат — время/уровень/сообщение.
-* **`app.log`** — `DEBUG`, перезаписывается при каждом запуске (`logger_config.py:63`), формат — время/уровень/модуль/функция/строка/сообщение. `ERROR`/`CRITICAL` не обрезаются.
-* **Сводка шагов** — `Pipeline._log_step_summary()` (`base.py:749`, `DEBUG` в конце и при падении): `Шаг 11 … ok 9.26 сек | строк: journal_df=12500, data.mapping=412` (источник — `decorators.py:85` `step_metrics`).
-* **Проблемные данные** — при `ReferenceMismatchError`/`MissingFilesError` автоматически в `mismatches/` внутри папки запуска.
-* **Трассировка** — флаг `-t`/`--traceback` (`cli/arguments.py:19`) или интерактивный `y` (`cli/main.py:121`). В `cli/main.py:106` показывается `__cause__` (первопричина).
-
-## Статус реализации ОПУ
-**Пайплайн ОПУ полностью реализован (Шаги 14-19):**
-1. Step 14 — Выручка/Себестоимость (90.01/90.02)
-2. Step 15 — Управленческие расходы (90.08) — `StepAddExpensesToOpuBase`
-3. Step 16 — Коммерческие расходы (90.07) — `StepAddExpensesToOpuBase`
-4. Step 17 — Прочие доходы/расходы (91.01/91.02)
-5. Step 18 — Налог на прибыль (99)
-6. Step 19 — Сборка ОПУ
-
-### Процесс разработки новых шагов ОПУ
-1. Пользователь пишет код шага (наследник `Step`, только `_process`) без оглядки на архитектуру.
-2. После блока — рефакторинг LLM Qwen.
-3. Твоя (агента OpenCode) зона ответственности:
-   - **Полный рефакторинг проекта** (по запросу)
-   - **Фичи вне бизнес-логики** (ошибки, логирование, CLI/GUI, настройки, вывод)
+* Консоль — INFO, `app.log` — DEBUG (перезаписывается при старте)
+* Сводка шагов — `Pipeline._log_step_summary()` (`base.py:749`, DEBUG): `Шаг 11 … ok 9.26 сек | строк: journal_df=12500`
+* Проблемные данные — автоматически в `mismatches/` внутри папки запуска
+* Трассировка — флаг `-t` или интерактивный `y` (`cli/arguments.py:19`). `__cause__` — первопричина (`cli/main.py:106`)
 
 ## Замечания для ИИ-агента
-* Не используйте `OUTPUT_DATA_DIR` напрямую — только `get_output_dir()` / `get_run_id()`.
-* Не дублируйте константы — импортируйте из `pipeline/constants.py` / `pipeline/step_config.py`.
-* Для чтения `context.data` — только `get_df_from_context()`.
-* Для новой ошибки: класс в `pipeline/errors.py` + ветка в `pipeline/decorators.py`.
-* Проверяйте `py_compile` после правок — структура CLI/пайплайна хрупка к циклическим импортам (см. `decorators.py:82` duck-typing вместо импорта `ProcessingContext`).
+* Не используйте `OUTPUT_DATA_DIR` напрямую — только `get_output_dir()` / `get_run_id()`
+* Не дублируйте константы — импортируйте из `pipeline/constants.py` / `pipeline/step_config.py`
+* Для чтения `context.data` — только `get_df_from_context()`
+* Для новой ошибки: класс в `pipeline/errors.py` + ветка в `pipeline/decorators.py`
+* Проверяйте `py_compile` после правок — структура CLI/пайплайна хрупка к циклическим импортам
 
 ## Запланировано
-- **Фича: перевод валютных значений в рубли (для иностранных компаний)**
-  - *Бизнес-логика:* российские компании — без изменений; иностранные (напр., учёт в дирхамах) — конвертация сумм в рубли.
-  - *Баланс:* остатки из сводной ОСВ умножаются на курс на дату расшифровки. Курс — из листа `Курс_дирхам` справочника `Справочники.xlsx` (две колонки: `дата`, `курс`), загружается аналогично другим справочникам.
-  - *ОПУ:* каждая проводка имеет дату; сумма операции умножается на курс, соответствующий дате операции (не усреднённый за период).
-  - *Справочник:* лист `Курс_дирхам` в `Справочники.xlsx` → в `REFERENCE_REGISTRY` (`executors.py`), загрузка через `DataLoader`.
-  - *Шаги:* предполагаемо — перед шагом 2 (OSV), перед шагом 14 (OPU foundation).
-- **СОСТОЯНИЕ:** перевод валютных значений в рубли (AED/CNY; баланс + ОПУ,) **реализован** (коммиты `732f12f`…`bce5f4d`). Листы `Курс_AED`/`Курс_CNY`, дата баланса в `cli/main.py`, два столбца (`*_руб`) в итоговых отчётах.
-
-- **🟡 Аномалия среднего курса по расходам — частично решена (коммит `80d84c8`):**
-  - `pipeline/steps/base_expenses_step.py`: рублёвый эквивалент распределённых расходов считается
-    через курс группы — `rate_группы = оборот_руб_группы / оборот_группы`, затем
-    `оборот_распределенный_руб = оборот_распределенный * rate_группы`
-    (в `_distribute_expenses` и `_create_remainder_rows`; параметр `remainder_rub` удалён).
-    Раньше было `доля × оборот_руб_группы` — при малых долях курс улетал в бесконечность.
-  - `pipeline/steps/step_17_add_other_income_and_expenses.py`: распределение осиротевших расходов
-    (`_distribute_orphan_expenses`) и корректировка выручки на НДС (`_adjust_revenue_for_vat`)
-    теперь выполняются в ОБОИХ столбцах (`оборот, тыс.ед.` и `оборот, тыс.руб.`) — раньше
-    рублёвый столбец не корректировался, что давало аномальный курс по 91.02
-    («Аренда», «Продажа основных средств»).
-  - *Остаток:* в итоговом ОПУ остались единичные строки с аномальным курсом
-    (влияние на результат несущественно) → см. новую открытую задачу ниже.
-
-- **✅ РЕШЕНА: Удаление околонулевых строк ОПУ в step_19 (реализовано; план согласован с пользователем)**
-  - *Симптом:* в итоговом ОПУ в столбце `оборот, тыс.ед.` есть околонулевые значения
-    (`0` или ~1e-12, напр. `-3.63797880709171E-12`), при этом `оборот, тыс.руб. ≠ 0`
-    → аномальный курс (руб/ед → сотни/тысячи/миллионы).
-  - *Решение (согласовано):* в `pipeline/steps/step_19_build_opu.py` удалять строки с
-    `abs('оборот, тыс.ед.') < 1e-6` ДО сверки ЧП vs НРП (т.е. до лога
-    «Сходимость чистой прибыли с балансом подтверждена...», метод `_check_profit_vs_balance`).
-  - *Правки (3 пункта):*
-    1. Константа класса `Step19BuildOpuStep`: `ZERO_ROWS_EPSILON: Final = 1e-6`
-       (техпорог чистки; НЕ выносить в лист «Параметры» — решение пользователя).
-    2. Новый метод `_drop_zero_amount_rows(journal_df)`:
-       маска `journal_df[self.AMOUNT_COL].abs() < self.ZERO_ROWS_EPSILON`;
-       фильтр ТОЛЬКО по валютному столбцу `оборот, тыс.ед.` (рублёвый не трогаем,
-       чтобы не ломать сходимость в рублях для строк с ед≈0, руб≠0);
-       логировать число удалённых строк и сумму их `оборот, тыс.руб.` (контроль потерь).
-    3. Вызов в `_process()` СТРОГО между существующими вызовами:
-       `self._prepare_amount_column(journal_df)`
-       → `journal_df = self._drop_zero_amount_rows(journal_df)`  ← НОВАЯ строка
-       → `self._check_profit_vs_balance(context.balance_df, journal_df, context)`
-  - *Почему порядок критичен:* сумма для сверки ЧП vs НРП считается по `journal_df`
-    после удаления околонулевых строк — сверка остаётся корректной (сумма меняется
-    на ~1e-12), а аномальные строки не попадают ни в сверку, ни в итоговый `pnl_df`.
-  - *Валидация:* терминал агента ненадёжен (conda-активация ломает вывод) — команды
-    давать пользователю на запуск: `python -c "import ast; ast.parse(open('pipeline/steps/step_19_build_opu.py', encoding='utf-8').read()); print('OK')"`,
-    затем импорт класса, затем прогон на AED-компании (проверить, что аномальные
-    курсы в итоговом файле исчезли, а сверка ЧП vs НРП проходит).
-  - *СОСТОЯНИЕ (реализация):* правки внесены в `step_19_build_opu.py` — константа
-    `ZERO_ROWS_EPSILON: Final = 1e-6`, метод `_drop_zero_amount_rows()` (фильтр только
-    по `оборот, тыс.ед.`; лог числа удалённых строк и суммы их `оборот, тыс.руб.`),
-    вызов в `_process()` между `_prepare_amount_column()` и `_check_profit_vs_balance()`.
-    Синтаксис проверен агентом (`ast.parse` → `SYNTAX_OK`). Импорт класса и прогон на
-    AED-компании — выполнить пользователю (терминал агента ненадёжен).
-
-- **🔴 ОТКРЫТАЯ ЗАДАЧА (выполнение — следующая сессия): Диагностика аномального курса 92,48 RUB/AED в одной строке ОПУ (план согласован с пользователем)**
-  - *Симптом:* в итоговом ОПУ осталась одна строка с подразумеваемым курсом
-    92,48 руб/AED (при норме ~24–25). Сумма операции несущественна, но без
-    понимания причины есть риск существенных ошибок на новых исходных данных.
-    Проводка-источник (сводный отчёт по проводкам, единственная запись, в
-    распределениях сиротских расходов и пр. НЕ участвовала):
-    Дата 01.02.2025 14:00:00; Документ «Поступление товаров и услуг БК000000304
-    от 01.02.2025 14:00:00»; Содержание «Санитарно-зоогигиеническое исследование:
-    Смывы с оборудования и инструментов объектов ветнадзора по вх.док.
-    РЛ00-007668 от 26.12.2024»; Дт 91.02.1 / Кт 60.01; Сумма 1178,33;
-    переведено 108 975,864389; Субконто Дт «Доходы и расходы прошлых лет,
-    признанные в отчетном году РАСПР»; Субконто Кт «Донской ГВРЦ ГБУ РО».
-  - *Маршрут строки в коде (прослежен поиском, актуально на коммит `9c9e677`):*
-    1) `step_14_build_opu_foundation.py:103` — `DataLoader.load_transaction_report()`
-       (загрузка сводного отчёта по проводкам);
-    2) `step_14_build_opu_foundation.py:53` — `add_ruble_amount_column(transactions_all_df, context)`
-       — ЕДИНСТВЕННАЯ точка перевода проводок ОПУ (`utils/currency_utils.py:161`):
-       `Сумма_руб = Сумма × курс`, курс — с листа `Курс_AED` на дату операции,
-       берётся ближайшая предыдущая дата (`get_rate_for_date_with_info`,
-       `utils/currency_utils.py:93`, берёт последнюю строку с `дата <= целевой`);
-    3) `context.data['transactions_all_df']` → `step_17:301` (`get_df_from_context`)
-       → фильтр 91.02 (`оборот, тыс.руб. = Сумма_руб/1000`; строка проходит цепочку
-       обработчиков step_17 транзитом, распределений не касалось) → `step_19`
-       (агрегация по `счет_фо`, курс не пересчитывается).
-  - *Ключевая арифметика:* 108 975,864389 / 1178,33 = 92,4835 (4 знака) — это
-    ЗНАЧЕНИЕ ИЗ ЛИСТА курса (код только умножает, `currency_utils.py:235`).
-    Для проводок нет механизма «чужой» валюты (USD/CNY в реестре отсутствуют).
-    ПЕРВИЧНОЕ подозрение — ошибочное значение в самом листе `Курс_AED` на
-    01.02.2025 или на ближайшей предыдущей дате (если 01.02 в листе нет),
-    напр. курс другой валюты/периода. Защиты от «плохих» значений в листе
-    курса в коде нет — её и нужно добавить (главный риск для новых данных).
-  - *Фаза 1 — проверка данных (без кода):* `_REFERENCE_DATA/Справочники.xlsx`,
-    лист `Курс_AED`: значение на 01.02.2025 и ближайшие предыдущие даты;
-    скан всего листа на выбросы (|курс/медиана − 1| > 30%).
-  - *Фаза 2 — одноразовый диагностический скрипт `_diagnose_rate.py` (в корень проекта, НЕ коммитить):*
-    (1) лист `Курс_AED` читается как `dtype='string'`, `engine='openpyxl'` (как в
-    `load_reference_data`), парсится логикой `_get_rates_df`; печать строк за
-    20.01–10.02.2025 + все выбросы курса;
-    (2) `DataLoader.load_transaction_report()`, поиск строк по подстроке
-    «БК000000304» в столбце «Документ» — печать Дата/Сумма/Дт/Кт/субконто
-    (проверить, что дата после ffill в `data_processors/transaction_report.py:110`
-    осталась 01.02.2025, а не унаследована от соседней строки);
-    (3) мок-контекст `types.SimpleNamespace(references={'курс_aed': df}, currency='AED')`
-    → `get_rate_for_date_with_info(ctx, '01.02.2025 14:00:00')` → печать применённого
-    курса и фактической даты курса; сверка `Сумма × курс` с 108 975,864389.
-    Вердикт: данные (лист) vs код (lookup).
-  - *Фаза 3 — постоянные улучшения (после выявления причины):*
-    1. `add_ruble_amount_column`: в существующий DEBUG-лог (`currency_utils.py:226`)
-       добавить сам маппинг «дата операции → (курс, дата курса)», а не только
-       счётчики — постоянная диагностика в `app.log` без спец. флагов.
-    2. Автоконтроль курса: после построения `rate_by_date` сверять каждый
-       применённый курс с медианой курсов листа; отклонение > порога → WARNING
-       (валюта, дата операции, применённый курс, дата курса, медиана). Порог:
-       вынести в лист «Параметры» как `tolerance_rate_deviation` (+ `SCHEMA`/
-       `DEFAULTS`/`TOLERANCE_DESCRIPTIONS` в `config/defaults.py`) ИЛИ константой
-       в `currency_utils` — РЕШИТЬ С ПОЛЬЗОВАТЕЛЕМ на сессии.
-    3. (Опционально, решить на сессии) контроль подразумеваемого курса в step_19
-       по строкам `journal_df` (`оборот_руб/оборот_ед` vs курс даты операции) —
-       ловит перезапись `Сумма_руб` на любом шаге, а не только на конвертации.
-  - *Критерий закрытия:* причина идентифицирована (лист/код); при ошибке данных —
-    лист исправлен и автоконтроль из Фазы 3.2 сработал бы на таких данных;
-    при ошибке кода — исправление внесено. Проверка: прогон на AED-компании,
-    в итоговом ОПУ нет строк с аномальным курсом.
-  - *СОСТОЯНИЕ (сессия 01.09.2026, реализация):*
-    - Создан одноразовый `_diagnose_rate.py` (Фазы 1+2 объединены): лист Курс_AED
-      боевой загрузкой/парсингом (окно 20.01–10.02.2025, выбросы >30% от медианы,
-      поиск 92,4833 с номерами строк Excel), проводка БК000000304 через
-      `load_transaction_report()` (после ffill), сырые TXT (до ffill), боевой
-      lookup на мок-контексте, автовердикт ДАННЫЕ/КОД. НЕ коммитить (уже покрыт
-      шаблоном `_*` в `.gitignore`).
-    - Фаза 3.1 реализована: DEBUG-лог `add_ruble_amount_column` содержит полный
-      маппинг «дата операции → (курс, дата курса)» + медиану листа.
-    - Фаза 3.2 реализована (механизм согласован — лист «Параметры»): новый
-      параметр `tolerance_rate_deviation` (дефолт 0.3, `SCHEMA` float 0.0–10.0,
-      описание в `TOLERANCE_DESCRIPTIONS`); `add_ruble_amount_column` сверяет
-      каждый применённый курс с медианой листа, отклонение > порога — WARNING
-      с группировкой по (курс, дата курса). Строку в лист «Параметры» можно не
-      добавлять — работает дефолт 0.3.
-    - Фаза 3.3 (контроль подразумеваемого курса в step_19) — ОТЛОЖЕНА: в
-      `journal_df` после melt (step_14) нет колонки «Дата», «курс даты
-      операции» недоступен; вариант со сверкой с медианой — решить отдельно.
-    - ОСТАЛОСЬ: (1) запустить `python _diagnose_rate.py` (conda fl_acc_card),
-      прислать вывод; (2) по вердикту — правка листа Курс_AED (ДАННЫЕ) или
-      кода lookup (КОД); (3) прогон пайплайна на AED-компании: в итоговом ОПУ
-      нет строк с аномальным курсом, сверка ЧП vs НРП проходит.
-  - *СОСТОЯНИЕ (диагностика №1, 01.09.2026): лист курса, lookup и даты
-    КОРРЕКТНЫ — значение портится НИЖЕ конвейера.*
-    - Вывод `_diagnose_rate.py`: на 01.02.2025 курс листа 26,6333 (Excel-строка 41),
-      выбросов >30% от медианы (21,7235) нет, значения 92,4833 в листе НЕТ;
-      дата проводки НЕ испорчена ffill (сырой TXT, строка 5554
-      РЗК_отчпровод_91.02_2025_.txt: 01.02.2025 14:00:00); боевой lookup вернул
-      26,6333 → корректное Сумма_руб = 31 382,816389 ≠ 108 975,864389 (×3,4725).
-      «Переведено» — не колонка кода (grep: 0 вхождений в py-файлах).
-    - Пользователь уточнил: аномалия наблюдается в листе «исходники ОПУ»
-      (= journal_df, data_io.py:656): ед 1,17833 / руб 108,975864389.
-    - Арифметика: 108,975864389 = 31,382816389 (наша проводка) + 77,593048 →
-      итоговая строка = АГРЕГАТ (groupby-sum в step_17 `_merge_with_main_df:1212`
-      по счет/вид_дохода_расхода/доход_расход/контрагент/...) с «ядовитой»
-      строкой-партнёром (ед≈0..1e-4, руб=77,593) — тот же паттерн, что в
-      решённой задаче step_19 (околонулевые строки), но либо с ед выше порога
-      1e-6, либо строка рождается внутри шага 17 (все операции шага линейны,
-      статический анализ проведён полностью).
-  - *СОСТОЯНИЕ (реализация трассировки, 01.09.2026):*
-    - `utils/currency_utils.py`: новые хелперы `get_rate_median(context)` /
-      `get_rate_deviation_limit(context)` (+экспорт в `utils/__init__`);
-      автоконтроль в `add_ruble_amount_column` переведён на них.
-    - `step_17`: метод `_log_rate_anomalies` (Фаза 3.3) — в разрезе проводок
-      проверяет (1) Сумма_руб = Сумма×курс(дата), (2) ядовитые строки
-      ед≈0/руб≠0; вызывается в 2 точках: вход шага (после фильтрации) и выход
-      (перед `_add_service_columns`/агрегацией); WARNING в app.log с Документом.
-    - `_diagnose_rate.py` расширен: блок 2 печатает ВСЕ 14 колонок строки 91.02,
-      блок 3 — полные (необрезанные) строки сырых TXT, новый блок 5 — скан
-      xlsx последнего запуска (`_OUTPUT_DATA/run_*`) на строки с руб/ед
-      ≈92,4833 или |руб/ед|>3×медианы + все строки с «Донской ГВРЦ».
-    - ОСТАЛОСЬ: (1) `python _diagnose_rate.py` → блоки 2/3/5; (2) прогон
-      пайплайна → в app.log WARNING «[!] Контроль курса (вход/выход шага 17…)»
-      покажет точку рождения ядовитой строки (на входе = данные/шаг 14,
-      только на выходе = обработчик шага 17); (3) фикс в месте рождения;
-      (4) контрольный прогон на AED-компании.
-  - *✅ ВЕРДИКТ (диагностика №2, 01.09.2026): НЕ ОШИБКА — курсовая разница
-    сторнирования в нетто-строке. Правки расчёта НЕ требуются.*
-    - Блоки 2/3 `_diagnose_rate.py`: «переведено» в сырых данных ОТСУТСТВУЕТ
-      (полная строка TXT = Сумма 1 178,33 + субконто; все 14 колонок
-      обработчика — ожидаемые). Блок 5: аномалия воспроизводится
-      (run_20260901_142531 — прогон ДО контрольных точек step_17).
-    - Поиск «Донской ГВРЦ» в РЗК_отчпровод_91.02_2025_.txt (cp1251; findstr
-      не ищет — кодировка консоли ≠ cp1251) нашёл 5 проводок ОДНОЙ группы
-      (91.02/РАСПР/Донской ГВРЦ): 01.02.2025 +11 570,00 (БК000000254) +
-      11 570,00 (БК000000255) + 1 178,33 (БК000000304) и сторна 01.04.2025
-      «Корректировка записей регистров 00000001013» −11 570,00 × 2.
-    - Арифметика: нетто АЕД = 1 178,33 (ед 1,17833 ✓); руб по курсам дат:
-      2×11 570×26,6333 (01.02) + 1 178,33×26,6333 = 647,677 тыс., сторно
-      2×11 570×~23,2801 (01.04) = −538,702 тыс. → остаток 108,976 тыс.руб ✓
-      (= наблюдаемое 108,975864389). «Курс 92,48» — арифметический артефакт
-      нетто-строки: в АЕД начисление/сторно взаимно уничтожились, в рублях
-      осталась курсовая разница 77,593 тыс.руб (2×11 570×(26,6333−23,2801)).
-    - Контрольные точки `_log_rate_anomalies` (прогон 17:22): «аномалий не
-      обнаружено» на входе/выходе (91.01 — 10 179 строк, 91.02 — 68 959) —
-      Сумма_руб = Сумма×курс(дата) для всех строк, включая сторна. Прогон
-      корректен.
-    - Файлы шагов 1–3 сессии: `python -c` с `findstr` по cp1251-TXT даёт
-      ложный ноль (кодировка консоли) — использовать Python-поиск.
-    - РЕШЕНИЕ: оставить как есть (руб 108,976 тыс. — честная сумма
-      проводочных рублёвых оборотов; пересчёт по единому курсу сломал бы
-      сверку ОПУ-руб vs баланс-руб). Контрольные точки (Фаза 3.3) и
-      автоконтроль курса (Фаза 3.2) — оставить как постоянный мониторинг.
-    - Опционально (бизнес-решение, отдельная задача): отображать курсовые
-      хвосты сторна отдельной строкой «Курсовые разницы» вместо размазывания
-      по нетто-строкам.
-    - ПОДТВЕРЖДЕНО (01.09.2026): курс на 01.04.2025 в листе Курс_AED = 23.2801
-      (Excel-строка 100) — арифметика сходится ДО ПОСЛЕДНЕГО ЗНАКА:
-      2×11 570×26.6333 (=616 294.562) + 1 178.33×26.6333 (=31 382.816389)
-      − 2×11 570×23.2801 (=538 701.514) = 108 975.864389 ✓.
-    - ПОДТВЕРЖДЕНО (01.09.2026): группа 5 проводок боевой конвертацией
-      (add_ruble_amount_column на боевых данных): ИТОГО AED 1 178,33 /
-      ИТОГО руб 108 975.864389 — ПОСИМВОЛЬНОЕ совпадение с итоговым ОПУ
-      (108.975864389 тыс.руб). Точное равенство pre-step_17 суммы и
-      финального значения ДОКАЗЫВАЕТ, что шаги 17/18/19 суммы не изменяли
-      (groupby-sum в _merge_with_main_df честный). 4-я контрольная точка
-      (выход 91.02) логически избыточна.
-    - Примечание по app.log: setup_logger() (mode="w", перезапись) зовётся
-      только в cli/main.py — python-однострочники app.log не трогают;
-      «Контроль курса: 0» = app.log принадлежал НОВОМУ незавершенному
-      прогону. Правило: app.log проверять сразу после ЗАВЕРШЁННОГО прогона,
-      до перезапусков; DEBUG-строки контрольных точек искать в app.log
-      (в консоли при LOG_LEVEL INFO их нет).
-  - *🏁 ЗАДАЧА ЗАКРЫТА (01.09.2026): «аномальный курс 92,48 RUB/AED» — НЕ
-    ошибка. Это корректный учёт курсовой разницы между начислением
-    (курс 01.02.2025 = 26,6333) и сторнированием (курс 01.04.2025 =
-    23,2801) в нетто-строке ОПУ: хвост 77 593,048 руб = 23 140 AED ×
-    Δкурс 3,3532. В АЕД начисление/сторно взаимно уничтожились (нетто
-    1 178,33 → ед 1,17833), в рублях нет → подразумеваемый «курс» 92,48 —
-    арифметический артефакт нетто-строки. Правки расчёта НЕ требуются
-    (пересчёт по единому курсу сломал бы сверку ОПУ-руб vs баланс-руб).
-    Оставлены постоянные улучшения: tolerance_rate_deviation (Фаза 3.2),
-    контрольные точки step_17 (Фаза 3.3), _diagnose_rate.py (не
-    коммитится). Опционально на будущее (бизнес-решение): строка
-    «Курсовые разницы» для хвостов сторна вместо размазывания по
-    нетто-строкам — ПЛАН УТВЕРЖДЁН, см. следующий блок.*
-    - *✅ РЕАЛИЗОВАНО (сессия 01.09.2026): строка «Курсовые разницы» в ОПУ
-    (вместо размазывания хвостов сторнирования по нетто-строкам)*
-    - *Мотивация (из закрытой задачи «курс 92,48 RUB/AED»):* начисление
-      (01.02.2025, курс 26,6333) и сторно (01.04.2025, курс 23,2801) в одной
-      группе ОПУ дают нетто-строку с подразумеваемым курсом 92,48
-      (ед 1,17833 / руб 108,975864389 тыс.). Хвост 77,593 тыс.руб —
-      курсовая разница: честная, но выглядит как ошибка.
-    - *РЕШЕНИЯ ПОЛЬЗОВАТЕЛЯ (зафиксированы 01.09.2026):*
-      1. База группы — курс на дату ПЕРВОЙ (min) операции группы («курс
-         признания»): в кейсе даёт основную строку ед 1,17833 /
-         руб 31,382816389 + FX-строку 0 / 77,593048.
-      2. Порог выделения — tolerance_rate_deviation (лист «Параметры»,
-         дефолт 0.3; 0 = разделять при любом ненулевом хвосте).
-      3. Сфера — step_17 (91.01/91.02); 90.x/26/44 — позже при проявлении.
-      4. FX-строка: ед = 0, руб = хвост, доход_расход = «Курсовые разницы»,
-         остальные ключи наследуются → Меппинг_опу НЕ меняется, счет_фо тот
-         же (раздельная видимость — в «исходники ОПУ»; отдельный счет_фо —
-         опционально строкой в Меппинг_опу).
-      5. Суммарные ед/руб по ОПУ НЕ меняются → сверка ЧП vs НРП и
-         ОПУ-руб vs баланс-руб в силе.
-    - *План правок:*
-      1. `pipeline/step_config.py`, OpuReportConstants:
-         FX_DIFFERENCE_LABEL = "Курсовые разницы"; FX_COL = "_fx_тыс_руб";
-         RUB_BASE_COL = "_руб_баз_тыс_руб"; FX_ABS_FLOOR = 0.01 (тыс.руб).
-      2. `pipeline/steps/step_17_add_other_income_and_expenses.py`:
-         a. GROUP_COLS — вынести список ключей группировки из локальной
-            переменной `_merge_with_main_df` в константу класса;
-         b. новый метод `_prepare_fx_columns(df_9101, df_9102, context)` —
-            вызов точкой 10б (после контрольной точки 10а, ДО
-            `_add_service_columns`, пока живы Дата/Сумма/Сумма_руб):
-            ключи групп = подмножество GROUP_COLS + fillna('не_указано')
-            (идентично _merge_with_main_df); баз_дата = min('Дата') в группе
-            (transform('min')); базовый курс по уникальным базовым датам
-            (кэш; get_rate_for_date; ValueError «раньше листа» → самый
-            ранний курс листа — зеркально add_ruble_amount_column);
-            _руб_баз = оборот_ед × баз_курс; _fx = оборот_руб − _руб_баз;
-            NaT-дата → fx = 0; needs_conversion=False → fx = 0;
-         c. `_merge_with_main_df` (сигнатура + context): groupby суммирует
-            также _руб_баз/_fx; после группировки split = (|fx| >
-            FX_ABS_FLOOR) AND (|ед| ≤ 1e-9 OR |implied/баз_implied − 1| >
-            deviation_limit); разделяемые: основная строка руб = _руб_баз,
-            FX-строка: ключи группы + доход_расход = FX_LABEL + ед 0 +
-            руб = _fx; неразделённые: руб остаётся суммарным; служебные
-            колонки удалить; FX-строки добавить к df_final; лог INFO
-            «Выделено N строк „Курсовые разницы“ на X тыс.руб»;
-         d. импорты: needs_conversion, константы из step_config.
-      3. `pipeline/steps/step_19_build_opu.py`, `_drop_zero_amount_rows`:
-         FX-строки (ед=0, руб≠0) должны выживать в чистке:
-         zero_mask &= (journal_df['доход_расход'] != FX_DIFFERENCE_LABEL)
-         при наличии колонки.
-      4. AGENTS.md — пометить фичу реализованной.
-    - *Edge cases:* NaT-даты (fx=0) · чисто-сторно группы (база = дата
-      сторна → fx=0 → без разделения) · группы с ед≈0 (split при fx≠0) ·
-      шум < 0.01 тыс.руб (не разделяем) · рбп_проценты/объект для изм ппа
-      отсутствуют у части строк (existing-subset) · step_18 (счет[:5],
-      вид_связи не_указано→3 лица) — FX-строки проходят как обычные ·
-      контрольные точки step_17 (10а) не затрагиваются.
-    - *Инварианты:* суммарные ед/руб по ОПУ не меняются; рублёвые компании
-      — нулевое изменение; в кейсе: осн. 1,17833/31,382816389 (курс 26,63) +
-      «Курсовые разницы» 0/77,593048.
-    - *Валидация:* (1) ast.parse изменённых файлов (utf-8-sig); (2) прогон →
-      в «исходники ОПУ» группа РАСПР/Донской ГВРЦ: 2 строки (осн.
-      1,17833/31,382816389 + «Курсовые разницы» 0/77,593048); (3) app.log:
-      INFO «Выделено N строк…» + «[OK] Сходимость чистой прибыли…»;
-       (4) Σед/Σруб до/после — без изменений.
-    - *СОСТОЯНИЕ (реализация, сессия 01.09.2026):* реализовано полностью.
-      Все пункты плана выполнены:
-      1. `pipeline/step_config.py`, OpuReportConstants: FX_DIFFERENCE_LABEL,
-         FX_COL, RUB_BASE_COL, FX_ABS_FLOOR — добавлены.
-      2. `pipeline/steps/step_17_add_other_income_and_expenses.py`:
-         a. GROUP_COLS — вынесен в константу класса;
-         b. метод `_prepare_fx_columns()` — вычисляет _руб_баз/_fx, вызов
-            в точке 10б (после контрольной точки 10а, до _add_service_columns);
-         c. `_merge_with_main_df()` — сигнатура + context, groupby суммирует
-            _руб_баз/_fx, вызывает `_split_fx_difference_rows()`, удаляет
-            служебные столбцы;
-         d. импорты: needs_conversion, константы из step_config — добавлены.
-      3. `pipeline/steps/step_19_build_opu.py`, `_drop_zero_amount_rows`:
-         FX-строки (ед=0, руб≠0) выживают в чистке через проверку
-         доход_расход != FX_DIFFERENCE_LABEL.
-      4. AGENTS.md — помечено реализованным.
-      Синтаксис проверен (ast.parse → OK для обоих файлов).
-      Прогон пайплайна на AED-компании — пользователю.
-
-
+Текущие и завершённые задачи — в `TASKS.md`. Активных задач нет.
