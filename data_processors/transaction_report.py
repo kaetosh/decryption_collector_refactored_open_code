@@ -93,7 +93,7 @@ class Posting_UPPFileProcessor(FileProcessor):
             # engine='python',
         )
         
-        return df.dropna(axis=1, how='all')
+        return df
 
     # =========================================================================
     # БАЗОВАЯ ОБРАБОТКА
@@ -104,7 +104,16 @@ class Posting_UPPFileProcessor(FileProcessor):
         required_cols = ['Дата', 'Документ', 'Содержание', 'Субконто Дт', 'Субконто Кт']
         missing = [col for col in required_cols if col not in df.columns]
         if missing:
-            raise ValueError(f"Отсутствуют обязательные столбцы: {missing}")
+            # ★ ИСПРАВЛЕНИЕ: пустой отчёт по проводкам (нет обязательных колонок)
+            # — не фатальная ошибка, а warning + пустой DataFrame.
+            # Это защищает от падения, когда бухгалтер выгрузил пустой отчёт
+            # (например, по счёту 90.07 без оборотов — файл 616 байт, только заголовки).
+            logger.warning(
+                "Отчёт по проводкам: отсутствуют обязательные столбцы {}. "
+                "Файл пустой или некорректный — пропускаем.",
+                missing,
+            )
+            return pd.DataFrame()
         
         other_cols = [c for c in df.columns if c not in ['Дата', 'Сумма']]
         type_mapping = {
@@ -195,7 +204,13 @@ class Posting_UPPFileProcessor(FileProcessor):
     def _finalize_result(self, df: pd.DataFrame, file_path: Path) -> pd.DataFrame:
         """Финальная очистка и добавление служебных столбцов."""
         if df.empty:
-            raise ValueError("Отчет по проводкам 1С пустой, обработка невозможна.")
+            # ★ ИСПРАВЛЕНИЕ: пустой результат после обработки — не фатальная ошибка,
+            # а warning + пустой DataFrame. Защита от пустых отчётов по проводкам.
+            logger.warning(
+                "Отчёт по проводкам {} пустой после обработки — пропускаем.",
+                file_path.name,
+            )
+            return pd.DataFrame()
         
         cols = list(df.columns)
         if 'Дата' in cols:

@@ -133,14 +133,25 @@ class FileHandler:
                     
                     processor = txt_processor_class()
                     result_df, check_df = processor.process_file(file_path, file_path.name)
-                    
+
+                    # ★ ИСПРАВЛЕНИЕ: пустой результат от процессора (не исключение) —
+                    # добавляем пустой DataFrame в results_collector без добавления
+                    # в not_correct_files. Файлы, которые УПАЛИ (исключение), по-прежнему
+                    # попадают в not_correct_files.
+                    if result_df.empty:
+                        logger.warning(
+                            "[!] Отчёт по проводкам {} пустой после обработки — "
+                            "пропускаем (без добавления в not_correct_files).",
+                            file_path.name,
+                        )
+
                     logger.debug(
                         "[OK] Обработан {}: {} строк, {} проверок",
                         file_path.name,
                         len(result_df),
                         len(check_df),
                     )
-                    
+
                     results_collector['results'].append(result_df)
                     if not check_df.empty:
                         results_collector['checks'].append(check_df)

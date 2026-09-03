@@ -353,51 +353,61 @@ class Step1aListExpectedRegistersStep(Step):
         # =========================================================================
         # 7. ФОРМИРОВАНИЕ СПИСКА ОТЧЕТОВ ПО ПРОВОДКАМ ДЛЯ ОПУ
         # =========================================================================
-        opu_prefixes = self._get_opu_accounts_to_export(df)
-        
-        if opu_prefixes:
+        opu_accounts_exact = self._get_opu_accounts_to_export(df)
+
+        if opu_accounts_exact:
             logger.info(
                 "Обнаружены обороты по счетам ОПУ: {}. "
                 "Формируем список отчетов по проводкам для выгрузки.",
-                ', '.join(sorted(opu_prefixes)),
+                ', '.join(sorted(opu_accounts_exact)),
             )
-            
+
+            # ★ ИСПРАВЛЕНИЕ: строим множество всех префиксов всех длин
+            # из точных счетов ОСВ с оборотами. Это сохраняет префиксное
+            # сматчивание (90.01.1 в ОСВ → 90.01 в справочнике), но
+            # исключает счета без оборотов (90.07 не попадёт в фильтр,
+            # если в ОСВ нет счёта, начинающегося с 90.07).
+            osv_prefixes_set = set()
+            for acc in opu_accounts_exact:
+                for i in range(1, len(acc) + 1):
+                    osv_prefixes_set.add(acc[:i])
+
             # ★ ИСПРАВЛЕНИЕ: фильтруем не только по префиксу, но и по типу регистра 'карточка'
             # Это защищает от попадания ОСВ в список карточек
-            mask_opu_account = all_loads_df['счет'].str[:2].isin(opu_prefixes)
+            mask_opu_account = all_loads_df['счет'].astype(str).isin(osv_prefixes_set)
             mask_opu_register = all_loads_df['регистр'].str.lower() == 'отчет по проводкам'
-            
+
             filtered_loads_opu = all_loads_df[mask_opu_account & mask_opu_register].copy()
-            
+
             if filtered_loads_opu.empty:
                 logger.warning(
                     "[!] В справочнике 'Выгрузки' отсутствуют строки с "
                     "регистром='отчет по проводкам' для счетов {}. "
                     "Добавьте их в справочник для формирования списка карточек.",
-                    sorted(opu_prefixes),
+                    sorted(opu_accounts_exact),
                 )
                 context.data['expected_card_filenames'] = []
                 context.data['has_opu'] = False
-                
+
                 filtered_loads = filtered_loads_balance
             else:
                 filtered_loads_opu['Сокращенное Наименование компании'] = context.company
                 filtered_loads_opu['Период Отчетности'] = context.period
                 filtered_loads_opu['Тип регистра'] = 'отчет по проводкам'  # Маркер для Excel
-                
+
                 # Формируем имена файлов для карточек
                 card_filenames = self._format_card_filename_vectorized(filtered_loads_opu, format_file = 'txt')
                 filtered_loads_opu['Имя файла для сохранения'] = card_filenames
-                
+
                 context.data['expected_card_filenames'] = card_filenames
                 context.data['has_opu'] = True
-                
+
                 # Объединяем ОСВ и карточки в один DataFrame
                 filtered_loads = pd.concat(
                     [filtered_loads_balance, filtered_loads_opu],
                     ignore_index=True
                 )
-                
+
                 logger.info(
                     "Для ОПУ необходимо выгрузить {} отчетов по проводкам (счета: {})",
                     len(card_filenames),
@@ -481,16 +491,20 @@ class Step1aListExpectedRegistersStep(Step):
     
     def _get_opu_accounts_to_export(self, df: pd.DataFrame) -> list:
         """
-        Определяет префиксы счетов для выгрузки отчетов по проводкам под ОПУ.
-        
+        Определяет точные счета для выгрузки отчётов по проводкам под ОПУ.
+
         Критерий: счёт начинается с префиксов ОПУ (90, 91, 26, 44, 99)
         И есть ненулевой оборот (дебетовый ИЛИ кредитовый).
-        
+
+        Возвращает список точных счетов (например, ['26', '90.01.1', '90.02.1']),
+        а не 2-символьных префиксов. Это предотвращает запрос отчётов по
+        счетам без оборотов (например, 90.07 при наличии только 90.01.1).
+
         Args:
             df: DataFrame общей ОСВ (с индексом 'Счет' — для совместимости)
-                
+
         Returns:
-            Список префиксов счетов (например, ['26', '90', '91'])
+            Список точных счетов с оборотами (например, ['26', '90.01.1'])
         """
         # ★ Используем исходный df из контекста (до set_index и удаления столбцов)
         original_df = getattr(self, '_original_osv_df', None)
@@ -534,11 +548,12 @@ class Step1aListExpectedRegistersStep(Step):
         
         # Счета для выгрузки отчетов по проводкам
         opu_accounts = accounts[mask_opu_accounts & mask_has_turnover]
-        
-        # Извлекаем префиксы (первые 2 символа)
-        opu_prefixes = sorted(set(acc[:2] for acc in opu_accounts))
-        
-        return opu_prefixes
+
+        # ★ ИСПРАВЛЕНИЕ: возвращаем точные счета, а не 2-символьные префиксы
+        # Это предотвращает запрос отчётов по счетам без оборотов
+        opu_accounts_exact = sorted(set(opu_accounts.tolist()))
+
+        return opu_accounts_exact
     
     
     def _get_original_osv_with_turnovers(self) -> pd.DataFrame:
