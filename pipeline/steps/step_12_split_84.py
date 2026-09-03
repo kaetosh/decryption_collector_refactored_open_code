@@ -258,7 +258,15 @@ class Step12Split84AccountBalanceStep(Step):
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         """Основной метод обработки шага 12."""
         logger.debug("Разбиение счета 84")
-        
+
+        # ★ Проверка типа периода: шаг выполняется ТОЛЬКО для годового периода
+        if context.type_period != 'год':
+            logger.debug(
+                "Шаг 12 пропущен: тип периода='{}' (требуется 'год')",
+                context.type_period
+            )
+            return context
+
         osv_all_df = context.summary_osv_df.copy()
         name_company = context.company
         period = context.period
