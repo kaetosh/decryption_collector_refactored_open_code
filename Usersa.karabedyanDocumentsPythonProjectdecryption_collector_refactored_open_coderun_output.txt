@@ -1,0 +1,833 @@
+﻿python : 
+строка:1 знак:1
++ python -m cli.main -t -v --no-interactive 2>&1 | Out-File -FilePath C ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.6 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "<frozen runpy>", line 189, in _run_module_as_main
+  File "<frozen runpy>", line 112, in _get_module_details
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\__init__.py", line 7, in <module>
+    from .main import main, entry_point
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 23, in <module>
+    from config.loader import load_params
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\co
+nfig\loader.py", line 9, in <module>
+    import pandas as pd
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\__init__.py", 
+line 38, in <module>
+    from pandas.compat import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\compat\__init_
+_.py", line 29, in <module>
+    from pandas.compat.pyarrow import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\compat\pyarrow
+.py", line 8, in <module>
+    import pyarrow as pa
+  File "C:\ProgramData\anaconda3\Lib\site-packages\pyarrow\__init__.py", line 65, in <module>
+    import pyarrow.lib as _lib
+AttributeError: _ARRAY_API not found
+
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.6 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "<frozen runpy>", line 189, in _run_module_as_main
+  File "<frozen runpy>", line 112, in _get_module_details
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\__init__.py", line 7, in <module>
+    from .main import main, entry_point
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 23, in <module>
+    from config.loader import load_params
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\co
+nfig\loader.py", line 9, in <module>
+    import pandas as pd
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\__init__.py", 
+line 61, in <module>
+    from pandas.core.api import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\api.py", 
+line 9, in <module>
+    from pandas.core.dtypes.dtypes import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\dtypes\dt
+ypes.py", line 24, in <module>
+    from pandas._libs import (
+  File "C:\ProgramData\anaconda3\Lib\site-packages\pyarrow\__init__.py", line 65, in <module>
+    import pyarrow.lib as _lib
+AttributeError: _ARRAY_API not found
+
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.6 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "<frozen runpy>", line 189, in _run_module_as_main
+  File "<frozen runpy>", line 112, in _get_module_details
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\__init__.py", line 7, in <module>
+    from .main import main, entry_point
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 23, in <module>
+    from config.loader import load_params
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\co
+nfig\loader.py", line 9, in <module>
+    import pandas as pd
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\__init__.py", 
+line 61, in <module>
+    from pandas.core.api import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\api.py", 
+line 28, in <module>
+    from pandas.core.arrays import Categorical
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\arrays\__
+init__.py", line 1, in <module>
+    from pandas.core.arrays.arrow import ArrowExtensionArray
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\arrays\ar
+row\__init__.py", line 5, in <module>
+    from pandas.core.arrays.arrow.array import ArrowExtensionArray
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\arrays\ar
+row\array.py", line 53, in <module>
+    from pandas.core import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\ops\__ini
+t__.py", line 8, in <module>
+    from pandas.core.ops.array_ops import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\ops\array
+_ops.py", line 56, in <module>
+    from pandas.core.computation import expressions
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\computati
+on\expressions.py", line 21, in <module>
+    from pandas.core.computation.check import NUMEXPR_INSTALLED
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\computati
+on\check.py", line 5, in <module>
+    ne = import_optional_dependency("numexpr", errors="warn")
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\compat\_option
+al.py", line 135, in import_optional_dependency
+    module = importlib.import_module(name)
+  File "C:\ProgramData\anaconda3\Lib\importlib\__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "C:\ProgramData\anaconda3\Lib\site-packages\numexpr\__init__.py", line 24, in <module>
+    from numexpr.interpreter import MAX_THREADS, use_vml, __BLOCK_SIZE1__
+AttributeError: _ARRAY_API not found
+
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.6 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "<frozen runpy>", line 189, in _run_module_as_main
+  File "<frozen runpy>", line 112, in _get_module_details
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\__init__.py", line 7, in <module>
+    from .main import main, entry_point
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 23, in <module>
+    from config.loader import load_params
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\co
+nfig\loader.py", line 9, in <module>
+    import pandas as pd
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\__init__.py", 
+line 61, in <module>
+    from pandas.core.api import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\api.py", 
+line 28, in <module>
+    from pandas.core.arrays import Categorical
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\arrays\__
+init__.py", line 1, in <module>
+    from pandas.core.arrays.arrow import ArrowExtensionArray
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\arrays\ar
+row\__init__.py", line 5, in <module>
+    from pandas.core.arrays.arrow.array import ArrowExtensionArray
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\arrays\ar
+row\array.py", line 67, in <module>
+    from pandas.core.arrays.masked import BaseMaskedArray
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\arrays\ma
+sked.py", line 61, in <module>
+    from pandas.core import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\core\nanops.py
+", line 52, in <module>
+    bn = import_optional_dependency("bottleneck", errors="warn")
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\pandas\compat\_option
+al.py", line 135, in import_optional_dependency
+    module = importlib.import_module(name)
+  File "C:\ProgramData\anaconda3\Lib\importlib\__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "C:\ProgramData\anaconda3\Lib\site-packages\bottleneck\__init__.py", line 7, in <module>
+    from .move import (move_argmax, move_argmin, move_max, move_mean, move_median,
+AttributeError: _ARRAY_API not found
+
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.6 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "<frozen runpy>", line 189, in _run_module_as_main
+  File "<frozen runpy>", line 112, in _get_module_details
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\__init__.py", line 7, in <module>
+    from .main import main, entry_point
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 23, in <module>
+    from config.loader import load_params
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\co
+nfig\loader.py", line 12, in <module>
+    from pipeline.base import ProcessingContext
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\base.py", line 13, in <module>
+    from io_module.output_manager import get_output_dir, get_run_id
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\io
+_module\__init__.py", line 6, in <module>
+    from .data_io import DataLoader, DataSaver
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\io
+_module\data_io.py", line 19, in <module>
+    from data_processors import FileHandler
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\da
+ta_processors\__init__.py", line 15, in <module>
+    from .file_handler import FileHandler
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\da
+ta_processors\file_handler.py", line 10, in <module>
+    from data_processors.file_processor import FileProcessor
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\da
+ta_processors\file_processor.py", line 19, in <module>
+    import xlwings as xw
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\xlwings\__init__.py",
+ line 39, in <module>
+    from .main import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\xlwings\main.py", lin
+e 23, in <module>
+    from . import LicenseError, ShapeAlreadyExists, XlwingsError, utils
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\xlwings\utils.py", li
+ne 21, in <module>
+    import matplotlib as mpl
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\__init__.py", line 161, in <module>
+    from . import _api, _version, cbook, _docstring, rcsetup
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\rcsetup.py", line 27, in <module>
+    from matplotlib.colors import Colormap, is_color_like
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\colors.py", line 57, in <module>
+    from matplotlib import _api, _cm, cbook, scale
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\scale.py", line 22, in <module>
+    from matplotlib.ticker import (
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\ticker.py", line 143, in <module>
+    from matplotlib import transforms as mtransforms
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\transforms.py", line 49, in <module>
+    from matplotlib._path import (
+AttributeError: _ARRAY_API not found
+
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.6 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "<frozen runpy>", line 189, in _run_module_as_main
+  File "<frozen runpy>", line 112, in _get_module_details
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\__init__.py", line 7, in <module>
+    from .main import main, entry_point
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 23, in <module>
+    from config.loader import load_params
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\co
+nfig\loader.py", line 12, in <module>
+    from pipeline.base import ProcessingContext
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\base.py", line 13, in <module>
+    from io_module.output_manager import get_output_dir, get_run_id
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\io
+_module\__init__.py", line 6, in <module>
+    from .data_io import DataLoader, DataSaver
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\io
+_module\data_io.py", line 19, in <module>
+    from data_processors import FileHandler
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\da
+ta_processors\__init__.py", line 15, in <module>
+    from .file_handler import FileHandler
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\da
+ta_processors\file_handler.py", line 10, in <module>
+    from data_processors.file_processor import FileProcessor
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\da
+ta_processors\file_processor.py", line 19, in <module>
+    import xlwings as xw
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\xlwings\__init__.py",
+ line 39, in <module>
+    from .main import (
+  File "C:\Users\a.karabedyan\AppData\Roaming\Python\Python311\site-packages\xlwings\main.py", lin
+e 27, in <module>
+    import matplotlib as mpl
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\__init__.py", line 161, in <module>
+    from . import _api, _version, cbook, _docstring, rcsetup
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\rcsetup.py", line 27, in <module>
+    from matplotlib.colors import Colormap, is_color_like
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\colors.py", line 57, in <module>
+    from matplotlib import _api, _cm, cbook, scale
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\scale.py", line 22, in <module>
+    from matplotlib.ticker import (
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\ticker.py", line 143, in <module>
+    from matplotlib import transforms as mtransforms
+  File "C:\ProgramData\anaconda3\Lib\site-packages\matplotlib\transforms.py", line 49, in <module>
+    from matplotlib._path import (
+AttributeError: _ARRAY_API not found
+<frozen runpy>:128: RuntimeWarning: 'cli.main' found in sys.modules after import of package 'cli',
+ but prior to execution of 'cli.main'; this may result in unpredictable behaviour
+2026-09-03 14:38:56 | INFO     | =================================================================
+===============
+2026-09-03 14:38:56 | INFO     | ╟ряєёъ яЁшыюцхэш  --╤╬┴╚╨└╥┼╦▄ ╨└╤╪╚╘╨╬┬╬╩--
+2026-09-03 14:38:56 | INFO     | ╨хцшь: ё яюыэющ ЄЁрёёшЁютъющ ёЄхър
+2026-09-03 14:38:56 | INFO     | =================================================================
+===============
+2026-09-03 14:38:56 | DEBUG    | ╧ряър т√тюфр чряєёър: C:\Users\a.karabedyan\Documents\PythonProje
+ct\decryption_collector_refactored_open_code\_OUTPUT_DATA\run_20260903_143856
+2026-09-03 14:38:56 | DEBUG    | ╙фрыхэр яряър яЁю°ыюую чряєёър: run_20260903_131945
+2026-09-03 14:38:56 | INFO     | [FOLDER] ╨хчєы№ЄрЄ√ чряєёър ёюїЁрэ ■Єё  т: C:\Users\a.karabedyan\
+Documents\PythonProject\decryption_collector_refactored_open_code\_OUTPUT_DATA\run_20260903_143856
+2026-09-03 14:38:56 | INFO     | ╘└╟└ 0: ╬цшфрхь юс∙є■ ╬╤┬ т INPUT DATA
+2026-09-03 14:38:56 | INFO     | ╧ЁютхЁ хь ╬с∙є■ ╬╤┬...
+2026-09-03 14:38:56 | DEBUG    | ╚эшЎшрышчрЎш  ъюэЄхъёЄр юсЁрсюЄъш
+2026-09-03 14:38:56 | DEBUG    | ╟руЁєчър юс∙хщ ╬╤┬
+2026-09-03 14:38:56 | DEBUG    | ╟руЁєцхэр юс∙р  ╬╤┬: ╠▌╟_юс∙р юёт_эф_6ьхё2026_.xlsx (115 ёЄЁюъ)
+2026-09-03 14:38:56 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'яырэ_ёўхЄют_Їю' (ышёЄ '╧ырэ╤ўхЄют')
+2026-09-03 14:38:56 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╧ырэ╤ўхЄют
+2026-09-03 14:38:57 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╧ырэ╤ўхЄют': 2269 ёЄЁюъ
+2026-09-03 14:38:57 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ьхяяшэу_срырэё' (ышёЄ '╠хяяшэу_сс')
+2026-09-03 14:38:57 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╠хяяшэу_сс
+2026-09-03 14:39:10 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╠хяяшэу_сс': 28152 ёЄЁюъ
+2026-09-03 14:39:10 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ьхяяшэу_юяє' (ышёЄ '╠хяяшэу_юяє')
+2026-09-03 14:39:10 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╠хяяшэу_юяє
+2026-09-03 14:39:14 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╠хяяшэу_юяє': 14064 ёЄЁюъ
+2026-09-03 14:39:14 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ъюьярэшш_уЁєяя√' (ышёЄ '╩юьярэшш├Ёєяя√')
+2026-09-03 14:39:14 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╩юьярэшш├Ёєяя√
+2026-09-03 14:39:15 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╩юьярэшш├Ёєяя√': 148 ёЄЁюъ
+2026-09-03 14:39:15 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'т√уЁєчъш' (ышёЄ '┬√уЁєчъш')
+2026-09-03 14:39:15 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ┬√уЁєчъш
+2026-09-03 14:39:16 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '┬√уЁєчъш': 65 ёЄЁюъ
+2026-09-03 14:39:16 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ярЁрьхЄЁ√' (ышёЄ '╧рЁрьхЄЁ√')
+2026-09-03 14:39:16 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╧рЁрьхЄЁ√
+2026-09-03 14:39:16 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╧рЁрьхЄЁ√': 5 ёЄЁюъ
+2026-09-03 14:39:16 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'яырэ_ёўхЄют_сє' (ышёЄ '╧ырэ╤ўхЄют┴╙')
+2026-09-03 14:39:16 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╧ырэ╤ўхЄют┴╙
+2026-09-03 14:39:17 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╧ырэ╤ўхЄют┴╙': 852 ёЄЁюъ
+2026-09-03 14:39:17 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ёяЁртюўэшъ_єЇЁ' (ышёЄ '╤яЁртюўэшъ╙╘╨')
+2026-09-03 14:39:17 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╤яЁртюўэшъ╙╘╨
+2026-09-03 14:39:18 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╤яЁртюўэшъ╙╘╨': 237 ёЄЁюъ
+2026-09-03 14:39:18 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ёяЁртюўэшъ_яяр' (ышёЄ '╧╧└')
+2026-09-03 14:39:18 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╧╧└
+2026-09-03 14:39:20 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╧╧└': 5695 ёЄЁюъ
+2026-09-03 14:39:20 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ъЁхфшЄ_юсёыєц' (ышёЄ '╩ЁхфшЄ╬сёыєц')
+2026-09-03 14:39:20 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╩ЁхфшЄ╬сёыєц
+2026-09-03 14:39:21 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╩ЁхфшЄ╬сёыєц': 133 ёЄЁюъ
+2026-09-03 14:39:21 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'тшф_ёт чш_ър' (ышёЄ '┬шф╤т чш╩└')
+2026-09-03 14:39:21 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ┬шф╤т чш╩└
+2026-09-03 14:39:22 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '┬шф╤т чш╩└': 482 ёЄЁюъ
+2026-09-03 14:39:22 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'яЁюўшх_фюїюф√_эфё' (ышёЄ '╧Ёюўшх─юїюф√═─╤')
+2026-09-03 14:39:22 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╧Ёюўшх─юїюф√═─╤
+2026-09-03 14:39:23 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╧Ёюўшх─юїюф√═─╤': 3 ёЄЁюъ
+2026-09-03 14:39:23 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'тшф√_Ёся_рЁхэфр_ышчшэу' (ышёЄ '┬шф√╨┴╧_└Ёхэ
+фр╦шчшэу')
+2026-09-03 14:39:23 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ┬шф√╨┴╧_└Ёхэфр╦шчшэу
+2026-09-03 14:39:24 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '┬шф√╨┴╧_└Ёхэфр╦шчшэу': 4 ёЄЁюъ
+2026-09-03 14:39:24 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ъєЁё_aed' (ышёЄ '╩єЁё_AED')
+2026-09-03 14:39:24 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╩єЁё_AED
+2026-09-03 14:39:24 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╩єЁё_AED': 616 ёЄЁюъ
+2026-09-03 14:39:24 | DEBUG    | ╟руЁєчър ёяЁртюўэшър 'ъєЁё_cny' (ышёЄ '╩єЁё_CNY')
+2026-09-03 14:39:24 | DEBUG    | ╟руЁєчър ёяЁртюўэшър: ╩єЁё_CNY
+2026-09-03 14:39:25 | DEBUG    | ╟руЁєцхэ ёяЁртюўэшъ '╩єЁё_CNY': 250 ёЄЁюъ
+2026-09-03 14:39:25 | DEBUG    | Company currency: RUB
+2026-09-03 14:39:25 | DEBUG    | ╩юэЄхъёЄ шэшЎшрышчшЁютрэ: ъюьярэш =╠▌╟, яхЁшюф=6ьхё2026, ёЄЁюъ т 
+╬╤┬=115, ёяЁртюўэшъют=15
+2026-09-03 14:39:25 | DEBUG    | ┬ры■Єр ъюьярэшш RUB Ч яхЁхтюф юёЄрЄъют эх ЄЁхсєхЄё , фрЄр срырэёр
+ эх эєцэр.
+2026-09-03 14:39:25 | INFO     | ╘└╟└ 1: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ шч 1╤
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ
+2026-09-03 14:39:25 | INFO     | ╟ряєёъ ъюэтхщхЁр '╧юфуюЄютър ёяшёър т√уЁєчюъ' (тёхую °руют: 1)
+2026-09-03 14:39:25 | INFO     | [01/01] ╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ
+2026-09-03 14:39:25 | DEBUG    | ╬яшёрэшх: ╬яЁхфхыхэшх эхюсїюфшь√ї ЁхушёЄЁют эр юёэютх юс∙хщ ╬╤┬
+2026-09-03 14:39:25 | DEBUG    | --- ═рўрыю ¤Єряр: ╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ ---
+2026-09-03 14:39:25 | DEBUG    | ╧ЁютхЁър эрышўш  тёхї ёўхЄют т ёяЁртюўэшъх
+2026-09-03 14:39:25 | DEBUG    | ┬ёх ёўхЄр шч юс∙хщ ╬╤┬ (Їрщы ╠▌╟_юс∙р юёт_эф_6ьхё2026_.xlsx) яЁшё
+єЄёЄтє■Є т ёяЁртюўэшъх.
+2026-09-03 14:39:25 | DEBUG    | ╤ЄрЄшёЄшър ьхяяшэур ёўхЄют - схч ёютярфхэшщ: 8 ['90.01.1', '90.02
+.1', '90.03', '90.08.1', '90.09', '91.01', '91.02.1', '91.09']
+2026-09-03 14:39:25 | DEBUG    | ═рщфхэю 25 ёўхЄют ё ўрёЄшўэ√ь ёютярфхэшхь
+2026-09-03 14:39:25 | DEBUG    | ─ы  срырэёр юЄюсЁрэю 37 ╬╤┬ яю 39 ёўхЄрь
+2026-09-03 14:39:25 | INFO     | ╬сэрЁєцхэ√ юсюЁюЄ√ яю ёўхЄрь ╬╧╙: 26.01, 90.01.1, 90.02.1, 90.03,
+ 90.08.1, 90.09, 91.01, 91.02.1, 91.09, 99.01.1, 99.02.2, 99.02.3, 99.09. ╘юЁьшЁєхь ёяшёюъ юЄўхЄют
+ яю яЁютюфърь фы  т√уЁєчъш.
+2026-09-03 14:39:25 | INFO     | ─ы  ╬╧╙ эхюсїюфшью т√уЁєчшЄ№ 7 юЄўхЄют яю яЁютюфърь (ёўхЄр: 26, 9
+0.01, 90.02, 90.08, 91.01, 91.02, 99)
+2026-09-03 14:39:25 | INFO     | [OK] ╤яшёюъ т√уЁєчюъ ёЇюЁьшЁютрэ: 37 ╬╤┬ + 7 юЄўхЄют яю яЁютюфърь
+2026-09-03 14:39:25 | INFO     |   ╤яшёюъ ёюїЁрэхэ т: run_20260903_143856/┬√уЁєчшЄ№_╠▌╟_6ьхё2026.x
+lsx
+2026-09-03 14:39:25 | DEBUG    | ▌Єря '╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ': summary_osv_df is No
+ne, яЁюяєёърхь трышфрЎш■
+2026-09-03 14:39:25 | DEBUG    | ▌Єря '╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ': journal_df is None, 
+яЁюяєёърхь трышфрЎш■
+2026-09-03 14:39:25 | DEBUG    | --- ╙ёях°эюх чртхЁ°хэшх ¤Єряр: ╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєч
+юъ ---
+2026-09-03 14:39:25 | DEBUG    | ▌Єря '╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ': ЄрсышЎ√ яюёых °рур (
+ёЄЁюъ): {'common_osv_df': 115, 'data.mapping': 28152, 'data.partially_matching_accounts_df': 25}
+2026-09-03 14:39:25 | DEBUG    | [OK] ╪ру '╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ' єёях°эю чртхЁ°хэ
+2026-09-03 14:39:25 | INFO     | ╩юэтхщхЁ '╧юфуюЄютър ёяшёър т√уЁєчюъ' єёях°эю чртхЁ°хэ
+2026-09-03 14:39:25 | DEBUG    | === ╤тюфър °руют ъюэтхщхЁр '╧юфуюЄютър ёяшёър т√уЁєчюъ' (шЄюую: 0
+.13 ёхъ) ===
+2026-09-03 14:39:25 | DEBUG    |   ╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ          ok         0.13 ё
+хъ | ёЄЁюъ: common_osv_df=115, data.mapping=28152, data.partially_matching_accounts_df=25
+2026-09-03 14:39:25 | INFO     | ╘└╟└ 2: ╬ёэютэр  юсЁрсюЄър фрээ√ї
+2026-09-03 14:39:25 | INFO     | ╚ёяюы№чєхь√х фюяєёъш ёїюфшьюёЄш, эх сюыхх, т Є√ё.:
+  Х ╤їюфшьюёЄ№ срырэёр (└ъЄшт = ╧рёёшт): 3 000
+  Х ╨рёїюцфхэшх ЁхушёЄЁют ё ╬с∙хщ ╬╤┬ (яхЁхчръЁ√Єшх срч 1╤): 1 000
+  Х ╨рёїюцфхэшх яю рЁхэфютрээ√ь ╬╤ (╬╤┬ 01.03/02.03 = ┬хфюьюёЄ№ рьюЁшчрЎшш): 3 500
+  Х ┬чршьюєт чър ╬╧╙ ш ┴рырэёр (╫шёЄр  яЁшс√ы№ = ═╨╧ яхЁшюфр): 1 000
+  Х ╬Єъыюэхэшх ъєЁёр юЄ ьхфшрэ√ ышёЄр ╩єЁё_<тры■Єр> яЁш ъюэтхЁЄрЎшш яЁютюфюъ ╬╧╙ (фюы ; 0.35 = 35%
+): 35%
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 1т: ╨хъюэЎшы Ўш 
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ёўхЄрь
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 3: ╤ўхЄ ┴╙
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 6: ─юсртыхэшх уЁєяя√ ╬╤ фы  76.07/76.05.3/97
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 7: ─юыур /ъюЁюЄър  ўрёЄ№ 97.21, 76.07, 76.05.3 
+(рЁхэфр/ышчшэур)
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 8: ╤хуьхэЄ сшюръЄштют 01/02 ёўхЄют
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 9: ┬шф ёт чш ╩└
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 10: ╩ырёёшЇшърЎш  уЁєяя ╬╤ (рЁхэфр) яю тшфрь ёт
+ чш рЁхэфюфрЄхыхщ
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 11: ╨рчсшхэшх ёўхЄр 60 эр шэтхёЄ ш эхшэтхёЄ чрф
+юыцхээюёЄ№
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 11a: ╧ЁютхЁър яюїюцшї ъюэЄЁрухэЄют
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 12: ╨рчсшхэшх ёўхЄр 84 (яхЁшюф уюф)
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 13: ╤сюЁър Ёрё°шЇЁютъш срырэёр
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 14: ╘юЁьшЁютрэшх юёэют√ Ёрё°шЇЁютъш ╬╧╙ Ч т√Ёєў
+ър ш ёхсхёЄюшьюёЄ№ (90.01/90.02)
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 15: ╙яЁртыхэўхёъшх Ёрёїюф√
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 16: ╩юььхЁўхёъшх Ёрёїюф√
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 17: ╧Ёюўшх фюїюф√ ш Ёрёїюф√ (91.01/91.02)
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 18: ═рыюу эр яЁшс√ы№ ш яЁюўшх фтшцхэш  (99.02/9
+9.09)
+2026-09-03 14:39:25 | DEBUG    | ─юсртыхэ °ру: ╪ру 19: ╘шэры№эр  ёсюЁър Ёрё°шЇЁютъш ╬╧╙
+2026-09-03 14:39:25 | INFO     | ╟ряєёъ ъюэтхщхЁр '╬ёэютэющ ъюэтхщхЁ ёсюЁъш Ёрё°шЇЁютъш ┴┴ ш ╬╧╙' 
+(тёхую °руют: 21)
+2026-09-03 14:39:25 | INFO     | [01/21] ╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ
+2026-09-03 14:39:25 | DEBUG    | ╬яшёрэшх: ╬ЄёєЄёЄтшх эхюсїюфшь√ї ЁхушёЄЁют эр юёэютх юс∙хщ ╬╤┬ т√
+чютхЄ ю°шсъє
+2026-09-03 14:39:25 | DEBUG    | --- ═рўрыю ¤Єряр: ╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ ---
+2026-09-03 14:39:25 | DEBUG    | [OK] ┬ёх 35 ╬╤┬ эрщфхэ√ т accounts_osv
+2026-09-03 14:39:25 | DEBUG    | [OK] ┬ёх 2 ╬╤┬ эрщфхэ√ т accounts_osv_lease
+2026-09-03 14:39:25 | DEBUG    | [OK] ┬ёх 1 ёяхЎюЄўхЄ√ т special_reports
+2026-09-03 14:39:25 | DEBUG    | [OK] ┬ёх 7 юЄўхЄ√ яю яЁютюфърь эрщфхэ√ т account_cards
+2026-09-03 14:39:25 | INFO     | [OK] ┬ёх юс чрЄхы№э√х Їрщы√ т√уЁєчюъ эрщфхэ√
+2026-09-03 14:39:25 | DEBUG    | ▌Єря '╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ': summary_osv_df is None, 
+яЁюяєёърхь трышфрЎш■
+2026-09-03 14:39:25 | DEBUG    | ▌Єря '╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ': journal_df is None, яЁюя
+єёърхь трышфрЎш■
+2026-09-03 14:39:25 | DEBUG    | --- ╙ёях°эюх чртхЁ°хэшх ¤Єряр: ╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ -
+--
+2026-09-03 14:39:25 | DEBUG    | ▌Єря '╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ': ЄрсышЎ√ яюёых °рур (ёЄЁю
+ъ): {'common_osv_df': 115, 'data.mapping': 28152, 'data.partially_matching_accounts_df': 25}
+2026-09-03 14:39:25 | DEBUG    | [OK] ╪ру '╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ' єёях°эю чртхЁ°хэ
+2026-09-03 14:39:25 | INFO     | [02/21] ╪ру 1т: ╨хъюэЎшы Ўш 
+2026-09-03 14:39:25 | DEBUG    | ╬яшёрэшх: ╧ЁютхЁър ёїюфшьюёЄш шЄюуют юс∙хщ ╬╤┬ ш фхЄры№э√ї т√уЁєч
+юъ. ╨рёїюцфхэш  т√ч√тр■Є ю°шсъє.
+2026-09-03 14:39:25 | DEBUG    | --- ═рўрыю ¤Єряр: ╪ру 1т: ╨хъюэЎшы Ўш  ---
+2026-09-03 14:39:25 | DEBUG    | ═рўрыю ЁхъюэЎшы Ўшш шЄюуют
+2026-09-03 14:39:25 | DEBUG    | ╟руЁєчър ётюфэюую юЄўхЄр яю яЁютюфърь яю ёўхЄрь
+2026-09-03 14:39:25 | DEBUG    | ═рщфхэю 8 Їрщыют юЄўхЄ√ яю яЁютюфърь
+2026-09-03 14:39:25 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_26_6ьхё2026_.txt
+2026-09-03 14:39:25 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_26_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ BO
+M)
+2026-09-03 14:39:25 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_26
+_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:25 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:25 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_26_6ьхё2026_.txt
+2026-09-03 14:39:25 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_26_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ BO
+M)
+2026-09-03 14:39:25 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_26_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, err
+ors=strict
+2026-09-03 14:39:25 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:25 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:25 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:25 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:25 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:25 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_26_6ьхё2026_.txt чртхЁ°хэр: 5275 юяхЁрЎшщ
+2026-09-03 14:39:25 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_26_6ьхё2026_.txt: 5275 ёЄЁюъ, 0 яЁют
+хЁюъ
+2026-09-03 14:39:25 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_90.01_6ьхё2026_.t
+xt
+2026-09-03 14:39:25 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.01_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:25 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_90
+.01_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:25 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:25 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_90.01_6ьхё2026_.txt
+2026-09-03 14:39:25 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.01_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:25 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_90.01_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, 
+errors=strict
+2026-09-03 14:39:25 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:25 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:26 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:26 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:26 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:26 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_90.01_6ьхё2026_.txt чртхЁ°хэр: 3917 юяхЁр
+Ўшщ
+2026-09-03 14:39:26 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_90.01_6ьхё2026_.txt: 3917 ёЄЁюъ, 0 я
+ЁютхЁюъ
+2026-09-03 14:39:26 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_90.02_6ьхё2026_.t
+xt
+2026-09-03 14:39:26 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.02_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:26 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_90
+.02_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:26 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:26 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_90.02_6ьхё2026_.txt
+2026-09-03 14:39:26 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.02_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:26 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_90.02_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, 
+errors=strict
+2026-09-03 14:39:26 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:26 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:27 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:27 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:27 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:27 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_90.02_6ьхё2026_.txt чртхЁ°хэр: 4085 юяхЁр
+Ўшщ
+2026-09-03 14:39:27 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_90.02_6ьхё2026_.txt: 4085 ёЄЁюъ, 0 я
+ЁютхЁюъ
+2026-09-03 14:39:27 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.t
+xt
+2026-09-03 14:39:27 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:27 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_90
+.07_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:27 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:27 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt
+2026-09-03 14:39:27 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:27 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, 
+errors=strict
+2026-09-03 14:39:27 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:27 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:27 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:27 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:27 | WARNING  | ╬Єў╕Є яю яЁютюфърь ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt яєёЄющ яюёых
+ юсЁрсюЄъш Ч яЁюяєёърхь.
+2026-09-03 14:39:27 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:27 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt чртхЁ°хэр: 0 юяхЁрЎшщ
+2026-09-03 14:39:27 | WARNING  | [!] ╬Єў╕Є яю яЁютюфърь ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt яєёЄющ я
+юёых юсЁрсюЄъш Ч яЁюяєёърхь (схч фюсртыхэш  т not_correct_files).
+2026-09-03 14:39:27 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_90.07_6ьхё2026_.txt: 0 ёЄЁюъ, 0 яЁют
+хЁюъ
+2026-09-03 14:39:27 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_90.08_6ьхё2026_.t
+xt
+2026-09-03 14:39:27 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.08_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:27 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_90
+.08_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:27 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:27 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_90.08_6ьхё2026_.txt
+2026-09-03 14:39:27 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_90.08_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:27 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_90.08_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, 
+errors=strict
+2026-09-03 14:39:27 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:27 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:28 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:28 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:28 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:28 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_90.08_6ьхё2026_.txt чртхЁ°хэр: 56 юяхЁрЎш
+щ
+2026-09-03 14:39:28 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_90.08_6ьхё2026_.txt: 56 ёЄЁюъ, 0 яЁю
+тхЁюъ
+2026-09-03 14:39:28 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_91.01_6ьхё2026_.t
+xt
+2026-09-03 14:39:28 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_91.01_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:28 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_91
+.01_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:28 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:28 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_91.01_6ьхё2026_.txt
+2026-09-03 14:39:28 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_91.01_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:28 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_91.01_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, 
+errors=strict
+2026-09-03 14:39:28 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:28 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:28 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:28 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:28 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:28 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_91.01_6ьхё2026_.txt чртхЁ°хэр: 590 юяхЁрЎ
+шщ
+2026-09-03 14:39:28 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_91.01_6ьхё2026_.txt: 590 ёЄЁюъ, 0 яЁ
+ютхЁюъ
+2026-09-03 14:39:28 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_91.02_6ьхё2026_.t
+xt
+2026-09-03 14:39:28 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_91.02_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:28 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_91
+.02_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:28 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:28 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_91.02_6ьхё2026_.txt
+2026-09-03 14:39:28 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_91.02_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ
+ BOM)
+2026-09-03 14:39:28 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_91.02_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, 
+errors=strict
+2026-09-03 14:39:28 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:28 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:28 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:28 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:29 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:29 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_91.02_6ьхё2026_.txt чртхЁ°хэр: 14940 юяхЁ
+рЎшщ
+2026-09-03 14:39:29 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_91.02_6ьхё2026_.txt: 14940 ёЄЁюъ, 0 
+яЁютхЁюъ
+2026-09-03 14:39:29 | DEBUG    | [SEARCH] ╧√Єрхьё  юсЁрсюЄрЄ№ TXT: ╠▌╟_юЄўяЁютюф_99_6ьхё2026_.txt
+2026-09-03 14:39:29 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_99_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ BO
+M)
+2026-09-03 14:39:29 | DEBUG    | ╬яЁхфхы╕э яЁюЎхёёюЁ Posting_UPPFileProcessor фы  ╠▌╟_юЄўяЁютюф_99
+_6ьхё2026_.txt (ёютярыю 6/6 ъы■ўхт√ї ёыют)
+2026-09-03 14:39:29 | DEBUG    | [OK] ╬яЁхфхы╕э яЁюЎхёёюЁ: Posting_UPPFileProcessor
+2026-09-03 14:39:29 | DEBUG    | ═рўрЄр юсЁрсюЄър ╠▌╟_юЄўяЁютюф_99_6ьхё2026_.txt
+2026-09-03 14:39:29 | DEBUG    | ╩юфшЁютър ╠▌╟_юЄўяЁютюф_99_6ьхё2026_.txt: utf-8-sig (юсэрЁєцхэ BO
+M)
+2026-09-03 14:39:29 | DEBUG    | ╟руЁєчър ╠▌╟_юЄўяЁютюф_99_6ьхё2026_.txt: ъюфшЁютър utf-8-sig, err
+ors=strict
+2026-09-03 14:39:29 | DEBUG    | ╟руюыютюъ эрщфхэ эр ёЄЁюъх 6: ─рЄр	─юъєьхэЄ	╤юфхЁцрэшх	─Є		╩Є		╤є
+ььр	╤єсъюэЄю ─Є...
+2026-09-03 14:39:29 | DEBUG    | # 1. ╟руЁєчър
+2026-09-03 14:39:29 | DEBUG    | # 2. ┴рчютр  юсЁрсюЄър
+2026-09-03 14:39:29 | DEBUG    | # 3. Pivot ш юс·хфшэхэшх
+2026-09-03 14:39:29 | DEBUG    | # 4. ╘шэрышчрЎш 
+2026-09-03 14:39:29 | DEBUG    | ╬сЁрсюЄър ╠▌╟_юЄўяЁютюф_99_6ьхё2026_.txt чртхЁ°хэр: 30 юяхЁрЎшщ
+2026-09-03 14:39:29 | DEBUG    | [OK] ╬сЁрсюЄрэ ╠▌╟_юЄўяЁютюф_99_6ьхё2026_.txt: 30 ёЄЁюъ, 0 яЁютхЁ
+юъ
+2026-09-03 14:39:29 | DEBUG    | ╟руЁєцхэ ётюфэ√щ ╬ЄўхЄ яю яЁютюфърь: 28893 ёЄЁюъ, 13 ёЄюысЎют
+2026-09-03 14:39:30 | DEBUG    | ╟руЁєчър ётюфэющ ╬╤┬ яю ёўхЄрь
+2026-09-03 14:39:30 | DEBUG    | ═рщфхэю 35 Їрщыют ╬╤┬
+2026-09-03 14:39:40 | DEBUG    | ╟руЁєцхэр ётюфэр  ╬╤┬: 1948 ёЄЁюъ, 15 ёЄюысЎют
+2026-09-03 14:39:40 | INFO     | [OK] ╨хъюэЎшы Ўш  яЁющфхэр: Ёрёїюцфхэш  т ёры№фю ш юсюЁюЄрї т яЁх
+фхырї эюЁь√ (фю 1000.0 Є√ё. хф.)
+2026-09-03 14:39:41 | DEBUG    | --- ╙ёях°эюх чртхЁ°хэшх ¤Єряр: ╪ру 1т: ╨хъюэЎшы Ўш  ---
+2026-09-03 14:39:41 | DEBUG    | ▌Єря '╪ру 1т: ╨хъюэЎшы Ўш ': ЄрсышЎ√ яюёых °рур (ёЄЁюъ): {'common
+_osv_df': 115, 'summary_osv_df': 1948, 'journal_df': 28893, 'data.mapping': 28152, 'data.partially
+_matching_accounts_df': 25}
+2026-09-03 14:39:41 | DEBUG    | [OK] ╪ру '╪ру 1т: ╨хъюэЎшы Ўш ' єёях°эю чртхЁ°хэ
+2026-09-03 14:39:41 | INFO     | [03/21] ╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ёўхЄрь
+2026-09-03 14:39:41 | DEBUG    | ╬яшёрэшх: ╟руЁєчър ш юс·хфшэхэшх т√уЁєцхээ√ї ЁхушёЄЁют
+2026-09-03 14:39:41 | DEBUG    | --- ═рўрыю ¤Єряр: ╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ёўхЄрь ---
+2026-09-03 14:39:41 | DEBUG    | ╬с·хфшэхэшх фрээ√ї шч т√уЁєцхээ√ї ЁхушёЄЁют
+2026-09-03 14:39:41 | DEBUG    | ▌Єря '╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ёўхЄрь', summary_osv_df: ё
+їюфшьюёЄ№ ёры№фю = -0.03 Є√ё.хф.
+2026-09-03 14:39:41 | DEBUG    | --- ╙ёях°эюх чртхЁ°хэшх ¤Єряр: ╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ё
+ўхЄрь ---
+2026-09-03 14:39:41 | DEBUG    | ▌Єря '╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ёўхЄрь': ЄрсышЎ√ яюёых °ру
+р (ёЄЁюъ): {'common_osv_df': 115, 'summary_osv_df': 1160, 'journal_df': 28893, 'data.mapping': 281
+52, 'data.partially_matching_accounts_df': 25}
+2026-09-03 14:39:41 | DEBUG    | [OK] ╪ру '╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ёўхЄрь' єёях°эю чртхЁ°
+хэ
+2026-09-03 14:39:41 | INFO     | [04/21] ╪ру 3: ╤ўхЄ ┴╙
+2026-09-03 14:39:41 | DEBUG    | ╬яшёрэшх: ╚чтыхўхэшх яюыэюую ёўхЄр шч шхЁрЁїшш Level_*
+2026-09-03 14:39:41 | DEBUG    | --- ═рўрыю ¤Єряр: ╪ру 3: ╤ўхЄ ┴╙ ---
+2026-09-03 14:39:41 | DEBUG    | ─юсртыхэшх ёЄюысЎр ёўхЄр
+2026-09-03 14:39:41 | DEBUG    | ═рщфхэ ёЄюысхЎ ёю ёўхЄрьш: level_1
+2026-09-03 14:39:41 | DEBUG    | ╙фрыхэю 0 ёЄюысЎют Level_
+2026-09-03 14:39:41 | DEBUG    | ╧хЁхшьхэютрэ√ ёЄюысЎ√: {'тшф ёт чш ър чр яхЁшюф': 'тшф_ёт чш'}
+2026-09-03 14:39:41 | INFO     | [OK] ╬яЁхфхыхэ√ ёўхЄр ┴╙ фы  1160 яючшЎшщ
+2026-09-03 14:39:42 | DEBUG    | ▌Єря '╪ру 3: ╤ўхЄ ┴╙', summary_osv_df: ёїюфшьюёЄ№ ёры№фю = -0.03 
+Є√ё.хф.
+2026-09-03 14:39:42 | DEBUG    | --- ╙ёях°эюх чртхЁ°хэшх ¤Єряр: ╪ру 3: ╤ўхЄ ┴╙ ---
+2026-09-03 14:39:42 | DEBUG    | ▌Єря '╪ру 3: ╤ўхЄ ┴╙': ЄрсышЎ√ яюёых °рур (ёЄЁюъ): {'common_osv_d
+f': 115, 'summary_osv_df': 1160, 'journal_df': 28893, 'data.mapping': 28152, 'data.partially_match
+ing_accounts_df': 25}
+2026-09-03 14:39:42 | DEBUG    | [OK] ╪ру '╪ру 3: ╤ўхЄ ┴╙' єёях°эю чртхЁ°хэ
+2026-09-03 14:39:42 | INFO     | [05/21] ╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟
+2026-09-03 14:39:42 | DEBUG    | ╬яшёрэшх: ╩ырёёшЇшърЎш  ─╟/╩╟ эр юёэютх ьхяяшэур
+2026-09-03 14:39:42 | DEBUG    | --- ═рўрыю ¤Єряр: ╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟ ---
+2026-09-03 14:39:42 | DEBUG    | ╩ырёёшЇшърЎш  чрфюыцхээюёЄш
+2026-09-03 14:39:42 | INFO     | [OK] ╩ырёёшЇшЎшЁютрэр чрфюыцхээюёЄ№: ╩ЁхфшЄюЁёър  чрфюыцхээюёЄ№ Ч
+ 603, эх_єърчрэю Ч 305, ─хсшЄюЁёър  чрфюыцхээюёЄ№ Ч 252
+2026-09-03 14:39:42 | DEBUG    | ▌Єря '╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟', summary_osv_df: ёїюфшьюёЄ№ ёры
+№фю = -0.03 Є√ё.хф.
+2026-09-03 14:39:42 | DEBUG    | --- ╙ёях°эюх чртхЁ°хэшх ¤Єряр: ╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟ ---
+2026-09-03 14:39:42 | DEBUG    | ▌Єря '╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟': ЄрсышЎ√ яюёых °рур (ёЄЁюъ): {'
+common_osv_df': 115, 'summary_osv_df': 1160, 'journal_df': 28893, 'data.mapping': 28152, 'data.par
+tially_matching_accounts_df': 25}
+2026-09-03 14:39:42 | DEBUG    | [OK] ╪ру '╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟' єёях°эю чртхЁ°хэ
+2026-09-03 14:39:42 | INFO     | [06/21] ╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш
+2026-09-03 14:39:42 | DEBUG    | ╬яшёрэшх: ─хЄры№эр  ъырёёшЇшърЎш  чрфюыцхээюёЄш: ЄюЁуютр  ─╟/╩╟, 
+ртрэё√, яЁюўр  ─╟/╩╟ ш Є.ф.
+2026-09-03 14:39:42 | DEBUG    | --- ═рўрыю ¤Єряр: ╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш ---
+2026-09-03 14:39:42 | DEBUG    | ─юсртыхэшх яюфтшфр чрфюыцхээюёЄш
+2026-09-03 14:39:42 | ERROR    | [FOLDER] ╧Ёюсыхьэ√х фрээ√х ёюїЁрэхэ√ т: mismatches/mismatch_step_
+5_ьхяяшэу_20260903_143856.xlsx
+2026-09-03 14:39:42 | ERROR    | [ERR] ╬°шсър эхёююЄтхЄёЄтш  фрээ√ї эр ¤Єрях '╪ру 5: ╚фхэЄшЇшърЎш 
+ яюфтшфр чрфюыцхээюёЄш': ┼ёЄ№ яючшЎшш, эх єўЄ╕ээ√х т ╠хяяшэух | [╤яЁртюўэшъ: ╠хяяшэу] | [╤ЄЁюъ ё я
+Ёюсыхьрьш: 9]
+2026-09-03 14:39:42 | DEBUG    | === ╤тюфър °руют ъюэтхщхЁр '╬ёэютэющ ъюэтхщхЁ ёсюЁъш Ёрё°шЇЁютъш 
+┴┴ ш ╬╧╙' (шЄюую: 17.38 ёхъ) ===
+2026-09-03 14:39:42 | DEBUG    |   ╪ру 1р: ╘юЁьшЁютрэшх ёяшёър т√уЁєчюъ          ok         0.13 ё
+хъ | ёЄЁюъ: common_osv_df=115, data.mapping=28152, data.partially_matching_accounts_df=25
+2026-09-03 14:39:42 | DEBUG    |   ╪ру 1с: ╧ЁютхЁър ёяшёър т√уЁєчюъ              ok         0.05 ё
+хъ | ёЄЁюъ: common_osv_df=115, data.mapping=28152, data.partially_matching_accounts_df=25
+2026-09-03 14:39:42 | DEBUG    |   ╪ру 1т: ╨хъюэЎшы Ўш                           ok        15.90 ё
+хъ | ёЄЁюъ: common_osv_df=115, summary_osv_df=1948, journal_df=28893, data.mapping=28152, data.par
+tially_matching_accounts_df=25
+2026-09-03 14:39:42 | DEBUG    |   ╪ру 2: ╬с·хфшэхэшх т ╤тюф ╬╤┬ яю ёўхЄрь       ok         0.43 ё
+хъ | ёЄЁюъ: common_osv_df=115, summary_osv_df=1160, journal_df=28893, data.mapping=28152, data.par
+tially_matching_accounts_df=25
+2026-09-03 14:39:42 | DEBUG    |   ╪ру 3: ╤ўхЄ ┴╙                                ok         0.42 ё
+хъ | ёЄЁюъ: common_osv_df=115, summary_osv_df=1160, journal_df=28893, data.mapping=28152, data.par
+tially_matching_accounts_df=25
+2026-09-03 14:39:42 | DEBUG    |   ╪ру 4: ╚фхэЄшЇшърЎш  ─╟/╩╟                    ok         0.40 ё
+хъ | ёЄЁюъ: common_osv_df=115, summary_osv_df=1160, journal_df=28893, data.mapping=28152, data.par
+tially_matching_accounts_df=25
+2026-09-03 14:39:42 | DEBUG    |   ╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш    error      0.05 ё
+хъ | ┼ёЄ№ яючшЎшш, эх єўЄ╕ээ√х т ╠хяяшэух | [╤яЁртюўэшъ: ╠хяяшэу] | [╤ЄЁюъ ё яЁюсыхьрьш: 9]
+2026-09-03 14:39:42 | CRITICAL | [!!] ═хюцшфрээр  ю°шсър: ┼ёЄ№ яючшЎшш, эх єўЄ╕ээ√х т ╠хяяшэух | [
+╤яЁртюўэшъ: ╠хяяшэу] | [╤ЄЁюъ ё яЁюсыхьрьш: 9]
+2026-09-03 14:39:42 | ERROR    | ╥ЁрёёшЁютър ёЄхър:
+Traceback (most recent call last):
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\decorators.py", line 98, in wrapper
+    result = func(self, context)
+             |    |     -> ProcessingContext(run_id='20260903_143856', company='╠▌╟', segment='╠▌╟
+', period='6ьхё2026', type_period='эх_уюф'; common_osv...
+             |    -> Step(name='╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш', description='─хЄры№эр
+  ъырёёшЇшърЎш  чрфюыцхээюёЄш: ЄюЁуютр  ─╟/╩╟, р...
+             -> <function Step.execute at 0x0000023000463C40>
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\base.py", line 145, in execute
+    context = self._process(context)
+              |    |        -> ProcessingContext(run_id='20260903_143856', company='╠▌╟', segment=
+'╠▌╟', period='6ьхё2026', type_period='эх_уюф'; common_osv...
+              |    -> <function Step5AddReceivableSubtypeStep._process at 0x000002300049F420>
+              -> Step(name='╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш', description='─хЄры№эр  ъы
+рёёшЇшърЎш  чрфюыцхээюёЄш: ЄюЁуютр  ─╟/╩╟, р...
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\steps\step_05_add_debt_subtype.py", line 31, in _process
+    osv_all_df = ReceivableClassifier.handle_missing_subtypes(osv_all_df)  # \u2190 ╟фхё№ ьюцхЄ тё
+яы√Є№ MissingSubtypeError
+                 |                    |                       ->                                  
+   ёєсъюэЄю  ... яюфтшф_чрфюыцхээюёЄш
+                 |                    |                          0                                
+     ╟фрэш   ...     ...
+                 |                    -> <staticmethod(<function ReceivableClassifier.handle_missi
+ng_subtypes at 0x000002300049F1A0>)>
+                 -> <class 'pipeline.classifiers.receivable_classifier.ReceivableClassifier'>
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\classifiers\receivable_classifier.py", line 164, in handle_missing_subtypes
+    raise MissingSubtypeError(
+          -> <class 'pipeline.errors.MissingSubtypeError'>
+
+pipeline.errors.MissingSubtypeError: ┼ёЄ№ яючшЎшш, эх єўЄ╕ээ√х т ╠хяяшэух | [╤яЁртюўэшъ: ╠хяяшэу] 
+| [╤ЄЁюъ ё яЁюсыхьрьш: 9]
+
+
+The above exception was the direct cause of the following exception:
+
+
+Traceback (most recent call last):
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 160, in <module>
+    sys.exit(entry_point())
+    |   |    -> <function entry_point at 0x00000230004E6020>
+    |   -> <built-in function exit>
+    -> <module 'sys' (built-in)>
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 151, in entry_point
+    return main(
+           -> <function main at 0x0000023075012B60>
+
+> File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\cl
+i\main.py", line 104, in main
+    context = main_pipeline.run(context)
+              |             |   -> ProcessingContext(run_id='20260903_143856', company='╠▌╟', segm
+ent='╠▌╟', period='6ьхё2026', type_period='эх_уюф'; common_osv...
+              |             -> <function Pipeline.run at 0x000002300049C9A0>
+              -> Pipeline(name='╬ёэютэющ ъюэтхщхЁ ёсюЁъш Ёрё°шЇЁютъш ┴┴ ш ╬╧╙', steps=21)
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\base.py", line 731, in run
+    context = step.execute(context)
+              |    |       -> ProcessingContext(run_id='20260903_143856', company='╠▌╟', segment='
+╠▌╟', period='6ьхё2026', type_period='эх_уюф'; common_osv...
+              |    -> <function Step.execute at 0x0000023000463CE0>
+              -> Step(name='╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш', description='─хЄры№эр  ъы
+рёёшЇшърЎш  чрфюыцхээюёЄш: ЄюЁуютр  ─╟/╩╟, р...
+
+  File "C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\pi
+peline\decorators.py", line 142, in wrapper
+    raise ProcessingStepError(f"╤сющ эр ¤Єрях '{step_name}'") from e
+          -> <class 'pipeline.errors.ProcessingStepError'>
+
+pipeline.errors.ProcessingStepError: ╤сющ эр ¤Єрях '╪ру 5: ╚фхэЄшЇшърЎш  яюфтшфр чрфюыцхээюёЄш'
+
+================================================================================
+
+[>>] ┬└╪╚ ─┼╔╤╥┬╚▀:
+   1. ╙схфшЄхё№, ўЄю Їрщы ё ръЄєры№эющ ╬с∙хщ ╬╤┬ Ёрёяюыюцхэ т яряъх INPUT_DATA.
+   2. ╙схфшЄхё№, ўЄю шь  Їрщыр ё ╬с∙хщ ╬╤┬ шьххЄ ёыхфє■∙шщ ЇюЁьрЄ:
+      ╤юъЁ═ршьхэютрэшх╩юьярэшш_юс∙р юёт_эф_╧хЁшюф_.xlsx, эряЁшьхЁ, ╨╟╩_юс∙р юёт_эф_2025_.xlsx
+   3. ╙схфшЄхё№, ўЄю эршьхэютрэшх ъюьярэшш ёююЄтхёЄтєхЄ фрээ√ь эр ышёЄх ╩юьярэшш├Ёєяя√ Їрщыр ╤яЁртюўэшъш.xlsx шч яряъш _REFERENCE_DATA
+
+[i]  ─ы  фюёЁюўэюую т√їюфр шч яЁюуЁрьь√ эрцьшЄх Ctrl+C
+================================================================================
+================================================================================
+
+
+================================================================================
+[LIST] ╤ЇюЁьшЁютрэ ёяшёюъ шч 37 ЁхушёЄЁют ъ т√уЁєчъх.
+[FOLDER] ╤яшёюъ ёюїЁрэхэ т яряъх: C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\_OUTPUT_DATA\run_20260903_143856
+
+[>>] ┬└╪╚ ─┼╔╤╥┬╚▀:
+   1. ╬ЄъЁющЄх Їрщы '┬√уЁєчшЄ№_*.xlsx' т яряъх C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored_open_code\_OUTPUT_DATA\run_20260903_143856
+   2. ┬√уЁєчшЄх єърчрээ√х ЁхушёЄЁ√ шч 1╤
+   3. ╧юыюцшЄх тёх Їрщы√ т яряъє INPUT_DATA т яюфяряъш, єърчрээ√х т яюых 'ъєфр ъырёЄ№' Їрщыр '┬√уЁєчшЄ№_*.xlsx'
+
+[i]  ─ы  фюёЁюўэюую т√їюфр шч яЁюуЁрьь√ эрцьшЄх Ctrl+C
+================================================================================
+================================================================================
+

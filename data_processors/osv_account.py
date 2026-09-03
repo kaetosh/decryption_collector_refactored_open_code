@@ -354,6 +354,14 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
         # Удаление дублирующихся строк
         df = self._remove_duplicate_rows(df, 'Субконто', max_level)
         
+        # Удаление строк без числовых данных (например, "Ответственный:" под таблицей)
+        # Это необходимо для корректной обработки одно-строчных выгрузок (только "Итого")
+        numeric_cols_for_filter = [col for col in ['Дебет_начало', 'Кредит_начало', 'Дебет_оборот',
+                                                    'Кредит_оборот', 'Дебет_конец', 'Кредит_конец']
+                                   if col in df.columns]
+        if numeric_cols_for_filter:
+            df = df[df[numeric_cols_for_filter].notna().any(axis=1)].copy()
+        
         # Удаление строк с Итого и exclude_values
         if len(df) > 1:
             df = df[~df['Субконто'].str.contains('Итого')]

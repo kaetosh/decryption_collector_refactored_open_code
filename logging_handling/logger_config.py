@@ -37,7 +37,7 @@ def _patch_record(record):
         
     return record
 
-def setup_logger():
+def setup_logger(console_level: str = LOG_LEVEL) -> None:
     logger.remove()
     logger.configure(patcher=_patch_record)
     
@@ -57,7 +57,7 @@ def setup_logger():
         "{short_message}"
     )
     
-    logger.add(sys.stderr, format=console_format, level=LOG_LEVEL)
+    logger.add(sys.stderr, format=console_format, level=console_level)
     
     # Лог-файл перезаписывается при каждом запуске
     logger.add(

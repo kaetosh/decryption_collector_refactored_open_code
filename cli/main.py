@@ -65,7 +65,7 @@ def main(
 
         # ФАЗА 0
         logger.info("ФАЗА 0: Ожидаем общую ОСВ в INPUT DATA")
-        pause_for_osv_general_export()
+        pause_for_osv_general_export(interactive=not no_interactive)
         logger.info("Проверяем Общую ОСВ...")
         context = initialize_context()
         context.run_id = get_run_id()
@@ -84,7 +84,7 @@ def main(
         context = preparation_pipeline.run(context)
 
         # ПАУЗА
-        pause_for_1c_export(context)
+        pause_for_1c_export(context, interactive=not no_interactive)
 
         # ФАЗА 2
         logger.info("ФАЗА 2: Основная обработка данных")

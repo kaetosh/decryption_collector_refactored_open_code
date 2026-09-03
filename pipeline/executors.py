@@ -35,7 +35,7 @@ from utils.currency_utils import (
 BALANCE_DATE_FORMAT = '%d.%m.%Y'
 
 
-def pause_for_osv_general_export() -> None:
+def pause_for_osv_general_export(interactive: bool = True) -> None:
     """
     Приостанавливает выполнение и ждет, пока бухгалтер выгрузит Общую ОСВ из 1С.
     """
@@ -49,14 +49,15 @@ def pause_for_osv_general_export() -> None:
     print()
     print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")
     print("=" * 80)
-    try:
-        input("\n[PAUSE] Когда файл с Общей ОСВ будет готов, нажмите Enter для продолжения...")
-    except EOFError:
-        pass
+    if interactive:
+        try:
+            input("\n[PAUSE] Когда файл с Общей ОСВ будет готов, нажмите Enter для продолжения...")
+        except EOFError:
+            pass
     print("=" * 80 + "\n")
 
 
-def pause_for_1c_export(context: ProcessingContext) -> None:
+def pause_for_1c_export(context: ProcessingContext, interactive: bool = True) -> None:
     """
     Приостанавливает выполнение и ждет, пока бухгалтер выгрузит файлы из 1С.
     """
@@ -72,10 +73,11 @@ def pause_for_1c_export(context: ProcessingContext) -> None:
     print()
     print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")
     print("=" * 80)
-    try:
-        input("\n[PAUSE] Когда файлы будут готовы, нажмите Enter для продолжения...")
-    except EOFError:
-        pass
+    if interactive:
+        try:
+            input("\n[PAUSE] Когда файлы будут готовы, нажмите Enter для продолжения...")
+        except EOFError:
+            pass
     print("=" * 80 + "\n")
 
 
