@@ -19,6 +19,7 @@ from pipeline.errors import (
     ReferenceMismatchError,
     MissingFilesError,
     MissingContractorError,
+    MissingOSGroupError,
 )
 from pipeline.errors import ProcessingStepError
 
@@ -130,6 +131,20 @@ def handle_pipeline_errors(func):
                 if rows:
                     logger.debug("Этап '{}': таблицы после шага (строк): {}", step_name, rows)
                 return result
+
+        except MissingOSGroupError as e:
+            # Ошибка несоответствия справочнику ППА по группам ОС.
+            # Мягкий режим обрабатывается внутри шага (step_06): при
+            # STRICT_OS_GROUP_CHECK=False исключение не выбрасывается,
+            # поэтому сюда попадаем только в строгом режиме.
+            _record(context, "error", str(e))
+            e.step_name = step_name
+            self._save_reference_mismatch_report(e)
+            logger.error(
+                "[ERR] Критическая ошибка: не найдены группы ОС на этапе '{}': {}",
+                step_name, e,
+            )
+            raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
 
         except ReferenceMismatchError as e:
             _record(context, "error", str(e))

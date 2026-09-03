@@ -30,11 +30,13 @@
 | Исключение | Поведение |
 |---|---|
 | `MissingContractorError` | `STRICT_CONTRACTOR_CHECK=True` -> `ProcessingStepError`; `False` -> замена на `3 лица`, статус `soft` |
+| `MissingOSGroupError` (справочник ППА, шаг 6) | `STRICT_OS_GROUP_CHECK=True` -> `ProcessingStepError`; `False` -> WARNING в лог, замена на `не_указано` внутри шага |
 | `ReferenceMismatchError` и подвиды | сохранение `problem_data` в Excel (`_save_reference_mismatch_report()` -> `output_manager.py:88`), `ProcessingStepError` |
 | `MissingFilesError` / `MissingCardError` | сохранение списка файлов, `ProcessingStepError` |
 | `Exception` | обёртка в `ProcessingStepError` (`from e`) |
 
 `STRICT_CONTRACTOR_CHECK = False` (`config/settings.py:48`) — мягкий режим. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:652`).
+`STRICT_OS_GROUP_CHECK = True` (`config/settings.py:49`) — строгий режим для групп ОС аренды/лизинга (шаг 6, справочник ППА). Проверяются: договоры/РБП, отсутствующие в ППА, и значения групп вне допустимого списка. При `False` — WARNING, замена на `не_указано` внутри шага (реализация — `_validate_mapping` и этапы 5/7 в `step_06_add_os_group.py`).
 
 ## Встроенные хелперы и утилиты
 * Чтение Excel: `engine=\'openpyxl\''

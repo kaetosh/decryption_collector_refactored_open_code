@@ -13,7 +13,7 @@ from pipeline.errors import (
 )
 from io_module import DataLoader
 from utils import find_register_file, find_target_column, refresh_rub_equivalent
-from config.settings import ACCOUNTS_OSV_DIR, CONTRACTOR_KEYWORDS, CALC_TYPE_KEYWORDS
+from config.settings import ACCOUNTS_OSV_DIR, CONTRACTOR_KEYWORDS, CALC_TYPE_KEYWORDS, STRICT_OS_GROUP_CHECK
 
 class Step6AddOSGroupColumnStep(Step):
     """
@@ -267,8 +267,10 @@ class Step6AddOSGroupColumnStep(Step):
         """
         Проверяет наличие всех значений в справочнике.
         
-        При несоответствии выбрасывает MissingOSGroupError с problem_data.
-        Базовый класс Step сам сохранит проблемные данные в Excel.
+        Строгий режим (STRICT_OS_GROUP_CHECK=True): выбрасывает MissingOSGroupError
+        с problem_data. Базовый класс Step сам сохранит проблемные данные в Excel.
+        Мягкий режим (False): предупреждение в лог, шаг продолжается —
+        строки без группы будут помечены как 'не_указано'.
         """
         valid_values = values.dropna()
         valid_values = valid_values[valid_values != self.UNSPECIFIED]
@@ -295,16 +297,27 @@ class Step6AddOSGroupColumnStep(Step):
                 'справочник': mapping_name,
             })
         
-        # ★ Выбрасываем MissingOSGroupError
-        # Базовый класс сам сохранит в Excel и залогорирует
-        raise MissingOSGroupError(
-            message=(
-                f"В ОСВ найдены {value_type}, отсутствующие в {mapping_name}"
-            ),
-            problem_data=problem_data,
-            reference_name=mapping_name,
-            missing_values=sorted(missing),
-            value_type=value_type,
+        if STRICT_OS_GROUP_CHECK:
+            # ★ Строгий режим: выбрасываем MissingOSGroupError
+            # Базовый класс (декоратор) сам сохранит в Excel и залогорирует
+            raise MissingOSGroupError(
+                message=(
+                    f"В ОСВ найдены {value_type}, отсутствующие в {mapping_name}"
+                ),
+                problem_data=problem_data,
+                reference_name=mapping_name,
+                missing_values=sorted(missing),
+                value_type=value_type,
+            )
+        
+        # ★ Мягкий режим: предупреждение и продолжение работы
+        logger.warning(
+            "[!] Мягкий режим: в ОСВ найдены {} без группы ОС ({}): {}. "
+            "Строки будут помечены как '{}'",
+            value_type,
+            mapping_name,
+            sorted(missing),
+            self.UNSPECIFIED,
         )
     
     def _create_mapping(self, df: pd.DataFrame, key_col: str, value_col: str) -> dict:
@@ -404,22 +417,47 @@ class Step6AddOSGroupColumnStep(Step):
 
         os_groups_97 = osv_all_df['допсубконто'].map(os_group_by_rbp)
 
-        # Замена всех NaN на 'не_указано'
+        # Замена всех NaN на 'не_указано' или выброс ошибки в зависимости от режима
         osv_all_df['группа_ос_аренды_лизинга'] = (
             osv_all_df['группа_ос_аренды_лизинга']
             .fillna(os_groups_97)
-            .fillna(self.UNSPECIFIED)
         )
         
-        # Дополнительная проверка на NaN после fillna
-        nan_count = osv_all_df['группа_ос_аренды_лизинга'].isna().sum()
-        if nan_count > 0:
+        # Строки аренды/лизинга, для которых группа ОС обязательна:
+        # счета 76.07/76.05.3 и 97.21 (Аренда/Лизинг)
+        mask_76_scope = osv_all_df['счет'].astype(str).str.startswith(
+            (self.ACCOUNT_76_07_PREFIX, self.ACCOUNT_76_05_3_PREFIX)
+        )
+        lease_scope_mask = mask_76_scope | mask_97
+
+        # Проверяем, остались ли строки аренды/лизинга без группы ОС
+        missing_mask = (
+            osv_all_df['группа_ос_аренды_лизинга'].isna() & lease_scope_mask
+        )
+        if missing_mask.any():
+            if STRICT_OS_GROUP_CHECK:
+                # Строгий режим: останавливаем конвейер
+                missing_rows = osv_all_df[missing_mask].copy()
+                raise MissingOSGroupError(
+                    message=(
+                        f"В ОСВ найдено {missing_mask.sum()} строк аренды/лизинга "
+                        f"без группы ОС в справочнике ППА"
+                    ),
+                    problem_data=missing_rows,
+                    reference_name="справочнике ППА",
+                    missing_count=int(missing_mask.sum()),
+                )
+            # Мягкий режим: заменяем на 'не_указано'
             logger.warning(
-                "Обнаружено {} NaN в 'группа_ос_аренды_лизинга', заменяем на '{}'",
-                nan_count,
+                "[!] Мягкий режим: {} строк аренды/лизинга без группы ОС заменены на '{}'",
+                missing_mask.sum(),
                 self.UNSPECIFIED,
             )
-            osv_all_df['группа_ос_аренды_лизинга'] = osv_all_df['группа_ос_аренды_лизинга'].fillna(self.UNSPECIFIED)
+
+        # Остальные строки (не аренда/лизинг) — допустимая заглушка 'не_указано'
+        osv_all_df['группа_ос_аренды_лизинга'] = (
+            osv_all_df['группа_ос_аренды_лизинга'].fillna(self.UNSPECIFIED)
+        )
         
         logger.debug(
             "Итого групп ОС заполнено: {}",
@@ -449,20 +487,34 @@ class Step6AddOSGroupColumnStep(Step):
         unique_groups = list(lease_df['группа_ос'].unique())
         
         # Проверяем валидность значений
-        invalid_values = osv_all_df['группа_ос_аренды_лизинга'][
-            ~osv_all_df['группа_ос_аренды_лизинга'].isin(unique_groups)
-        ].unique()
+        invalid_mask = ~osv_all_df['группа_ос_аренды_лизинга'].isin(unique_groups)
+        invalid_mask = invalid_mask & (osv_all_df['группа_ос_аренды_лизинга'] != self.UNSPECIFIED)
+        invalid_values = osv_all_df.loc[invalid_mask, 'группа_ос_аренды_лизинга'].unique()
         
         if len(invalid_values) > 0:
-            logger.warning(
-                "Найдены значения вне разрешённого списка: {}. Заменяем на '{}'",
-                invalid_values,
-                self.UNSPECIFIED,
-            )
-            osv_all_df.loc[
-                osv_all_df['группа_ос_аренды_лизинга'].isin(invalid_values),
-                'группа_ос_аренды_лизинга'
-            ] = self.UNSPECIFIED
+            if STRICT_OS_GROUP_CHECK:
+                # Строгий режим: выбрасываем ошибку
+                invalid_rows = osv_all_df[invalid_mask].copy()
+                raise MissingOSGroupError(
+                    message=(
+                        f"В ОСВ найдены значения вне разрешённого списка групп ОС: "
+                        f"{list(invalid_values)}"
+                    ),
+                    problem_data=invalid_rows,
+                    reference_name="справочнике ППА",
+                    invalid_values=list(invalid_values),
+                )
+            else:
+                # Мягкий режим: заменяем на 'не_указано'
+                logger.warning(
+                    "Найдены значения вне разрешённого списка: {}. Заменяем на '{}'",
+                    invalid_values,
+                    self.UNSPECIFIED,
+                )
+                osv_all_df.loc[
+                    osv_all_df['группа_ос_аренды_лизинга'].isin(invalid_values),
+                    'группа_ос_аренды_лизинга'
+                ] = self.UNSPECIFIED
         
         osv_all_df['группа_ос_аренды_лизинга'] = osv_all_df['группа_ос_аренды_лизинга'].astype('string')
         

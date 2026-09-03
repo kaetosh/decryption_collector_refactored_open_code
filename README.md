@@ -105,7 +105,8 @@ python main.py
 | Исключение | Поведение |
 |---|---|
 | `MissingContractorError` | строгий режим (`STRICT_CONTRACTOR_CHECK=True`) — сбой; мягкий — отчёт в Excel + замена на «3 лица», шаг продолжается (статус `soft`) |
-| `ReferenceMismatchError` и подвиды (`MissingMappingError`, `MissingOSGroupError`, `ConvergenceError`, `MissingSubtypeError`) | проблемные строки сохраняются в Excel, шаг падает с `ProcessingStepError` |
+| `MissingOSGroupError` (ППА, шаг 6) | строгий режим (`STRICT_OS_GROUP_CHECK=True`) — сбой; мягкий — предупреждение в лог, замена на «не_указано» внутри шага |
+| `ReferenceMismatchError` и подвиды (`MissingMappingError`, `ConvergenceError`, `MissingSubtypeError`) | проблемные строки сохраняются в Excel, шаг падает с `ProcessingStepError` |
 | `MissingFilesError` / `MissingCardError` | отчёт об отсутствующих файлах в Excel, сбой |
 | `Exception` | заворачивается в `ProcessingStepError`, оригинал — в `__cause__` |
 
@@ -139,7 +140,7 @@ python main.py
 ## Конфигурация
 
 - `config/settings.py` — пути (`_INPUT_DATA`, `_OUTPUT_DATA`, `_REFERENCE_DATA`),
-  состав обязательных выгрузок, `STRICT_CONTRACTOR_CHECK`, `KEEP_LAST_RUNS`,
+  состав обязательных выгрузок, `STRICT_CONTRACTOR_CHECK`, `STRICT_OS_GROUP_CHECK`, `KEEP_LAST_RUNS`,
   уровень логов.
 - `config/loader.py` + `config/defaults.py` — допуски сходимости из листа
   «Параметры» (`_REFERENCE_DATA/Справочники.xlsx`); значения по умолчанию
