@@ -34,6 +34,7 @@
 | `MissingOSGroupError` (справочник ППА, шаг 6) | `STRICT_OS_GROUP_CHECK=True` -> `ProcessingStepError`; `False` -> WARNING в лог, замена на `не_указано` внутри шага |
 | `ReferenceMismatchError` и подвиды | сохранение `problem_data` в Excel (`_save_reference_mismatch_report()` -> `output_manager.py:88`), `ProcessingStepError` |
 | `MissingFilesError` / `MissingCardError` | сохранение списка файлов, `ProcessingStepError` |
+| `TooManyFilesError` | сохранение списка избыточных файлов в Excel (mismatches/), `ProcessingStepError`. Возникает, когда в папке найдено более одного файла по паттерну (например, два файла общей ОСВ) |
 | `Exception` | обёртка в `ProcessingStepError` (`from e`) |
 
 `STRICT_CONTRACTOR_CHECK = False` (`config/settings.py:48`) — мягкий режим. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:652`).

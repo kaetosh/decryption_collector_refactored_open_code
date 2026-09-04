@@ -16,6 +16,7 @@ from pipeline.errors import (
     MissingFilesError,
     MissingContractorError,
     ProcessingStepError,
+    TooManyFilesError,
 )
 from pipeline.constants import (
     ColumnNames,
@@ -579,8 +580,8 @@ class Step(ABC):
             )
         except Exception as save_error:
             logger.error("Не удалось сохранить файл с отсутствующими файлами: {}", save_error)
-    
-    
+
+
     # =========================================================================
     # HELPER-МЕТОДЫ ДЛЯ ФОРМИРОВАНИЯ КОРОТКИХ ИМЁН ФАЙЛОВ
     # =========================================================================

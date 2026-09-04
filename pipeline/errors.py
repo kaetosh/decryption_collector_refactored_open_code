@@ -78,6 +78,44 @@ class MissingFilesError(InputDataError):
         parts.append(f"[Отсутствует файлов: {len(self.missing_files)}]")
         return " | ".join(parts)
 
+class TooManyFilesError(InputDataError):
+    """
+    Исключение для случая, когда в папке найдено более одного файла.
+
+    Возникает, когда для обработки ожидается ровно один файл
+    (например, общая ОСВ), но в директории лежит несколько
+    файлов по паттерну.
+
+    Attributes:
+        message: Человекочитаемое сообщение
+        found_files: Список найденных файлов
+        expected_dir: Ожидаемая директория
+        metadata: Дополнительные данные
+    """
+
+    def __init__(
+        self,
+        message: str,
+        found_files: list = None,
+        expected_dir: str = None,
+        **metadata
+    ):
+        self.message = message
+        self.found_files = found_files or []
+        self.expected_dir = expected_dir
+        self.metadata = metadata
+        self.step_name = None
+
+        super().__init__(message)
+
+    def __str__(self) -> str:
+        parts = [self.message]
+        if self.expected_dir:
+            parts.append(f"[Директория: {self.expected_dir}]")
+        parts.append(f"[Найдено файлов: {len(self.found_files)}]")
+        return " | ".join(parts)
+
+
 class ReferenceMismatchError(PipelineError):
     """
     Исключение для ошибок несоответствия данных справочникам.

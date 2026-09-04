@@ -17,6 +17,7 @@ from config.settings import (OSV_GENERAL_DIR,
                              ACCOUNT_CARDS_DIR)
 from io_module.output_manager import get_output_dir
 from data_processors import FileHandler
+from pipeline.errors import TooManyFilesError
 
 
 class DataLoader:
@@ -168,6 +169,7 @@ class DataLoader:
             
         Raises:
             FileNotFoundError: Если папка не существует или файлов нет
+            TooManyFilesError: Если найдено более одного файла
         """
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"Папка {folder} не существует или не является директорией")
@@ -177,9 +179,20 @@ class DataLoader:
             raise FileNotFoundError(
                 f"В папке {folder} не найдено файлов по паттерну '{pattern}' ({description})"
             )
-        
+
+        if len(files) > 1:
+            file_names = [f.name for f in files]
+            raise TooManyFilesError(
+                message=(
+                    f"В папке {folder} найдено {len(files)} файлов по паттерну '{pattern}' "
+                    f"({description}). Ожидается ровно один файл. "
+                    f"Оставьте только один файл {description} в папке."
+                ),
+                found_files=file_names,
+                expected_dir=str(folder),
+            )
+
         return files[0]
-    
     # =========================================================================
     # ПУБЛИЧНЫЕ МЕТОДЫ ЗАГРУЗКИ — ЕДИНЫЙ СТИЛЬ
     # =========================================================================

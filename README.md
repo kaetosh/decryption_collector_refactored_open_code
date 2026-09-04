@@ -109,6 +109,7 @@ python main.py
 | `MissingOSGroupError` (ППА, шаг 6) | строгий режим (`STRICT_OS_GROUP_CHECK=True`) — сбой; мягкий — предупреждение в лог, замена на «не_указано» внутри шага |
 | `ReferenceMismatchError` и подвиды (`MissingMappingError`, `ConvergenceError`, `MissingSubtypeError`) | проблемные строки сохраняются в Excel, шаг падает с `ProcessingStepError` |
 | `MissingFilesError` / `MissingCardError` | отчёт об отсутствующих файлах в Excel, сбой |
+| `TooManyFilesError` | отчёт об избыточных файлах в Excel (mismatches/), сбой. Возникает, когда в папке найдено более одного файла по паттерну (например, два файла общей ОСВ) |
 | `Exception` | заворачивается в `ProcessingStepError`, оригинал — в `__cause__` |
 
 Иерархия и атрибуты исключений — в `pipeline/errors.py`. Появление нового типа

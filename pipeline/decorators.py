@@ -20,6 +20,7 @@ from pipeline.errors import (
     MissingFilesError,
     MissingContractorError,
     MissingOSGroupError,
+    TooManyFilesError,
 )
 from pipeline.errors import ProcessingStepError
 
@@ -164,6 +165,18 @@ def handle_pipeline_errors(func):
                 "[ERR] Ошибка: отсутствуют файлы выгрузок на этапе '{}': {}",
                 step_name, e,
             )
+            raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
+
+        except TooManyFilesError as e:
+            _record(context, "error", str(e))
+            e.step_name = step_name
+            # Логируем список найденных файлов для диагностики
+            logger.error(
+                "[ERR] Ошибка: найдено несколько файлов вместо одного на этапе '{}': {}",
+                step_name, e,
+            )
+            if e.found_files:
+                logger.error("[ERR] Найденные файлы: {}", ", ".join(e.found_files))
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
 
         except Exception as e:

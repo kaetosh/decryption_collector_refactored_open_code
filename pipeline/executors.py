@@ -18,7 +18,7 @@ from loguru import logger
 
 from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
-from pipeline.errors import ReferenceMismatchError, PeriodMismatchError
+from pipeline.errors import ReferenceMismatchError, PeriodMismatchError, TooManyFilesError
 from pipeline.step_config import OpuReportConstants
 from config.settings import REFERENCE_CONFIGS
 from io_module import DataLoader, DataSaver
@@ -366,7 +366,14 @@ def initialize_context() -> ProcessingContext:
     context = ProcessingContext()
 
     # Шаг 1. Загрузка общей ОСВ
-    osv_df, osv_filename = DataLoader.load_general_osv()
+    try:
+        osv_df, osv_filename = DataLoader.load_general_osv()
+    except TooManyFilesError as e:
+        logger.error("[ERR] {}", e)
+        if e.found_files:
+            logger.error("[ERR] Найденные файлы: {}", ", ".join(e.found_files))
+            logger.error("[ERR] Оставьте только один файл общей ОСВ в папке {}", e.expected_dir)
+        raise
 
     if osv_df.empty:
         raise ValueError("Загруженная общая ОСВ пуста")
