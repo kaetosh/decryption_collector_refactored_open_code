@@ -17,6 +17,7 @@ class ColumnNames:
     SEGMENT = "сегмент"
     PERIOD_TYPE = "тип_периода"
     DECRYPTION_FILENAME = "название_файла_расшифровки"
+    PERIOD_REPORT = "период_отчетности"
     CURRENCY = "валюта"
 
 

@@ -18,7 +18,7 @@ from loguru import logger
 
 from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
-from pipeline.errors import ReferenceMismatchError
+from pipeline.errors import ReferenceMismatchError, PeriodMismatchError
 from pipeline.step_config import OpuReportConstants
 from config.settings import REFERENCE_CONFIGS
 from io_module import DataLoader, DataSaver
@@ -113,6 +113,7 @@ REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
             ColumnNames.SHORT_COMPANY_NAME,
             ColumnNames.DECRYPTION_FILENAME,
             ColumnNames.PERIOD_TYPE,
+            ColumnNames.PERIOD_REPORT,
             ColumnNames.CURRENCY,
         ),
     ),
@@ -263,11 +264,18 @@ def _validate_and_enrich_company_info(context: ProcessingContext) -> None:
         ValueError: Если в справочнике отсутствуют обязательные колонки
         ReferenceMismatchError: Если компания не найдена, найдено несколько записей,
                                 или не заполнены обязательные поля
+        PeriodMismatchError: Если период в имени файла общей ОСВ не совпадает
+                             с периодом отчётности в справочнике КомпанииГруппы
     """
     directory = context.references["компании_группы"]
 
     # Проверка наличия обязательных колонок
-    required_columns = {ColumnNames.SHORT_COMPANY_NAME, ColumnNames.SEGMENT, ColumnNames.PERIOD_TYPE}
+    required_columns = {
+        ColumnNames.SHORT_COMPANY_NAME,
+        ColumnNames.SEGMENT,
+        ColumnNames.PERIOD_TYPE,
+        ColumnNames.PERIOD_REPORT,
+    }
     missing = required_columns - set(directory.columns)
     if missing:
         raise ValueError(
@@ -328,6 +336,25 @@ def _validate_and_enrich_company_info(context: ProcessingContext) -> None:
     else:
         context.currency = "RUB"
         logger.debug("Company currency is not set; using RUB.")
+
+    # Проверка соответствия периода: из имени файла общей ОСВ vs период отчётности
+    # в справочнике «КомпанииГруппы» по строке с именем компании.
+    period_in_directory = _get_required_field(
+        row, ColumnNames.PERIOD_REPORT, context.company
+    )
+    if context.period != period_in_directory:
+        raise PeriodMismatchError(
+            message=(
+                f"Период в имени файла общей ОСВ ('{context.period}') не совпадает "
+                f"с периодом отчётности компании '{context.company}' в справочнике "
+                f"КомпанииГруппы ('{period_in_directory}'). Исправьте период в имени "
+                f"файла общей ОСВ или в Справочники.xlsx (поле "
+                f"'{ColumnNames.PERIOD_REPORT}')."
+            ),
+            problem_data=matches.copy(),
+            reference_name="КомпанииГруппы",
+            searched_company=context.company,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
