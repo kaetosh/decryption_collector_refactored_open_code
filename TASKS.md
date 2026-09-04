@@ -7,6 +7,28 @@
 
 ## Активные задач
 
+### ✅ Режим подтягивания контрагентов в шаге 17 для справочника КредитОбслуж
+- **Дата:** сессия 04.09.2026 — **завершена**
+- **Суть:** подтягивание контрагентов из справочника «КредитОбслуж» (`_process_credit_lines`,
+  шаг 17, 91.01/91.02) работало только в неявном «мягком» режиме: при отсутствии РБП в
+  справочнике — WARNING со списком (обрезанным логгером) и продолжение работы.
+- **Реализовано:**
+  - `config/settings.py` — новый флаг `STRICT_CREDIT_CONTRACTOR_CHECK = True` (по умолчанию жёсткий).
+  - `pipeline/errors.py` — новый класс `MissingCreditContractorError(ReferenceMismatchError)`
+    с атрибутами `missing_rbps`, `company_name`. Жёсткий режим идёт через generic-ветку
+    декоратора: отчёт в `mismatches/mismatch_step_17_кредитобслуж_<run_id>.xlsx` + `ProcessingStepError`.
+  - `pipeline/steps/step_17_...py` — `_process_credit_lines` принимает `company_name`;
+    жёсткий режим → исключение с `problem_data` (уникальные РБП + `компания` +
+    `количество_строк` + `оборот_тыс_ед`); мягкий → WARNING со всеми РБП построчно +
+    замена контрагента на «3 лица» + отчёт в Excel.
+  - `logging_handling/logger_config.py` — устранена обрезка: файловый синк пишет `{message}`
+    целиком, `_truncate_text` сохраняет начало (не хвост) сообщения.
+- **Файлы:** `config/settings.py`, `pipeline/errors.py`,
+  `pipeline/steps/step_17_add_other_income_and_expenses.py`,
+  `logging_handling/logger_config.py`, `README.md`, `AGENTS.md`.
+- **Проверено:** смоук-тест `_smoke_credit_lines.py` (hard/soft): hard — исключение +
+  `problem_data`; soft — замена «3 лица» + полный список длинных РБП в `app.log` без `...`.
+
 ### ✅ Ошибка 2: 90.07 попадает в список выгрузок, хотя оборотов в общей ОСВ нет
 - **Дата:** сессия 02-03.09.2026 — **завершена**
 - **Контекст:** обкатка на выгрузках МЭЗ «Маслоэкстракционный завод "Ресурс"», 1 полугодие 2026.

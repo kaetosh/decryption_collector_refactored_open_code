@@ -7,6 +7,7 @@
     └── ReferenceMismatchError (несоответствие справочникам)
         ├── MissingMappingError (нет записи в меппинге)
         ├── MissingContractorError (нет контрагента)
+        ├── MissingCreditContractorError (нет РБП кредитных линий в КредитОбслуж)
         ├── MissingOSGroupError (нет группы ОС)
         └── ConvergenceError (расхождение сумм)
 
@@ -163,6 +164,40 @@ class MissingContractorError(ReferenceMismatchError):
     ):
         self.target_column = target_column
         self.replacement_value = replacement_value
+        super().__init__(
+            message=message,
+            problem_data=problem_data,
+            reference_name=reference_name,
+            **metadata
+        )
+
+class MissingCreditContractorError(ReferenceMismatchError):
+    """
+    РБП кредитных линий не найден в справочнике КредитОбслуж.
+
+    Справочник «КредитОбслуж» сопоставляет «рбп_кредитные_линии» (значения
+    субконто Дт_1/Кт_1 строк 97.x) с контрагентом. Если для РБП нет записи,
+    в жёстком режиме выбрасывается это исключение: базовый класс Step
+    (декоратор handle_pipeline_errors) сохраняет problem_data в Excel
+    под папку mismatches/ и останавливает шаг, чтобы пользователь
+    актуализировал справочник.
+
+    Attributes:
+        missing_rbps: Список отсутствующих в справочнике РБП кредитных линий
+        company_name: Наименование компании (для диагностического отчёта)
+    """
+
+    def __init__(
+        self,
+        message: str,
+        problem_data: Optional[pd.DataFrame] = None,
+        reference_name: Optional[str] = None,
+        missing_rbps: Optional[list] = None,
+        company_name: Optional[str] = None,
+        **metadata: Any
+    ):
+        self.missing_rbps = missing_rbps or []
+        self.company_name = company_name
         super().__init__(
             message=message,
             problem_data=problem_data,

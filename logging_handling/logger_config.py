@@ -10,11 +10,13 @@ from config.settings import LOG_LEVEL, LOG_FILE
 def _truncate_text(text: str, max_length: int = 35) -> str:
     """
     Обрезает текст до max_length символов.
-    Если текст длиннее, оставляет правую часть и добавляет '...' в начало.
+    Если текст длиннее, сохраняет НАЧАЛО text и добавляет '...' в конец.
+    Начало сообщения информативнее хвоста: заголовок и первые элементы списка,
+    а не обрезанный хвост с '...' впереди (непонятно, что и с чем).
     """
     if len(text) <= max_length:
         return text
-    return f"...{text[-(max_length-3):]}"
+    return f"{text[:max_length - 3]}..."
 
 def _patch_record(record):
     """
@@ -48,13 +50,14 @@ def setup_logger(console_level: str = LOG_LEVEL) -> None:
         "<level>{short_message}</level>"
     )
     
-    # Формат для файла (содержит все технические детали)
+    # Формат для файла (содержит все технические детали и ПОЛНОЕ сообщение —
+    # без short_message, чтобы длинные диагностики (списки, стеки) не обрезались)
     file_format = (
         "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
         "{file_short_name:<55} | "
         "{short_function:<55} | "
         "{line:<5} | "
-        "{short_message}"
+        "{message}"
     )
     
     logger.add(sys.stderr, format=console_format, level=console_level)

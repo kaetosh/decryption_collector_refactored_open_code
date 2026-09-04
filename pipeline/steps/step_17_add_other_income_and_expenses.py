@@ -21,8 +21,9 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import MissingMappingError
-from pipeline.step_config import OpuReportConstants
+from pipeline.errors import MissingMappingError, MissingCreditContractorError
+from pipeline.step_config import OpuReportConstants, StepConstants
+from config.settings import STRICT_CREDIT_CONTRACTOR_CHECK
 from utils.currency_utils import (
     get_earliest_rate,
     get_rate_deviation_limit,
@@ -161,13 +162,15 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         df_9101 = self._process_credit_lines(
             df_9101,
             refs['credit'],
-            is_income=True
+            is_income=True,
+            company_name=name_company
         )
 
         df_9102 = self._process_credit_lines(
             df_9102,
             refs['credit'],
-            is_income=False
+            is_income=False,
+            company_name=name_company
         )
 
         # 8. Подготовка маппингов из refs['group_companies']
@@ -1041,9 +1044,22 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         self,
         df: pd.DataFrame,
         reference_rbp_credit: pd.DataFrame,
-        is_income: bool = True
+        is_income: bool = True,
+        company_name: str = ''
     ) -> pd.DataFrame:
-        """Обрабатывает кредитные линии: подтягивает контрагентов из справочника."""
+        """Обрабатывает кредитные линии: подтягивает контрагентов из справочника КредитОбслуж.
+
+        Строки 97.x (РБП) разбираются по «рбп_кредитные_линии» (Субконто Дт_1/Кт_1)
+        и сопоставляются с контрагентом из справочника.
+
+        Если РБП отсутствует в справочнике:
+        - жёсткий режим (STRICT_CREDIT_CONTRACTOR_CHECK=True, по умолчанию):
+          поднимается MissingCreditContractorError, базовый класс Step сохраняет
+          problem_data в Excel (mismatches/) и останавливает шаг — пользователь
+          должен актуализировать справочник;
+        - мягкий режим (False): WARNING со списком отсутствующих РБП, сохранение
+          отчёта в Excel, контрагент заменяется на '3 лица'.
+        """
         CREDIT_TYPE = 'Кредитное обслуживание и расходы по открытию кредитных линий'
 
         mask_credit = (
@@ -1088,13 +1104,87 @@ class Step17AddOtherIncomeExpensesToOpuStep(Step):
         missing_mask[mask_credit] = ~mask_found
 
         if missing_mask.any():
-            missing_list = df.loc[missing_mask, 'рбп_кредитные_линии'].unique().tolist()
+            missing_series = df.loc[missing_mask, 'рбп_кредитные_линии']
+            # Защита от NaN/смешанных типов перед сортировкой: приводим к строке,
+            # NaN → 'не_указано' (не должно возникнуть, т.к. строки отфильтрованы mask_credit).
+            missing_clean = missing_series.astype('string').fillna(StepConstants.UNSPECIFIED)
+            missing_list = sorted(missing_clean.unique().tolist())
 
-            logger.warning(
-                "[!] В справочнике КредитОбслуж отсутствуют {} РБП:\n{}",
-                len(missing_list),
-                "\n".join("  - {}".format(item) for item in missing_list[:10]),
+            # Отчёт о проблемных данных для пользователя (актуализация справочника):
+            # уникальные РБП + количество строк (+ оборот, если колонка присутствует).
+            group = (
+                df.loc[missing_mask]
+                .assign(рбп_кредитные_линии=missing_clean)
+                .groupby('рбп_кредитные_линии', dropna=False)
             )
+            if 'оборот, тыс.ед.' in df.columns:
+                problem_data = group.agg(
+                    количество_строк=('рбп_кредитные_линии', 'size'),
+                    оборот_тыс_ед=('оборот, тыс.ед.', 'sum'),
+                )
+            else:
+                problem_data = group.agg(
+                    количество_строк=('рбп_кредитные_линии', 'size'),
+                )
+            problem_data = (
+                problem_data
+                .reset_index()
+                .rename(columns={'рбп_кредитные_линии': 'отсутствующее_значение'})
+                .sort_values('отсутствующее_значение')
+            )
+            problem_data.insert(0, 'компания', company_name)
+
+            message = (
+                f"В справочнике КредитОбслуж отсутствуют {len(missing_list)} РБП "
+                f"кредитных линий для компании '{company_name}'"
+            )
+
+            if STRICT_CREDIT_CONTRACTOR_CHECK:
+                # ★ Жёсткий режим (по умолчанию): останавливаем конвейер.
+                # Декоратор handle_pipeline_errors сам сохранит problem_data
+                # в Excel (mismatches/) и обернёт исключение в ProcessingStepError.
+                raise MissingCreditContractorError(
+                    message=message,
+                    problem_data=problem_data,
+                    reference_name="КредитОбслуж",
+                    missing_rbps=missing_list,
+                    company_name=company_name,
+                )
+
+            # ★ Мягкий режим: WARNING, замена на '3 лица' и сохранение отчёта.
+            # Заголовок + каждая РБП отдельной строкой (файловый синк не обрезается —
+            # в app.log весь список виден полностью).
+            logger.warning(
+                "[!] В справочнике КредитОбслуж отсутствуют {} РБП кредитных линий "
+                "для компании '{}':",
+                len(missing_list),
+                company_name,
+            )
+            for item in missing_list:
+                logger.warning("      - {}", item)
+            logger.warning(
+                "[!] Мягкий режим: РБП без контрагента в КредитОбслуж заменяются на '{}'",
+                StepConstants.THIRD_PARTY,
+            )
+
+            # Замена контрагента на '3 лица' в отсутствующих строках
+            df.loc[missing_mask, 'контрагент'] = StepConstants.THIRD_PARTY
+
+            # Сохраняем отчёт для актуализации справочника (мягкий режим)
+            try:
+                report_error = MissingCreditContractorError(
+                    message=message,
+                    problem_data=problem_data,
+                    reference_name="КредитОбслуж",
+                    missing_rbps=missing_list,
+                    company_name=company_name,
+                )
+                self._save_reference_mismatch_report(report_error)
+            except Exception as report_exc:
+                logger.warning(
+                    "[!] Не удалось сохранить отчёт по отсутствующим РБП в справочнике КредитОбслуж: {}",
+                    report_exc,
+                )
 
         df['контрагент'] = df['контрагент'].astype('string')
 
