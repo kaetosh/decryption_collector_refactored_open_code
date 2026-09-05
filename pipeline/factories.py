@@ -31,7 +31,8 @@ from pipeline.steps import (
     Step16AddCommExpensesToOpuStep,
     Step17AddOtherIncomeExpensesToOpuStep,
     Step18AddTaskAndOtherMovementsStep,
-    Step19BuildOpuStep
+    Step19BuildOpuStep,
+    Step20CollapseOtherIncomeExpensesStep,
 )
 
 
@@ -95,5 +96,6 @@ def create_main_pipeline() -> Pipeline:
     
     # ЭТАП 6: Финальная сборка расшифровки опу
     pipeline.add_step(Step19BuildOpuStep())
-    
+    pipeline.add_step(Step20CollapseOtherIncomeExpensesStep())
+
     return pipeline

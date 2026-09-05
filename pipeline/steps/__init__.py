@@ -25,6 +25,7 @@ from pipeline.steps.step_16_add_comm_expenses_to_opu import Step16AddCommExpense
 from pipeline.steps.step_17_add_other_income_and_expenses import Step17AddOtherIncomeExpensesToOpuStep
 from pipeline.steps.step_18_add_task_and_other_movements import Step18AddTaskAndOtherMovementsStep
 from pipeline.steps.step_19_build_opu import Step19BuildOpuStep
+from pipeline.steps.step_20_collapse_opu import Step20CollapseOtherIncomeExpensesStep
 
 
 
@@ -51,5 +52,6 @@ __all__ = [
     'Step16AddCommExpensesToOpuStep',
     'Step17AddOtherIncomeExpensesToOpuStep',
     'Step18AddTaskAndOtherMovementsStep',
-    'Step19BuildOpuStep'
+    'Step19BuildOpuStep',
+    'Step20CollapseOtherIncomeExpensesStep',
 ]

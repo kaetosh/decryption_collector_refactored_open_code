@@ -70,6 +70,7 @@
 - **17** (`step_17_add_other_income_and_expenses.py`) — прочие доходы/расходы (91.01/91.02), ~1270 строк
 - **18** (`step_18_add_task_and_other_movements.py`) — налог на прибыль (99), исключение реформации
 - **19** (`step_19_build_opu.py`) — сборка ОПУ, увязка ЧП = НРП (`tolerance_pnl_balance`)
+- **20** (`step_20_collapse_opu.py`) — свёртывание прочих доходов/расходов по справочнику `Прочие_дох_рас_свернуто`
 
 ## ProcessingContext — структура данных
 `ProcessingContext` (`pipeline/base.py:29`, `__repr__` — `base.py:90`):
