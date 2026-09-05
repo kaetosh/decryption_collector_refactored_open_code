@@ -104,36 +104,90 @@ class Step1cReconcileTotalsStep(Step):
         # ==========================================
         osv_all_df = DataLoader.load_account_osv()
         
-        # Сохраняем в контекст
-        context.summary_osv_df = osv_all_df
+        accounts_from_general_osv = context.data.get('accounts_from_general_osv', [])
         
-        osv_all_df = self.clean_whitespace(osv_all_df)
-        osv_all_df['сальдо_свернуто, тыс. ед.'] = osv_all_df['Дебет_конец'].sub(osv_all_df['Кредит_конец'], fill_value=0).div(1_000).round(2)
-        osv_all_df = osv_all_df[osv_all_df['сальдо_свернуто, тыс. ед.'] != 0].copy()
+        # Сохраняем СЫРОЙ вариант в data — Step 2 ожидает Дебет_конец/Кредит_конец
+        # и сам считает сальдо (см. step_02_flat_osv.py:34-35).
+        # В context.summary_osv_df сохраняем этот же сырой вариант (Step 2 его прочтёт,
+        # посчитает сальдо, удалит лишние колонки и вернёт обратно).
+        context.data['osv_all_raw'] = osv_all_df.copy()
+        context.summary_osv_df = osv_all_df.copy()
+        
+        # Дальше работаем с копией для целей реконциляции (фильтруем, дропаем колонки).
+        # Колонки Дебет_конец/Кредит_конец НЕ дропаем здесь — они нужны в Step 2.
+        # Вместо этого сохраняем рабочую копию для реконциляции в локальную переменную.
+        osv_for_recon = osv_all_df.copy()
+        osv_for_recon = self.clean_whitespace(osv_for_recon)
+        osv_for_recon['сальдо_свернуто, тыс. ед.'] = osv_for_recon['Дебет_конец'].sub(osv_for_recon['Кредит_конец'], fill_value=0).div(1_000).round(2)
+        osv_for_recon = osv_for_recon[osv_for_recon['сальдо_свернуто, тыс. ед.'] != 0].copy()
         
         cols_to_drop = [
             'Дебет_начало', 'Кредит_начало', 'Дебет_оборот', 'Кредит_оборот',
-            'Дебет_конец', 'Кредит_конец', 'Начало периода для вида связи', 
-            'Конец периода для вида связи', 'Исх.файл'
+            'Начало периода для вида связи', 
+            'Конец периода для вида связи',
+            'Исх.файл'
         ]
-        osv_all_df = osv_all_df.drop(columns=cols_to_drop, errors='ignore')
+        osv_for_recon = osv_for_recon.drop(columns=cols_to_drop, errors='ignore')
         
         name_col_with_all_account = find_target_column(
-            osv_all_df, column_prefix='Level_', search_direction='rightmost', account_type='all_accounts', shift=0
+            osv_for_recon, column_prefix='Level_', search_direction='rightmost', account_type='all_accounts', shift=0
         )
         if not name_col_with_all_account:
             raise ValueError("В сводной ОСВ по счетам не найден столбец Level_, содержащий только бухгалтерские счета")
             
-        osv_all_df['синтетический_счет'] = osv_all_df[name_col_with_all_account].astype(str).str[:2]
+        osv_for_recon['синтетический_счет'] = osv_for_recon[name_col_with_all_account].astype(str).str[:2]
         
-        missing_acc_all = [x for x in osv_all_df['синтетический_счет'].unique() if x not in unique_chart_accounts]
+        # ★ ИСПРАВЛЕНИЕ: исключаем синтетические счета, которые берутся из общей ОСВ.
+        # Применяем фильтр и к osv_for_recon (для реконциляции), и к osv_all_df
+        # (который сохранён в context.data['osv_all_raw'] и будет использован в Step 2).
+        if accounts_from_general_osv:
+            # Фильтруем данные для реконциляции
+            before = len(osv_for_recon)
+            osv_for_recon = osv_for_recon[~osv_for_recon['синтетический_счет'].isin(accounts_from_general_osv)].copy()
+            removed = before - len(osv_for_recon)
+            if removed > 0:
+                logger.debug(
+                    "Исключено {} строк по синтетическим счетам из сводной ОСВ (берутся из общей ОСВ): {}",
+                    removed,
+                    ', '.join(sorted(accounts_from_general_osv))
+                )
+            
+            # Также фильтруем СЫРОЙ osv_all_df, чтобы Step 2 не получил лишние строки
+            # Находим колонку Level_ с кодами счетов (так же как в Step 3)
+            raw_clean = self.clean_whitespace(osv_all_df)
+            raw_name_col = find_target_column(
+                raw_clean, column_prefix='Level_', search_direction='rightmost',
+                account_type='all_accounts', shift=0
+            )
+            if raw_name_col:
+                raw_synth = raw_clean[raw_name_col].astype(str).str[:2]
+                mask_keep = ~raw_synth.isin(accounts_from_general_osv)
+                before_raw = len(osv_all_df)
+                osv_all_df = osv_all_df[mask_keep].copy()
+                removed_raw = before_raw - len(osv_all_df)
+                if removed_raw > 0:
+                    logger.debug(
+                        "Из сырого osv_all_df исключено {} строк по синтетическим счетам",
+                        removed_raw,
+                    )
+                    context.data['osv_all_raw'] = osv_all_df.copy()
+                    context.summary_osv_df = osv_all_df.copy()
+            else:
+                logger.warning(
+                    "Не удалось найти колонку Level_ с кодами счетов в сырых данных. "
+                    "Синтетические счета {} НЕ будут отфильтрованы из сводной ОСВ. "
+                    "Это может привести к дублированию в Step 2а.",
+                    ', '.join(sorted(accounts_from_general_osv))
+                )
+        
+        missing_acc_all = [x for x in osv_for_recon['синтетический_счет'].unique() if x not in unique_chart_accounts]
         if missing_acc_all:
             logger.warning(
                 "В детальной ОСВ обнаружены неизвестные синтетические счета: {}",
                 missing_acc_all,
             )
             
-        osv_all_agg = osv_all_df.groupby('синтетический_счет')[['сальдо_свернуто, тыс. ед.']].sum().reset_index()
+        osv_all_agg = osv_for_recon.groupby('синтетический_счет')[['сальдо_свернуто, тыс. ед.']].sum().reset_index()
 
         # ==========================================
         # 4. МЕРДЖ ОБОРОТОВ (Общая ОСВ ↔ Отчет по проводкам)

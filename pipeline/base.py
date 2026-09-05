@@ -128,6 +128,7 @@ class Step(ABC):
     def __init__(self, name: str, description: str = ""):
         self.name = name
         self.description = description
+        self._skip_balance_validation: bool = False
     
     @handle_pipeline_errors
     def execute(self, context: 'ProcessingContext') -> 'ProcessingContext':
@@ -241,33 +242,37 @@ class Step(ABC):
                     f"Используйте 'string' или числовые типы."
                 )
     
-            # 3. Проверка сходимости сальдо
+            # 3. Проверка сходимости сальдо (пропускается, если шаг запросил пропуск)
             if ColumnNames.BALANCE in df.columns:
-                try:
-                    # pd.to_numeric дополнительно страхует от случаев,
-                    # когда тип не object, но значения не числовые.
-                    balance_values = pd.to_numeric(df[ColumnNames.BALANCE], errors='raise')
-                except (ValueError, TypeError) as exc:
-                    raise TypeError(
-                        f"После этапа '{self.name}' в {df_name} столбец "
-                        f"'{ColumnNames.BALANCE}' содержит нечисловые значения."
-                    ) from exc
-    
-                balance_sum = balance_values.sum()
-    
-                if abs(balance_sum) > context.tolerance_params['tolerance_balance']:
-                    raise ValueError(
-                        f"После этапа '{self.name}' в {df_name} ОСВ не сошлась: "
-                        f"сумма сальдо = {balance_sum:.2f} тыс.ед. "
-                        f"(допуск: {context.tolerance_params['tolerance_balance']})"
+                if self._skip_balance_validation and df_name == 'summary_osv_df':
+                    logger.debug(
+                        "Этап '{}': пропуск проверки сходимости баланса для summary_osv_df",
+                        self.name,
                     )
+                else:
+                    try:
+                        balance_values = pd.to_numeric(df[ColumnNames.BALANCE], errors='raise')
+                    except (ValueError, TypeError) as exc:
+                        raise TypeError(
+                            f"После этапа '{self.name}' в {df_name} столбец "
+                            f"'{ColumnNames.BALANCE}' содержит нечисловые значения."
+                        ) from exc
     
-                logger.debug(
-                    "Этап '{}', {}: сходимость сальдо = {:.2f} тыс.ед.",
-                    self.name,
-                    df_name,
-                    balance_sum,
-                )
+                    balance_sum = balance_values.sum()
+    
+                    if abs(balance_sum) > context.tolerance_params['tolerance_balance']:
+                        raise ValueError(
+                            f"После этапа '{self.name}' в {df_name} ОСВ не сошлась: "
+                            f"сумма сальдо = {balance_sum:.2f} тыс.ед. "
+                            f"(допуск: {context.tolerance_params['tolerance_balance']})"
+                        )
+    
+                    logger.debug(
+                        "Этап '{}', {}: сходимость сальдо = {:.2f} тыс.ед.",
+                        self.name,
+                        df_name,
+                        balance_sum,
+                    )
     
         # Обрабатываем те же датафреймы, что и в предыдущих методах
         for attr_name in ('common_osv_df', 'summary_osv_df', 'journal_df'):

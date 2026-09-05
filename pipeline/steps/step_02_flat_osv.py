@@ -21,6 +21,9 @@ class Step2FlatSummaryOSVStep(Step):
             name="Шаг 2: Объединение в Свод ОСВ по счетам",
             description="Загрузка и объединение выгруженных регистров"
         )
+        # ★ Синтетические счета добавляются в Step 2а из общей ОСВ.
+        # До этого момента баланс сводной ОСВ не сходится — пропускаем валидацию.
+        self._skip_balance_validation = True
     
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Объединение данных из выгруженных регистров")

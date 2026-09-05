@@ -13,6 +13,7 @@ from pipeline.steps import (
     Step1bVerifyFilesStep,
     Step1cReconcileTotalsStep,
     Step2FlatSummaryOSVStep,
+    Step2aInjectFromGeneralOSVStep,
     Step3AddAccountColumnStep,
     Step4AddReceivableTypeStep,
     Step5AddReceivableSubtypeStep,
@@ -65,6 +66,7 @@ def create_main_pipeline() -> Pipeline:
     pipeline.add_step(Step1bVerifyFilesStep())
     pipeline.add_step(Step1cReconcileTotalsStep())
     pipeline.add_step(Step2FlatSummaryOSVStep())
+    pipeline.add_step(Step2aInjectFromGeneralOSVStep())  # Подстановка сальдо синтетических счетов
     
     # ЭТАП 2: Добавление классификационных столбцов баланс
     pipeline.add_step(Step3AddAccountColumnStep())

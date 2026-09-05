@@ -330,24 +330,48 @@ class Step1aListExpectedRegistersStep(Step):
         # 6. ФОРМИРОВАНИЕ СПИСКА ВЫГРУЗОК ДЛЯ БАЛАНСА (ОСВ)
         # =========================================================================
         
-        # Определяем валидные счета для баланса через process_account
+# Определяем валидные счета для баланса через process_account
         valid_accounts = df.index.map(process_account).dropna().unique()
         
-        # ★ ИСПРАВЛЕНИЕ: фильтруем не только по счету, но и по типу регистра 'осв'
-        # Это защищает от попадания отчета по проводкам (для ОПУ) в список ОСВ
+        # ★ ИСПРАВЛЕНИЕ: фильтруем синтетические счета (2-значные) из справочника 'Выгрузки'
+        # Синтетические счета — те, что имеют 2-значный код, регистр 'осв' и детализация = 'нет'
+        # Они должны получать данные из общей ОСВ, а не из выгрузок
+        synthetic_accounts = all_loads_df[
+            (all_loads_df['счет'].astype(str).str.len() == 2) &
+            (all_loads_df['регистр'].astype(str).str.lower() == 'осв') &
+            (all_loads_df['детализация_субсчета'].astype(str).str.lower() == 'нет') &
+            (all_loads_df['детализация_субконто1'].astype(str).str.lower() == 'нет') &
+            (all_loads_df['детализация_субконто2'].astype(str).str.lower() == 'нет') &
+            (all_loads_df['детализация_субконто3'].astype(str).str.lower() == 'нет')
+        ].copy()
+        
+        # Оставляем только те счета, которые есть в valid_accounts (имеют ненулевое сальдо)
+        filtered_valid = synthetic_accounts[synthetic_accounts['счет'].isin(valid_accounts)]
+        
+        # 5. Создаем итоговый DataFrame для выгрузки
+        # Исключаем синтетические счета из списка (они будут взяты из General OSV)
         filtered_loads_balance = all_loads_df[
-            all_loads_df['счет'].isin(valid_accounts) & 
-            (all_loads_df['регистр'].str.lower() == 'осв')
+            (all_loads_df['счет'].isin(valid_accounts)) & 
+            (all_loads_df['регистр'].str.lower() == 'осв') &
+            (~all_loads_df['счет'].isin(filtered_valid['счет']))
         ].copy()
         
         filtered_loads_balance['Сокращенное Наименование компании'] = context.company
         filtered_loads_balance['Период Отчетности'] = context.period
-        filtered_loads_balance['Тип регистра'] = 'осв'  # Маркер для Excel
+        filtered_loads_balance['Тип регистра'] = 'осв'
         
-        logger.debug(
-            "Для баланса отобрано {} ОСВ по {} счетам",
-            len(filtered_loads_balance),
-            len(valid_accounts),
+        # Добавляем метаданные для контекста
+        # Приводим к строке с ведущим нулём для совместимости с фильтрацией в Step 1c
+        # (osv_all_df['синтетический_счет'] = Level_[:2] — всегда 2-символьная строка с ведущим нулём)
+        accounts_synth = filtered_valid['счет'].astype(str).tolist()
+        accounts_synth = [acc.zfill(2) if len(acc) < 2 else acc for acc in accounts_synth]
+        context.data['accounts_from_general_osv'] = accounts_synth
+        context.data['general_osv_accounts'] = filtered_valid[['счет', 'регистр', 'детализация_субсчета', 'детализация_субконто1', 'детализация_субконто2', 'детализация_субконто3']].to_dict('records')
+        
+        logger.info(
+            "Исключено {} синтетических счетов из выгрузки (они будут взяты из общей ОСВ): {}",
+            len(filtered_valid['счет'].tolist()),
+            ', '.join(sorted(filtered_valid['счет'].tolist())) if not filtered_valid.empty else 'нет'
         )
         
         # =========================================================================
