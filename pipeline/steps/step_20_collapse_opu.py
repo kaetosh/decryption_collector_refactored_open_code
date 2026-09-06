@@ -129,15 +129,13 @@ class Step20CollapseOtherIncomeExpensesStep(Step):
     def _build_groups(
         self,
         ref_df: pd.DataFrame,
-    ) -> dict[str, tuple[str, str]]:
+    ) -> dict[str, tuple[str, str, str]]:
         """
-        Строит маппинг нормализованный_вид -> (1_уровень_дохода, 1_уровень_расхода).
+        Строит маппинг: income_level2 -> (income_level1, expense_level1, expense_level2).
 
-        Параметры:
-            ref_df — DataFrame из листа «Прочие_дох_рас_свернуто»
-
-        Возвращает:
-            dict[нормализованный_вид_дохода_расхода, (level1_income, level1_expense)]
+        Парирование происходит по GROUP_COL (номеру группы), а не по LEVEL2,
+        так как в справочнике доход и расход имеют разные значения LEVEL2
+        (например, "Доходы от курсовых разниц" и "Расходы от курсовых разниц").
         """
         required = {self.GROUP_COL, self.LEVEL1_COL, self.LEVEL2_COL}
         missing = [c for c in required if c not in ref_df.columns]
@@ -159,34 +157,33 @@ class Step20CollapseOtherIncomeExpensesStep(Step):
         )
         ref = ref[ref[self.LEVEL2_COL] != ""]
 
-        groups: dict[str, tuple[str, str]] = {}
-
+        # Группируем строки по GROUP_COL: {group_id: {level1: level2}}
+        groups_by_id: dict[str, dict[str, str]] = {}
         for _, row in ref.iterrows():
-            name = str(row[self.LEVEL2_COL]).strip()
+            group_id = str(row[self.GROUP_COL]).strip()
             level1 = str(row[self.LEVEL1_COL]).strip()
+            level2 = str(row[self.LEVEL2_COL]).strip()
 
-            if name in groups:
-                continue
+            if group_id not in groups_by_id:
+                groups_by_id[group_id] = {}
 
-            income_row = ref[
-                (ref[self.LEVEL2_COL] == name)
-                & (ref[self.LEVEL1_COL].str.strip() == self.INCOME_LEVEL1)
-            ]
-            expense_row = ref[
-                (ref[self.LEVEL2_COL] == name)
-                & (ref[self.LEVEL1_COL].str.strip() == self.EXPENSE_LEVEL1)
-            ]
+            groups_by_id[group_id][level1] = level2
 
-            if income_row.empty or expense_row.empty:
-                group_id = row.get(self.GROUP_COL, pd.NA)
+        # Собираем финальный маппинг: income_level2 -> (income_level1, expense_level1, expense_level2)
+        groups: dict[str, tuple[str, str, str]] = {}
+
+        for group_id, level1_map in groups_by_id.items():
+            income_level2 = level1_map.get(self.INCOME_LEVEL1)
+            expense_level2 = level1_map.get(self.EXPENSE_LEVEL1)
+
+            if not income_level2 or not expense_level2:
                 logger.debug(
-                    "Группа {} ('{}'): отсутствует пара доход/расход — пропущена",
+                    "Группа {}: отсутствует пара доход/расход — пропущена",
                     group_id,
-                    name,
                 )
                 continue
 
-            groups[name] = (self.INCOME_LEVEL1, self.EXPENSE_LEVEL1)
+            groups[income_level2] = (self.INCOME_LEVEL1, self.EXPENSE_LEVEL1, expense_level2)
 
         logger.debug("Построено {} групп для сворачивания", len(groups))
         return groups
@@ -228,14 +225,14 @@ class Step20CollapseOtherIncomeExpensesStep(Step):
 
         used_indices: set[int] = set()
 
-        for name, (income_level1, expense_level1) in groups.items():
+        for name, (income_level1, expense_level1, expense_level2) in groups.items():
             income_mask = (
                 (pnl_df[self.LEVEL1_COL].str.strip() == income_level1)
                 & (pnl_df[self.LEVEL2_COL].str.strip() == name)
             )
             expense_mask = (
                 (pnl_df[self.LEVEL1_COL].str.strip() == expense_level1)
-                & (pnl_df[self.LEVEL2_COL].str.strip() == name)
+                & (pnl_df[self.LEVEL2_COL].str.strip() == expense_level2)
             )
 
             income_rows = pnl_df[income_mask]
@@ -292,9 +289,9 @@ class Step20CollapseOtherIncomeExpensesStep(Step):
 
                 row_dict: dict = {
                     self.RSBU_CODE_COL: source_row.get(self.RSBU_CODE_COL, pd.NA),
-                    self.ACCOUNT_COL: source_row.get(self.ACCOUNT_COL, pd.NA),
+                    self.ACCOUNT_COL: source_row.name,
                     self.LEVEL1_COL: result_level1,
-                    self.LEVEL2_COL: name,
+                    self.LEVEL2_COL: source_row.get(self.LEVEL2_COL, pd.NA),
                     self.LEVEL3_COL: level3,
                     self.LEVEL4_COL: level4,
                     self.ASSET_LIABILITY_COL: source_row.get(
@@ -317,6 +314,8 @@ class Step20CollapseOtherIncomeExpensesStep(Step):
             return pnl_df, collapsed_rows
 
         result_df = pnl_df.drop(index=list(used_indices)).copy()
+        if self.ACCOUNT_COL not in result_df.columns:
+            result_df = result_df.reset_index()
 
         if collapsed_rows:
             new_rows = pd.DataFrame(collapsed_rows)
@@ -325,11 +324,10 @@ class Step20CollapseOtherIncomeExpensesStep(Step):
                     new_rows[col] = pd.NA
             new_rows = new_rows[output_cols]
             result_df = pd.concat([result_df, new_rows], ignore_index=True)
+            result_df = result_df.set_index(self.ACCOUNT_COL)
 
         result_df = self._clean_pnl_dtypes(result_df)
-        result_df = result_df.sort_values(
-            self.ACCOUNT_COL, na_position="last"
-        ).reset_index(drop=True)
+        result_df = result_df.sort_index(na_position="last")
 
         return result_df, collapsed_rows
 
