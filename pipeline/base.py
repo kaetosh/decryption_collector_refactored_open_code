@@ -199,7 +199,30 @@ class Step(ABC):
                 message += f" {hint}"
             raise ValueError(message)
         return df
-    
+
+    def _dump_df_for_debug(
+        self,
+        df: pd.DataFrame,
+        label: str,
+    ) -> None:
+        """
+        Сохраняет DataFrame в _OUTPUT_DATA/_debug/ при DEBUG_DUMP_DFS=True.
+
+        Используется для отладки: чтобы сравнить состояние данных
+        на разных этапах обработки без изменения бизнес-логики.
+
+        Args:
+            df: DataFrame для сохранения.
+            label: Метка (например, 'after_filter', 'before_merge').
+        """
+        from config.settings import DEBUG_DUMP_DFS
+        if not DEBUG_DUMP_DFS:
+            return
+        path = get_output_dir('_debug') / f'{self.name}_{label}_{get_run_id()}.parquet'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(path)
+        logger.debug("DEBUG: сохранён {} -> {}", self.name, path.name)
+
     def _validate_input(self, context: 'ProcessingContext'):
         """
         Базовая валидация входа. 

@@ -7,7 +7,29 @@
 
 ---
 
+## Активные задачи
+Нет активных задач.
+
+---
+
 ## Завершённые задачи
+
+### ✅ Рефакторинг: разбиение монолитных шагов 14/17/19 на миксины + debug-точки
+- **Дата:** сессия 06.09.2026 — **завершена**
+- **Суть:** крупные шаги (14 — 728 строк, 17 — 1709 строк, 19 — 732 строки) становились трудночитаемыми: при отладке нужно скроллить весь файл, чтобы найти конкретный блок. Декомпозиция на логические миксины без изменения бизнес-логики.
+- **Реализовано:**
+  - **Шаг 14:** `_step14_base` (константы), `_step14_data` (загрузка), `_step14_accounts` (90.01/90.02, распределение), `_step14_transform` (melt, merge).
+  - **Шаг 17:** `_step17_base` (константы), `_step17_data` (загрузка/фильтрация), `_step17_processing` (ППА, продажа активов, кредитные линии, обогащение), `_step17_fx` (Фаза 3.3 — курсовые разницы), `_step17_merge` (слияние с main_df).
+  - **Шаг 19:** `_step19_base` (константы), `_step19_validation` (типы, чистка, ЧП vs НРП), `_step19_mapping` (маппинг ОПУ), `_step19_report` (сборка отчёта).
+  - **`data_processors/file_processor_config.py`:** вынесены `EXCLUDE_VALUES`, `DESIRED_ORDER` из `file_processor.py` (там остались дублированные `# -*- coding: utf-8 -*-` и захардкоженные константы). `exclude_values` сохранён как module-level алиас для обратной совместимости (`from data_processors.file_processor import exclude_values`).
+  - **Debug-точки:** `DEBUG_DUMP_DFS = False` в `config/settings.py`; `Step._dump_df_for_debug(df, label)` в `base.py` — при `True` сохраняет parquet в `_OUTPUT_DATA/_debug/`.
+  - **Удалено:** закомментированный `df_final.to_parquet('df_final.parquet', engine='pyarrow')` в step_14.
+- **Принципы:**
+  - Миксины не имеют `__init__` — полагаются на родительский `Step.__init__`.
+  - MRO: `class Step17Xxx(Step17BaseMixin, Step17DataMixin, Step17ProcessingMixin, Step17FXMixin, Step17MergeMixin, Step)`.
+  - Бизнес-логика не тронута — только перемещение методов.
+- **Проверка:** `py_compile` всех модулей OK; импорты через `pipeline.steps` и `pipeline.steps.step_*` работают; MRO проверен.
+- **Файлы:** 14 новых (`pipeline/steps/_step14_*.py`, `_step17_*.py`, `_step19_*.py`, `data_processors/file_processor_config.py`), 7 рефакторнутых, `AGENTS.md`, `TASKS.md`.
 
 ### ✅ Шаг 20 (доработка): корректное сворачивание, именованный индекс, разные LEVEL2 дохода/расхода
 - **Дата:** сессия 06.09.2026 — **завершена**
