@@ -38,8 +38,16 @@
 | `Exception` | обёртка в `ProcessingStepError` (`from e`) |
 
 `STRICT_CONTRACTOR_CHECK = False` (`config/settings.py:48`) — мягкий режим. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:652`).
-`STRICT_CREDIT_CONTRACTOR_CHECK = True` (`config/settings.py:53`) — режим для справочника КредитОбслуж (шаг 17, `_process_credit_lines`). `True` (по умолчанию): при отсутствии РБП в справочнике — отчёт в Excel (mismatches/) + `ProcessingStepError`; `False`: отчёт в Excel + замена контрагента на `3 лица`, шаг продолжается. Исключение — `MissingCreditContractorError`.
-`STRICT_OS_GROUP_CHECK = True` (`config/settings.py:49`) — строгий режим для групп ОС аренды/лизинга (шаг 6, справочник ППА). Проверяются: договоры/РБП, отсутствующие в ППА, и значения групп вне допустимого списка. При `False` — WARNING, замена на `не_указано` внутри шага (реализация — `_validate_mapping` и этапы 5/7 в `pipeline/steps/step_06_add_os_group.py`).
+`STRICT_CREDIT_CONTRACTOR_CHECK = True` (`config/settings.py:58`) — режим для справочника КредитОбслуж (шаг 17, `_process_credit_lines`). `True` (по умолчанию): при отсутствии РБП в справочнике — отчёт в Excel (mismatches/) + `ProcessingStepError`; `False`: отчёт в Excel + замена контрагента на `3 лица`, шаг продолжается. Исключение — `MissingCreditContractorError`.
+`STRICT_OS_GROUP_CHECK = True` (`config/settings.py:54`) — строгий режим по умолчанию для групп ОС аренды/лизинга (шаг 6, справочник ППА). Проверяются: договоры/РБП, отсутствующие в ППА, и значения групп вне допустимого списка — выбрасывается `MissingOSGroupError`, проблемные строки сохраняются в Excel (mismatches/). При `False` (мягкий режим) — WARNING, замена на `не_указано` внутри шага (реализация — `_validate_mapping` и этапы 5/7 в `pipeline/steps/step_06_add_os_group.py`). Актуализация справочника ППА под новый период — штатная часть работы с отчётностью.
+
+## Классификация ошибок в логах ([STOP] vs CRITICAL)
+Верхний обработчик `cli/main.py` разделяет штатные остановки и настоящие сбои:
+* `except (PipelineError, ProcessingStepError)` — предусмотренные ошибки пайплайна: `ProcessingStepError` с первопричиной-наследником `PipelineError` в `__cause__` (декоратор шагов сохраняет её) и «сырые» `PipelineError` вне шагов (например, `PeriodMismatchError` из Фазы 0). Лог — `ERROR [STOP] Обработка остановлена: <причина>` + подсказки про актуализацию справочников и mismatches/. CRITICAL не используется.
+* `ProcessingStepError` с первопричиной НЕ из `PipelineError` и общий `except Exception` — непредвиденные сбои: `CRITICAL [!!] Неожиданная ошибка`.
+* `FileNotFoundError` — `ERROR [STOP] Обработка остановлена: не найден файл...`.
+
+Теги сообщений: `[STOP]` — штатная остановка конвейера (нужна актуализация справочников/входных данных), `[!!]` + CRITICAL — действительно непредвиденное падение. Сообщение о сохранении проблемных данных (`[FOLDER] Проблемные данные сохранены...`, `base.py:518`) — уровень INFO.
 
 ## Встроенные хелперы и утилиты
 * Чтение Excel: `engine=\'openpyxl\''
