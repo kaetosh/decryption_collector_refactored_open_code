@@ -28,6 +28,7 @@ from .file_utils import (
     find_missing_files,
     find_register_file,
     format_filename_vectorized,
+    normalize_ragged_tab_rows,
 )
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     'find_missing_files',
     'find_register_file',
     'format_filename_vectorized',
+    'normalize_ragged_tab_rows',
     # currency_utils
     'needs_conversion',
     'get_currency',

@@ -14,7 +14,7 @@ Created on Mon Aug 25 12:20:46 2025
 import pandas as pd
 from pathlib import Path
 from loguru import logger
-from utils import cast_columns_to_types, detect_txt_encoding
+from utils import cast_columns_to_types, detect_txt_encoding, normalize_ragged_tab_rows
 
 from data_processors.file_processor import FileProcessor
 
@@ -77,8 +77,18 @@ class Posting_UPPFileProcessor(FileProcessor):
             errors=encoding_errors,
         )
         
-        df = pd.read_csv(
+        # Нормализация «рваных» строк: склейка табуляций, попавших внутрь
+        # свободно-текстовых полей (иначе pd.read_csv падает с ParserError).
+
+        df_source, _ = normalize_ragged_tab_rows(
             file_path,
+            header_row,
+            encoding=encoding,
+            errors=encoding_errors,
+        )
+
+        df = pd.read_csv(
+            df_source,
             sep='\t',
             encoding=encoding,
             encoding_errors=encoding_errors,

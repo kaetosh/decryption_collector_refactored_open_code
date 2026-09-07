@@ -7,6 +7,7 @@ Created on Mon Jun 22 09:30:02 2026
 
 # utils/file_utils.py
 import pandas as pd
+from io import StringIO
 from pathlib import Path
 from typing import List, Optional, Tuple
 from loguru import logger
@@ -74,6 +75,79 @@ def detect_txt_encoding(
         file_path.name,
     )
     return 'cp1251', 'replace'
+
+
+def _merge_col_codepoints():
+    return ''.join(chr(c) for c in (0x421,0x43e,0x434,0x435,0x440,0x436,0x430,0x43d,0x438,0x435))
+
+
+def normalize_ragged_tab_rows(file_path, header_row, merge_column=None,
+                                encoding='cp1251', errors='strict'):
+    """Normalize ragged ('рваные') rows in 1C TXT posting exports.
+
+    A literal TAB inside a free-text column makes pandas C-engine fail with
+    ParserError. This re-joins the excess fragments back into that free-text column,
+    so all lines match the header field count. No rows are lost. Each repaired line
+    is logged (warning) and counted in the returned value..
+    """
+    if merge_column is None:
+        merge_column = _merge_col_codepoints()
+    file_path = Path(file_path)
+    expected_tabs = None
+    merge_col_idx = None
+
+    with open(file_path,'r',encoding=encoding,errors=errors) as f:
+        for i,line in enumerate(f):
+            if i == header_row:
+                expected_tabs = line.count('\t')
+                hdr_parts = line.rstrip('\n\r').split('\t')
+                try:
+                    merge_col_idx = hdr_parts.index(merge_column)
+                except ValueError:
+                    merge_col_idx = None
+                break
+
+    buff = StringIO()
+    repaired = 0
+
+    if expected_tabs is None or merge_col_idx is None:
+        with open(file_path,'r',encoding=encoding,errors=errors) as f:
+            buff.write(f.read())
+        buff.seek(0)
+        return buff, repaired
+
+    with open(file_path,'r',encoding=encoding,errors=errors) as f:
+        for raws in f:
+            if raws.count('\t') > expected_tabs:
+
+
+
+
+                repaired += 1
+                fixed = _merge_excess_tabs(raws, expected_tabs, merge_col_idx)
+                buff.write(fixed if fixed != raws else raws)
+
+
+
+            else:
+                buff.write(raws)
+
+
+    buff.seek(0)
+    if repaired > 0:
+
+
+        logger.warning("normalize_ragged_tab_rows {}: repaired {} lines", file_path.name, repaired)
+    return buff, repaired
+
+
+def _merge_excess_tabs(raw, expected_tabs, merge_col_idx):
+    parts = raw.split('\t')
+    excess = len(parts) - (expected_tabs + 1)
+    if excess <= 0 or merge_col_idx > len(parts):
+        return raw
+    content = ' '.join(p for p in parts[merge_col_idx: merge_col_idx + excess + 1] if p)
+    return '\t'.join(parts[:merge_col_idx] + [content] + parts[merge_col_idx + excess + 1:])
 
 
 def format_filename_vectorized(df: pd.DataFrame) -> list:
