@@ -515,7 +515,7 @@ class Step(ABC):
             
             error.problem_data.to_excel(output_path, index=False)
             
-            logger.error(
+            logger.info(
                 "[FOLDER] Проблемные данные сохранены в: {}/{}", output_path.parent.name, output_path.name
             )
             

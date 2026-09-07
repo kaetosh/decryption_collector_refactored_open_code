@@ -115,7 +115,7 @@ def handle_pipeline_errors(func):
                 # Строгий режим: падаем
                 _record(context, "error", str(e))
                 logger.error(
-                    "[ERR] Критическая ошибка: неизвестные контрагенты на этапе '{}': {}",
+                    "[STOP] Обработка остановлена: неизвестные контрагенты на этапе '{}': {}",
                     step_name, e,
                 )
                 raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
@@ -142,7 +142,7 @@ def handle_pipeline_errors(func):
             e.step_name = step_name
             self._save_reference_mismatch_report(e)
             logger.error(
-                "[ERR] Критическая ошибка: не найдены группы ОС на этапе '{}': {}",
+                "[STOP] Обработка остановлена: не найдены группы ОС на этапе '{}': {}",
                 step_name, e,
             )
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
@@ -152,7 +152,7 @@ def handle_pipeline_errors(func):
             e.step_name = step_name
             self._save_reference_mismatch_report(e)
             logger.error(
-                "[ERR] Ошибка несоответствия данных на этапе '{}': {}",
+                "[STOP] Обработка остановлена: несоответствие данных справочникам на этапе '{}': {}",
                 step_name, e,
             )
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
@@ -162,7 +162,7 @@ def handle_pipeline_errors(func):
             e.step_name = step_name
             self._save_missing_files_report(e)
             logger.error(
-                "[ERR] Ошибка: отсутствуют файлы выгрузок на этапе '{}': {}",
+                "[STOP] Обработка остановлена: отсутствуют файлы выгрузок на этапе '{}': {}",
                 step_name, e,
             )
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
@@ -172,11 +172,11 @@ def handle_pipeline_errors(func):
             e.step_name = step_name
             # Логируем список найденных файлов для диагностики
             logger.error(
-                "[ERR] Ошибка: найдено несколько файлов вместо одного на этапе '{}': {}",
+                "[STOP] Обработка остановлена: найдено несколько файлов вместо одного на этапе '{}': {}",
                 step_name, e,
             )
             if e.found_files:
-                logger.error("[ERR] Найденные файлы: {}", ", ".join(e.found_files))
+                logger.error("[STOP] Найденные файлы: {}", ", ".join(e.found_files))
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
 
         except Exception as e:

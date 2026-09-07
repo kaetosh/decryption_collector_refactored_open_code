@@ -32,6 +32,7 @@ from pipeline.executors import (
     ask_balance_date_if_needed,
     save_results,
 )
+from pipeline.errors import PipelineError, ProcessingStepError
 from cli.arguments import parse_arguments, ask_user_about_traceback
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
 
@@ -121,7 +122,36 @@ def main(
 
     except FileNotFoundError as e:
         cause = e.__cause__ if e.__cause__ is not None else e
-        logger.error("[!!] Ошибка: не найден файл (общая ОСВ, справочник или выгрузка). Подробнее: {}", cause)
+        logger.error(
+            "[STOP] Обработка остановлена: не найден файл (общая ОСВ, справочник или выгрузка). Подробнее: {}",
+            cause,
+        )
+        if show_traceback:
+            logger.exception("Трассировка стека:")
+        return 1
+
+    except (PipelineError, ProcessingStepError) as e:
+        # Ожидаемые остановки конвейера: предусмотренные ошибки пайплайна
+        # (несоответствие справочникам, отсутствующие файлы — включая «сырые»
+        # PipelineError вне шагов, например PeriodMismatchError) и обёртки
+        # ProcessingStepError, которые декоратор шагов создаёт с сохранением
+        # первопричины в __cause__. Непредвиденные сбои внутри шагов
+        # (первопричина — не PipelineError) классифицируются как неожиданные.
+        cause = e.__cause__ if e.__cause__ is not None else e
+        if isinstance(e, ProcessingStepError) and not isinstance(cause, PipelineError):
+            logger.critical("[!!] Неожиданная ошибка: {}", cause)
+            if show_traceback:
+                logger.exception("Трассировка стека:")
+            return 1
+        logger.error("[STOP] Обработка остановлена: {}", cause)
+        logger.error(
+            "[STOP] Дальнейшая обработка невозможна, пока не актуализированы "
+            "справочники/входные данные."
+        )
+        logger.error(
+            "[STOP] Список проблемных значений — в mismatches/ папки запуска, "
+            "детали — в логе выше."
+        )
         if show_traceback:
             logger.exception("Трассировка стека:")
         return 1
