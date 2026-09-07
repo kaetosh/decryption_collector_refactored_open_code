@@ -137,7 +137,10 @@ def normalize_ragged_tab_rows(file_path, header_row, merge_column=None,
     if repaired > 0:
 
 
-        logger.warning("normalize_ragged_tab_rows {}: repaired {} lines", file_path.name, repaired)
+        logger.warning(
+            "Файл «{}»: строк с лишним символом табуляции в поле «{}» исправлено: {}. Данные не потеряны.",
+            file_path.name, merge_column, repaired,
+        )
     return buff, repaired
 
 
