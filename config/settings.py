@@ -57,6 +57,15 @@ STRICT_OS_GROUP_CHECK = True
 # False — WARNING + сохранение отчёта + замена контрагента на '3 лица' (мягкий режим).
 STRICT_CREDIT_CONTRACTOR_CHECK = True
 
+# Взаимоувязка ОПУ и баланса (шаг 19, сверка ЧП = НРП, порог tolerance_pnl_balance):
+# True  — мягкий режим: при несходимости ERROR/WARNING в лог, шаг продолжается,
+#         финальный отчёт выгружается в Excel «как есть» (несведённый) —
+#         для анализа расхождения; детали диагностики в context.data
+#         (ключ OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY).
+# False — строгий режим: ConvergenceError -> декоратор сохраняет диагностику
+#         в mismatches/ и останавливает конвейер, финальный отчёт не выгружается.
+EXPORT_REPORT_ON_MISMATCH = True
+
 
 # Конфигурация справочников
 REFERENCE_CONFIGS = {

@@ -13,6 +13,18 @@
 ---
 
 ## Завершённые задачи
+### ✅ Выгрузка отчёта при несходимости ЧП = НРП (EXPORT_REPORT_ON_MISMATCH)
+- **Дата:** сессия 08.09.2026 — **завершена**
+- **Суть:** при превышении `tolerance_pnl_balance` шаг 19 падал с `ValueError` -> `CRITICAL [!!] Неожиданная ошибка`, финальный отчёт не выгружался вовсе, хотя `balance_df` и `journal_df` на момент сбоя уже собраны. Для анализа расхождения ОПУ и баланса отчёт нужен даже несведённым.
+- **Реализовано:**
+  - `config/settings.py` — флаг `EXPORT_REPORT_ON_MISMATCH = True` (мягкий режим по умолчанию): при несходимости ERROR/WARNING в лог, шаг продолжается, отчёт выгружается «как есть» (несведённый, только для анализа). `False` — строгий режим: остановка без выгрузки.
+  - `pipeline/steps/_step19_validation.py` — `_check_profit_vs_balance`: мягкий режим пишет диагностику (НРП, ЧП, разница, порог) в `context.data[OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY]` и возвращается; строгий — `ConvergenceError` (вместо `ValueError`) с однострочным `problem_data` — декоратор сохраняет его в mismatches/, а `cli/main.py` классифицирует как штатный `[STOP]` (раньше — ложный CRITICAL, т.к. `ValueError` не наследник `PipelineError`). Структурные ошибки (`_get_retained_earnings`: нет строки 240010200 / NaN) жёсткие в обоих режимах.
+  - `pipeline/step_config.py` — `OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY = 'pnl_balance_mismatch'` (общий ключ шага 19 и `save_results`).
+  - `pipeline/executors.py` — `_warn_if_pnl_balance_mismatch()`: в `save_results()` при наличии диагностики — WARNING «Отчет выгружен БЕЗ увязки ЧП = НРП…», чтобы финальное «успешно завершено» не вводило в заблуждение.
+- **Проверка:** `_smoke_pnl_mismatch.py` — 5 сценариев: soft (полный `_process` шага 19 доводит `pnl_df` до конца при diff 319,046 — как в реальном логе), strict (`ConvergenceError`, problem_data=4 строки), в пределах порога (без диагностики), структурная ошибка остаётся жёсткой, предупреждение `save_results` (тишина без диагностики). `EXITCODE=0`, SMOKE_OK; `py_compile` всех модулей OK.
+- **Файлы:** `config/settings.py`, `pipeline/step_config.py`, `pipeline/steps/_step19_validation.py`, `pipeline/executors.py`, `_smoke_pnl_mismatch.py`, `AGENTS.md`, `README.md`, `TASKS.md`.
+- **Примечание:** флаг импортируется в модуль шага в момент импорта — для смоук-патчей менять атрибут `pipeline.steps._step19_validation.EXPORT_REPORT_ON_MISMATCH` (как в `_smoke_pnl_mismatch.py`), а не `config.settings`.
+
 ### ✅ Устойчивость парсинга TXT-выгрузок ОПУ: восстановление «рваных» строк (ParserError)
 - **Дата:** сессия 07.09.2026 — **завершена**
 - **Суть:** на выгрузках разных компаний `pd.read_csv` периодически падал с `ParserError: Expected N fields in line X, saw N+1` (пример: `СТБ_отчпровод_26_6мес2026_.txt`, строка 183149, 12→13 полей). Причина — в свободно-текстовом поле `Содержание` некоторых проводок встречается буквальный символ табуляции: C-парсер pandas воспринимает его как разделитель, строка «расщепляется» на N+1 полей и весь файл не грузится. Писать отдельный парсер под каждую компанию нецелесообразно.

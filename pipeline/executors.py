@@ -597,6 +597,31 @@ def _prepare_journal_for_output(
     return journal_df
 
 
+def _warn_if_pnl_balance_mismatch(context: ProcessingContext) -> None:
+    """
+    Предупреждает, если отчёт выгружается без увязки ЧП = НРП.
+
+    Диагностику пишет шаг 19 (_check_profit_vs_balance) при
+    EXPORT_REPORT_ON_MISMATCH=True (мягкий режим): при несходимости
+    конвейер продолжается и отчёт выгружается «как есть» для анализа
+    расхождения. Здесь напоминаем об этом в момент сохранения, чтобы
+    финальное «Приложение успешно завершено» не вводило в заблуждение.
+    """
+    diagnostics = context.data.get(OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY)
+    if not diagnostics:
+        return
+
+    diff = float(diagnostics.get("diff", 0.0))
+    tolerance = float(diagnostics.get("tolerance", 0.0))
+    logger.warning(
+        "[!] Отчет выгружен БЕЗ увязки ЧП = НРП: разница {:,.0f} тыс.ед. "
+        "(допустимый порог {:,.0f}). Файл предназначен только для анализа "
+        "расхождения и не является отчетностью.",
+        diff,
+        tolerance,
+    )
+
+
 def save_results(context: ProcessingContext) -> None:
     """
     Сохранить результаты обработки в один комбинированный отчёт.
@@ -607,8 +632,12 @@ def save_results(context: ProcessingContext) -> None:
 
     Имя файла берётся из справочника КомпанииГруппы (столбец название_файла_расшифровки).
     Если компания не найдена — используется стандартное имя.
+
+    Если шаг 19 зафиксировал несходимость ЧП = НРП (EXPORT_REPORT_ON_MISMATCH=True),
+    перед сохранением выводится предупреждение: отчёт выгружен не сведённым.
     """
     logger.info("Сохранение результатов")
+    _warn_if_pnl_balance_mismatch(context)
 
     try:
         company_name = context.company

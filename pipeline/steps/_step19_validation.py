@@ -7,6 +7,7 @@ Mixin с валидацией и управлением типами данны�
 - Приведение столбца 'оборот, тыс.ед.' к numeric (_prepare_amount_column)
 - Удаление околонулевых строк (_drop_zero_amount_rows)
 - Сверку ЧП vs НРП (_check_profit_vs_balance, _get_retained_earnings)
+  с мягким/строгим режимом (EXPORT_REPORT_ON_MISMATCH, config/settings.py)
 """
 from __future__ import annotations
 
@@ -14,7 +15,9 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import ProcessingContext
+from pipeline.errors import ConvergenceError
 from pipeline.step_config import OpuReportConstants
+from config.settings import EXPORT_REPORT_ON_MISMATCH
 
 
 class Step19ValidationMixin:
@@ -234,24 +237,74 @@ class Step19ValidationMixin:
         """
         Сверяет чистую прибыль по ОПУ и нераспределенную прибыль
         текущего периода по балансу.
+
+        При расхождении сверх tolerance_pnl_balance поведение зависит от
+        EXPORT_REPORT_ON_MISMATCH (config/settings.py):
+        - True (мягкий режим): сообщение в лог + диагностика в context.data
+          (OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY), шаг продолжается —
+          отчёт собирается и выгружается «как есть» для анализа расхождения;
+        - False (строгий режим): ConvergenceError — декоратор шага сохранит
+          однострочную диагностику в mismatches/ и остановит конвейер.
+        Структурные проблемы (нет строки НРП / нечисловое значение) остаются
+        жёсткими независимо от режима — см. _get_retained_earnings.
         """
         retained_earnings = self._get_retained_earnings(balance_df)
         net_profit = float(journal_df[self.AMOUNT_COL].sum())
         diff = abs(retained_earnings - net_profit)
+        tolerance = context.tolerance_params['tolerance_pnl_balance']
 
-        if diff > context.tolerance_params['tolerance_pnl_balance']:
+        if diff > tolerance:
             message = (
                 "Разница между чистой прибылью в расшифровке ОПУ и НРП текущего периода "
                 f"в расшифровке баланса составляет {diff:,.0f} тыс.ед., что превышает "
-                f"допустимый порог в {context.tolerance_params['tolerance_pnl_balance']:,.0f} тыс.ед."
+                f"допустимый порог в {tolerance:,.0f} тыс.ед."
             )
             logger.error(message)
-            raise ValueError(message)
+
+            if EXPORT_REPORT_ON_MISMATCH:
+                # Мягкий режим: отчёт нужен пользователю для анализа
+                # расхождения, шаг продолжается (маппинг, сборка ОПУ).
+                logger.warning(
+                    "EXPORT_REPORT_ON_MISMATCH=True: отчет будет выгружен БЕЗ "
+                    "увязки ЧП = НРП (только для анализа расхождения, "
+                    "не для отчетности)."
+                )
+                context.data[OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY] = {
+                    "diff": diff,
+                    "retained_earnings": retained_earnings,
+                    "net_profit": net_profit,
+                    "tolerance": tolerance,
+                }
+                return
+
+            # Строгий режим: диагностика уйдёт в mismatches/ через
+            # Step._save_reference_mismatch_report (декоратор шага).
+            problem_data = pd.DataFrame(
+                {
+                    "показатель": [
+                        "НРП текущего периода (баланс)",
+                        "Чистая прибыль (ОПУ)",
+                        "Разница",
+                        "Допустимый порог",
+                    ],
+                    "значение, тыс.ед.": [
+                        retained_earnings,
+                        net_profit,
+                        diff,
+                        tolerance,
+                    ],
+                }
+            )
+            raise ConvergenceError(
+                message,
+                problem_data=problem_data,
+                reference_name="Взаимоувязка ОПУ и баланса (ЧП = НРП)",
+            )
 
         logger.info(
             "[OK] Сходимость чистой прибыли с балансом подтверждена: разница {:,.0f} тыс. ед. (порог {:,.0f})",
             diff,
-            context.tolerance_params['tolerance_pnl_balance'],
+            tolerance,
         )
 
     def _get_retained_earnings(self, balance_df: pd.DataFrame) -> float:

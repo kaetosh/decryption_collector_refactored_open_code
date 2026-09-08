@@ -129,6 +129,12 @@ class OpuReportConstants:
     ROW_ID_COL = "__row_id__"
     GROUP_ACCOUNT_COL = "__group_account__"
 
+    # Ключ в context.data для диагностики несходимости ЧП (ОПУ) = НРП (баланс),
+    # записывается в шаге 19 при EXPORT_REPORT_ON_MISMATCH=True
+    # (см. _check_profit_vs_balance в _step19_validation.py) и читается
+    # в save_results (pipeline/executors.py) для предупреждения пользователя.
+    MISMATCH_DIAGNOSTICS_KEY = "pnl_balance_mismatch"
+
 
 class BalanceReportConstants:
     """Константы для отчета баланса (Step 13)."""

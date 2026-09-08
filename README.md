@@ -107,6 +107,7 @@ python main.py
 | `MissingContractorError` | строгий режим (`STRICT_CONTRACTOR_CHECK=True`) — сбой; мягкий — отчёт в Excel + замена на «3 лица», шаг продолжается (статус `soft`) |
 | `MissingCreditContractorError` (КредитОбслуж, шаг 17) | строгий режим (`STRICT_CREDIT_CONTRACTOR_CHECK=True`, по умолчанию) — отчёт в Excel + сбой; мягкий — отчёт в Excel + замена контрагента на «3 лица», шаг продолжается |
 | `MissingOSGroupError` (ППА, шаг 6) | строгий режим (`STRICT_OS_GROUP_CHECK=True`) — сбой; мягкий — предупреждение в лог, замена на «не_указано» внутри шага |
+| `ConvergenceError` (увязка ЧП=НРП, шаг 19) | мягкий режим (`EXPORT_REPORT_ON_MISMATCH=True`, по умолчанию) — ошибка в лог, отчёт выгружается «как есть» для анализа расхождения; строгий (`False`) — отчёт в Excel (mismatches/) + сбой |
 | `ReferenceMismatchError` и подвиды (`MissingMappingError`, `ConvergenceError`, `MissingSubtypeError`) | проблемные строки сохраняются в Excel, шаг падает с `ProcessingStepError` |
 | `MissingFilesError` / `MissingCardError` | отчёт об отсутствующих файлах в Excel, сбой |
 | `TooManyFilesError` | отчёт об избыточных файлах в Excel (mismatches/), сбой. Возникает, когда в папке найдено более одного файла по паттерну (например, два файла общей ОСВ) |
@@ -171,7 +172,8 @@ python main.py
 
 - `config/settings.py` — пути (`_INPUT_DATA`, `_OUTPUT_DATA`, `_REFERENCE_DATA`),
   состав обязательных выгрузок, `STRICT_CONTRACTOR_CHECK`, `STRICT_OS_GROUP_CHECK`,
-  `STRICT_CREDIT_CONTRACTOR_CHECK`, `KEEP_LAST_RUNS`, уровень логов.
+  `STRICT_CREDIT_CONTRACTOR_CHECK`, `EXPORT_REPORT_ON_MISMATCH` (выгрузка отчёта
+  при несходимости ЧП=НРП в шаге 19), `KEEP_LAST_RUNS`, уровень логов.
 - `config/loader.py` + `config/defaults.py` — допуски сходимости из листа
   «Параметры» (`_REFERENCE_DATA/Справочники.xlsx`); значения по умолчанию
   применяются, если параметр отсутствует или невалиден (схема валидации в defaults).
