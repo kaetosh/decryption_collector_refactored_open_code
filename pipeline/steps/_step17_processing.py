@@ -226,6 +226,48 @@ class Step17ProcessingMixin:
 
         return mask.fillna(False).astype(bool)
 
+    @staticmethod
+    def _distribute_vat_by_rows(
+        asset_rows: pd.DataFrame,
+        vat_map: pd.Series,
+        amount_col: str,
+    ) -> pd.Series:
+        """
+        Распределяет НДС документа по строкам 91.01 ровно один раз на документ.
+
+        НДС агрегирован по 'Документ' (vat_map), но строк 91.01 у документа может
+        быть несколько (типично для «Аренда»). Прямое добавление НДС каждой строке
+        многократно завышает выручку. Правило распределения:
+        - пропорционально доле |оборот| строки в документе;
+        - при нулевом итоге документа — поровну между строками;
+        - остаток от округления добавляется последней строке документа, чтобы
+          сумма распределённого НДС сошлась с НДС документа точно (без дрейфа).
+
+        :return: Series (index = asset_rows.index) — величина НДС для каждой строки.
+        """
+        nds_doc = asset_rows['Документ'].map(vat_map).fillna(0).astype(float)
+
+        doc_key = asset_rows['Документ'].astype(str)
+        row_abs = pd.to_numeric(asset_rows[amount_col], errors='coerce').abs().fillna(0.0)
+        doc_total = row_abs.groupby(doc_key).transform('sum').astype(float)
+        n_rows = asset_rows.groupby(doc_key)[amount_col].transform('size').astype(float)
+
+        share = np.where(
+            doc_total > 0,
+            row_abs / doc_total.where(doc_total > 0, 1.0),
+            1.0 / n_rows.where(n_rows > 0, 1.0),
+        )
+        share = pd.Series(share, index=asset_rows.index, dtype=float)
+
+        distributed = nds_doc * share
+
+        # Точная сходимость: последняя строка документа получает остаток дрейфа
+        is_last = asset_rows.groupby(doc_key).cumcount(ascending=False).eq(0)
+        residual = nds_doc - distributed.groupby(doc_key).transform('sum')
+        distributed = distributed + residual.where(is_last, 0.0)
+
+        return distributed
+
     def _adjust_revenue_for_vat(
         self,
         df_9101: pd.DataFrame,
@@ -265,8 +307,16 @@ class Step17ProcessingMixin:
             vat_map = vat_by_doc.set_index('Документ')['ндс_тыс_ед']
             vat_map_rub = vat_by_doc.set_index('Документ')['ндс_тыс_руб']
 
-            nds_values = asset_rows['Документ'].map(vat_map).fillna(0)
-            nds_values_rub = asset_rows['Документ'].map(vat_map_rub).fillna(0)
+            # НДС документа распределяется по строкам 91.01 РОВНО ОДИН РАЗ
+            # (пропорционально доле строки в обороте документа). Прямое добавление
+            # НДС каждой строке многократно завышало выручку «Аренда»
+            # (на многострочных документах НДС накатывался на каждую строку).
+            nds_values = self._distribute_vat_by_rows(
+                asset_rows, vat_map, 'оборот, тыс.ед.'
+            )
+            nds_values_rub = self._distribute_vat_by_rows(
+                asset_rows, vat_map_rub, 'оборот, тыс.руб.'
+            )
 
             updated_turnover = asset_rows['оборот, тыс.ед.'] + nds_values
             updated_turnover_rub = asset_rows['оборот, тыс.руб.'] + nds_values_rub
@@ -274,7 +324,7 @@ class Step17ProcessingMixin:
             df_9101.loc[updated_turnover.index, 'оборот, тыс.ед.'] = updated_turnover
             df_9101.loc[updated_turnover_rub.index, 'оборот, тыс.руб.'] = updated_turnover_rub
 
-            adjusted = int((nds_values > 0).sum())
+            adjusted = int((nds_values.abs() > 0).sum())
         else:
             adjusted = 0
 

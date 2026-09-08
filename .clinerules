@@ -1,0 +1,8 @@
+# Terminal rules
+- When running Python scripts, ALWAYS redirect output to a temporary file and then read that file.
+- Use this pattern: `python script.py > output.log 2>&1`
+- After running, use read_file tool to read output.log
+- Delete output.log when done
+- Always use `conda run` instead of relying on active environment when possible
+- Avoid commands that produce very long output. Use --quiet or -q flags when available
+- Always use `python -u` flag to disable output buffering
