@@ -34,6 +34,7 @@
 | `MissingOSGroupError` (справочник ППА, шаг 6) | `STRICT_OS_GROUP_CHECK=True` -> `ProcessingStepError`; `False` -> WARNING в лог, замена на `не_указано` внутри шага |
 | `ConvergenceError` (увязка ЧП=НРП, шаг 19) | `EXPORT_REPORT_ON_MISMATCH=False` -> отчёт в Excel (mismatches/) + `ProcessingStepError`; `True` (по умолчанию) -> ERROR/WARNING в лог, диагностика в `context.data['pnl_balance_mismatch']`, шаг продолжается, финальный отчёт выгружается как есть |
 | `ReferenceMismatchError` и подвиды | сохранение `problem_data` в Excel (`_save_reference_mismatch_report()` -> `output_manager.py:88`), `ProcessingStepError` |
+| `ReferenceMismatchError` (сопоставление счетов, шаг 1а, `_raise_balance_mapping_error`) | жёсткая при неоднозначности — несколько кандидатов под уровнем-остановкой (`68.22.2 -> '68'` -> 12 субсчетов; `60.01.1 -> '60.01'` -> 2 кандидата); счёт/родители не заведены. Единственное совпадение — штатная подстановка, включая синтетический уровень (`04.01 -> '04'`, `90.01.1 -> '90.01'`). Смоук — `_smoke_01a_match.py` |
 | `MissingFilesError` / `MissingCardError` | сохранение списка файлов, `ProcessingStepError` |
 | `TooManyFilesError` | сохранение списка избыточных файлов в Excel (mismatches/), `ProcessingStepError`. Возникает, когда в папке найдено более одного файла по паттерну (например, два файла общей ОСВ) |
 | `Exception` | обёртка в `ProcessingStepError` (`from e`) |

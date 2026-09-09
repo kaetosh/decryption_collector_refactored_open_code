@@ -285,23 +285,23 @@ class Step1aListExpectedRegistersStep(Step):
             
             # Поиск по префиксам от длинного к короткому
             matched_codes = []
+            matched_prefix = None
             osv_parts = osv_code.split('.')
             for depth in range(len(osv_parts), 0, -1):
                 prefix = '.'.join(osv_parts[:depth])
                 if prefix in prefix_dict:
                     matched_codes = prefix_dict[prefix]
+                    matched_prefix = prefix
                     break
             
             if matched_codes:
-                # Проверка: должно быть ровно одно совпадение
+                # Проверка: должно быть ровно одно совпадение. Несколько
+                # кандидатов — ошибка справочника (счёт и его родители не
+                # заведены или уровень неоднозначен); единственное совпадение
+                # (в т.ч. на синтетическом уровне, 04.01 -> '04') — штатная
+                # подстановка.
                 if len(matched_codes) > 1:
-                    raise ValueError(
-                        f"Обнаружены несколько счетов в столбце 'Совпадающие счета из справочника': "
-                        f"Счет из ОСВ='{osv_code}', "
-                        f"Совпадающие счета={sorted(matched_codes)}. "
-                        f"Проверьте справочник Меппинг — для каждого счета из ОСВ "
-                        f"должно быть не более одного соответствия."
-                    )
+                    self._raise_balance_mapping_error(osv_code, matched_prefix, matched_codes)
                 
                 stats['partial'] += 1
                 partial_matches.append({
@@ -513,6 +513,62 @@ class Step1aListExpectedRegistersStep(Step):
         
         return context
     
+    def _raise_balance_mapping_error(
+        self,
+        osv_code: str,
+        matched_prefix: str,
+        matched_codes: list,
+    ) -> None:
+        """
+        Жёсткая ошибка неоднозначного сопоставления балансового счёта
+        (справочник Меппинг_бб).
+
+        Возникает, когда под найденный уровень-остановку подходит несколько
+        счетов-кандидатов. Типовой случай: счёт из ОСВ и его родительские
+        уровни отсутствуют в справочнике, поиск провалился до уровня, под
+        которым есть несколько субсчетов (например: 68.22.2 -> уровень '68',
+        в справочнике 68.01, 68.02 и др., но нет 68.22). Единственное
+        совпадение (в т.ч. на синтетическом уровне, 04.01 -> '04') ошибкой
+        не является — это штатная подстановка.
+        """
+        matched_depth = len(matched_prefix.split('.'))
+        is_synthetic = (matched_depth == 1)
+        if is_synthetic:
+            reason = (
+                f"счет '{osv_code}' и его родительские уровни отсутствуют "
+                f"в справочнике Меппинг_бб, а под синтетическим уровнем "
+                f"'{matched_prefix}' есть несколько субсчетов "
+                f"— сопоставление неоднозначно"
+            )
+        else:
+            reason = (
+                f"на детальном уровне '{matched_prefix}' найдено несколько "
+                f"счетов-кандидатов — сопоставление неоднозначно"
+            )
+        osv_parts_full = osv_code.split('.')
+        parent_levels = ['.'.join(osv_parts_full[:i]) for i in range(1, len(osv_parts_full))]
+        problem_data = pd.DataFrame([{
+            'счет_осв': osv_code,
+            'причина': ('несколько кандидатов под синтетическим уровнем' if is_synthetic
+                        else 'несколько кандидатов на детальном уровне'),
+            'найденный_уровень_в_справочнике': matched_prefix,
+            'количество_кандидатов': len(matched_codes),
+            'счета_кандидаты': ', '.join(sorted(matched_codes)),
+        }])
+        raise ReferenceMismatchError(
+            message=(
+                f"Не удалось сопоставить счет '{osv_code}' из общей ОСВ со "
+                f"справочником Меппинг_бб: {reason}. "
+                f"На уровне '{matched_prefix}' найдено счетов-кандидатов: "
+                f"{len(matched_codes)} ({', '.join(sorted(matched_codes))}). "
+                f"Добавьте счет '{osv_code}' или его родительский уровень "
+                f"({', '.join(parent_levels)}) в Справочники.xlsx "
+                f"(лист 'Меппинг_бб') и повторите запуск."
+            ),
+            problem_data=problem_data,
+            reference_name="Меппинг_бб",
+        )
+
     def _get_opu_accounts_to_export(self, df: pd.DataFrame) -> list:
         """
         Определяет точные счета для выгрузки отчётов по проводкам под ОПУ.
