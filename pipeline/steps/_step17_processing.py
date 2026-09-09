@@ -18,7 +18,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import ProcessingContext
-from pipeline.errors import MissingCreditContractorError
+from pipeline.errors import MissingCreditContractorError, MissingMappingError
 from pipeline.step_config import StepConstants
 from config.settings import STRICT_CREDIT_CONTRACTOR_CHECK
 
@@ -30,7 +30,8 @@ class Step17ProcessingMixin:
         self,
         df_9101: pd.DataFrame,
         df_9102: pd.DataFrame,
-        reference_ppa_df: pd.DataFrame
+        reference_ppa_df: pd.DataFrame,
+        name_company: str = ''
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Подтягивает контрагентов из справочника ППА."""
         logger.debug("Обработка ППА")
@@ -144,7 +145,75 @@ class Step17ProcessingMixin:
             count_ppa_9101 + count_ppa_9102,
         )
 
+        self._validate_ppa_mapping(
+            reference_ppa_df,
+            name_company,
+            missing_by_mapping={
+                'ос_ппа': (
+                    (df_9101, mask_01_09_9101, mapped_1_9101),
+                    (df_9102, mask_01_09_9102, mapped_1_9102),
+                ),
+                'ос_после_перехода_в_собственность': (
+                    (df_9101, mask_02_01_or_01_01_9101, mapped_2_9101),
+                    (df_9102, mask_02_01_or_01_01_9102, mapped_2_9102),
+                ),
+            },
+        )
+
         return df_9101, df_9102
+
+    def _validate_ppa_mapping(
+        self,
+        reference_ppa_df: pd.DataFrame,
+        name_company: str,
+        missing_by_mapping: dict,
+    ) -> None:
+        """
+        Проверяет полноту маппинга контрагентов из справочника ППА (шаг 17).
+
+        Единообразие с другими справочниками, данные которых подтягиваются
+        по имени компании: при отсутствии записей по компании (в том числе
+        когда справочник пуст) и при неполном списке формируется отчёт
+        с недостающими позициями — объектами ОС, по которым не подтянулся
+        контрагент. Меппинг по 'ос_ппа' обязателен, по
+        'ос_после_перехода_в_собственность' — только если в справочнике
+        заполнен хотя бы один такой ключ.
+        """
+        missing_by_type = {}
+        for column, checks in missing_by_mapping.items():
+            if column == 'ос_после_перехода_в_собственность':
+                if 'ос_после_перехода_в_собственность' not in reference_ppa_df.columns:
+                    continue
+                if reference_ppa_df['ос_после_перехода_в_собственность'].dropna().empty:
+                    continue
+            missing_values = set()
+            for df, mask, mapped in checks:
+                unmapped = df.loc[mask & mapped.isna(), 'объект для изм ппа']
+                missing_values.update(unmapped.dropna().astype(str))
+            missing_values.discard('не_указано')
+            if missing_values:
+                missing_by_type[column] = sorted(missing_values)
+
+        if not missing_by_type:
+            return
+
+        raise MissingMappingError(
+            message=(
+                f"В справочнике ППА отсутствуют объекты ОС для подтягивания "
+                f"контрагентов при выбытии прав пользования активами / изменении "
+                f"условий договоров аренды (шаг 17) по компании '{name_company}'. "
+                f"Колонки без меппинга: {sorted(missing_by_type)}. Дополните лист "
+                f"ППА в Справочники.xlsx. "
+                + self.hint_companies_in_reference(
+                    reference_ppa_df, 'наименование_компании'
+                )
+            ),
+            problem_data=self.make_missing_values_problem_data(
+                missing_by_type, name_company
+            ),
+            reference_name="ППА",
+            searched_company=name_company,
+        )
 
     def _process_asset_sales(
         self,

@@ -8,7 +8,6 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import (
     MissingOSGroupError,
-    ReferenceMismatchError,
     ConvergenceError,
 )
 from io_module import DataLoader
@@ -320,6 +319,89 @@ class Step6AddOSGroupColumnStep(Step):
             self.UNSPECIFIED,
         )
     
+    def _raise_ppa_company_missing(
+        self,
+        name_company: str,
+        ppa_all_df: pd.DataFrame,
+        osv_all_df: pd.DataFrame,
+    ) -> None:
+        """
+        Обрабатывает случай «в справочнике ППА нет ни одной записи по компании».
+
+        Единообразие с другими справочниками, данные которых подтягиваются
+        по имени компании (СправочникУФР, КредитОбслуж): независимо от того,
+        пуст справочник целиком или записи по компании просто не заведены,
+        сразу формируется список недостающих позиций для меппинга — договоров
+        аренды (76.07/76.05.3) и РБП (97.21, Аренда/Лизинг) из данных ОСВ.
+
+        Если позиций для меппинга нет — WARNING и продолжение шага: маппинг
+        не нужен, аренды/лизинга по компании в данных не ожидается.
+        """
+        # Договоры аренды из ОСВ 76.07/76.05.3 (колонка 'договор' заполнена
+        # после merge с детализацией; пустые уже заменены на 'не_указано')
+        mask_contracts = (
+            osv_all_df['счет'].astype(str).str.startswith(
+                (self.ACCOUNT_76_07_PREFIX, self.ACCOUNT_76_05_3_PREFIX)
+            )
+            & (osv_all_df['договор'] != self.UNSPECIFIED)
+        )
+        contracts = (
+            osv_all_df.loc[mask_contracts, 'договор']
+            .dropna()
+            .unique()
+            .tolist()
+        )
+
+        # РБП из 97.21 (подвид Аренда/Лизинг)
+        mask_97 = (
+            osv_all_df['подвид_задолженности'].isin(
+                [self.SUBTYPE_RENT, self.SUBTYPE_LEASING]
+            )
+            & (osv_all_df['счет'] == self.ACCOUNT_97_21)
+        )
+        rbps_series = osv_all_df.loc[mask_97, 'допсубконто'].dropna()
+        rbps = rbps_series[rbps_series != self.UNSPECIFIED].unique().tolist()
+
+        hint = self.hint_companies_in_reference(
+            ppa_all_df, 'наименование_компании'
+        )
+
+        if not contracts and not rbps:
+            logger.warning(
+                "[!] В справочнике ППА нет ни одной записи по компании '{}', "
+                "но в ОСВ нет строк аренды/лизинга (76.07/76.05.3, 97.21), "
+                "требующих меппинга, — шаг продолжается. {}",
+                name_company,
+                hint,
+            )
+            return
+
+        missing_by_type = {}
+        if contracts:
+            missing_by_type['договор_аренды'] = contracts
+        if rbps:
+            missing_by_type['рбп'] = rbps
+
+        problem_data = self.make_missing_values_problem_data(
+            missing_by_type, name_company
+        )
+
+        raise MissingOSGroupError(
+            message=(
+                f"В справочнике ППА нет ни одной записи по компании "
+                f"'{name_company}'. Для меппинга отсутствуют: "
+                f"{len(contracts)} договоров аренды (76.07/76.05.3) и "
+                f"{len(rbps)} РБП (97.21, Аренда/Лизинг) — полный список в "
+                f"файле mismatches/. Дополните лист ППА в Справочники.xlsx "
+                f"записями по компании. {hint}"
+            ),
+            problem_data=problem_data,
+            reference_name="ППА",
+            searched_company=name_company,
+            missing_contracts=contracts,
+            missing_rbps=rbps,
+        )
+
     def _create_mapping(self, df: pd.DataFrame, key_col: str, value_col: str) -> dict:
         """
         Создает маппинг из DataFrame, исключая NaN в ключе.
@@ -347,20 +429,13 @@ class Step6AddOSGroupColumnStep(Step):
         lease_df = context.references['справочник_ппа']
         lease_df = lease_df[lease_df['наименование_компании'] == name_company]
         if lease_df.empty:
-            # ★ Формируем problem_data — список всех компаний в справочнике ППА
-            # чтобы бухгалтер видел, какие компании есть, и мог понять, в чём проблема
-            all_companies_df = context.references['справочник_ппа']
-            problem_data = (
-                all_companies_df[['наименование_компании']]
-                .drop_duplicates()
-                .rename(columns={'наименование_компании': 'компания_в_справочнике'})
-            )
-            
-            raise ReferenceMismatchError(
-                message=f"Компания '{name_company}' не найдена в справочнике ППА",
-                problem_data=problem_data,
-                reference_name="ППА",
-                searched_company=name_company,
+            # ★ Единообразие с другими справочниками (СправочникУФР, КредитОбслуж):
+            # вместо списка имеющихся компаний — сразу список недостающих позиций
+            # для меппинга (договоры 76.07/76.05.3 и РБП 97.21 из данных ОСВ)
+            self._raise_ppa_company_missing(
+                name_company,
+                context.references['справочник_ппа'],
+                osv_all_df,
             )
         logger.debug("Справочник ППА для {}: {} строк", name_company, len(lease_df))
         

@@ -104,7 +104,7 @@ class Step14TransformMixin:
         df_result['сегмент'] = df_result['ном_группа'].map(mapping_segment).astype('string')
 
         self._validate_mapping_completeness(
-            df_result, mapping_revenue, mapping_segment
+            df_result, mapping_revenue, mapping_segment, directory_ufr_df
         )
 
         group_unique = group_companies_df.drop_duplicates(subset='ВариантыНазвания')
@@ -131,12 +131,25 @@ class Step14TransformMixin:
         df_result: pd.DataFrame,
         mapping_revenue: pd.Series,
         mapping_segment: pd.Series,
+        directory_ufr_df: pd.DataFrame = None,
     ) -> None:
-        """Проверяет полноту маппинга вид_дохода_расхода и сегмент."""
+        """Проверяет полноту маппинга вид_дохода_расхода и сегмент.
+
+        Единообразие с другими справочниками: список недостающих ном_групп
+        формируется всегда — в том числе когда по компании в СправочникУФР
+        нет ни одной записи (directory_ufr_df пуст); в этом случае в начале
+        сообщения ошибки это указывается явно.
+        """
         unmapped_mask = df_result['вид_дохода_расхода'].isna() | df_result['сегмент'].isna()
 
         if unmapped_mask.any():
             problem_groups = df_result.loc[unmapped_mask, 'ном_группа'].unique()
+
+            empty_note = (
+                "В справочнике СправочникУФР нет ни одной записи по компании. "
+                if directory_ufr_df is not None and directory_ufr_df.empty
+                else ""
+            )
 
             problem_data = pd.DataFrame({
                 'ном_группа_без_маппинга': problem_groups,
@@ -150,6 +163,7 @@ class Step14TransformMixin:
 
             raise MissingMappingError(
                 message=(
+                    f"{empty_note}"
                     f"В справочнике УФР отсутствуют записи для "
                     f"{len(problem_groups)} ном_групп из отчёта по проводкам"
                 ),

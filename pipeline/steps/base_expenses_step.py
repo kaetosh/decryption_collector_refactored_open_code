@@ -329,9 +329,15 @@ class StepAddExpensesToOpuBase(Step):
                 ],
             })
             
+            empty_note = (
+                "В справочнике СправочникУФР нет ни одной записи по компании. "
+                if directory_ufr_df.empty
+                else ""
+            )
             self._raise_reference_mismatch(
                 error_class=ReferenceMismatchError,
                 message=(
+                    f"{empty_note}"
                     f"В справочнике УФР отсутствуют сегменты для "
                     f"{len(unmapped_groups)} ном_групп"
                 ),

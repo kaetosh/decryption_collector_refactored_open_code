@@ -13,7 +13,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import ProcessingContext
-from pipeline.errors import MissingMappingError
+from pipeline.errors import MissingMappingError, ReferenceMismatchError
 
 
 class Step17DataMixin:
@@ -35,9 +35,9 @@ class Step17DataMixin:
         credit_df = context.references['кредит_обслуж']
         credit_df = credit_df[credit_df['компания'] == name_company]
 
-        chart_accounts_df = context.references['план_счетов_бу']
-        chart_accounts_df = chart_accounts_df.loc[
-            chart_accounts_df['компания'] == name_company
+        chart_accounts_all_df = context.references['план_счетов_бу']
+        chart_accounts_df = chart_accounts_all_df.loc[
+            chart_accounts_all_df['компания'] == name_company
         ]
 
         accounts_with_contractors = tuple(
@@ -47,10 +47,37 @@ class Step17DataMixin:
             ]
         )
 
+        # ★ Единообразие с другими справочниками: вместо сырого ValueError —
+        # ReferenceMismatchError с problem_data (штатная остановка [STOP],
+        # отчёт сохраняется в mismatches/)
+        if chart_accounts_df.empty:
+            problem_data = (
+                chart_accounts_all_df[['компания']]
+                .drop_duplicates()
+                .rename(columns={'компания': 'компания_в_справочнике'})
+            )
+            raise ReferenceMismatchError(
+                message=(
+                    f"В справочнике ПланСчетовБУ нет ни одной записи по компании "
+                    f"'{name_company}'. Дополните лист ПланСчетовБУ в "
+                    f"Справочники.xlsx. "
+                    f"{self.hint_companies_in_reference(chart_accounts_all_df, 'компания')}"
+                ),
+                problem_data=problem_data,
+                reference_name="ПланСчетовБУ",
+                searched_company=name_company,
+            )
+
         if not accounts_with_contractors:
-            raise ValueError(
-                f"План счетов БУ для компании '{name_company}' "
-                f"не содержит значение 'Контрагенты' в поле субконто_1"
+            raise ReferenceMismatchError(
+                message=(
+                    f"В плане счетов БУ (лист ПланСчетовБУ) для компании "
+                    f"'{name_company}' нет счетов со значением 'Контрагенты' "
+                    f"в поле субконто_1. Дополните справочник."
+                ),
+                problem_data=chart_accounts_df[['компания', 'код', 'субконто_1']].copy(),
+                reference_name="ПланСчетовБУ",
+                searched_company=name_company,
             )
 
         logger.debug(

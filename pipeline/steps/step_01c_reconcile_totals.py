@@ -9,7 +9,7 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from io_module import DataLoader
 from utils import find_target_column, normalize_account
-from pipeline.errors import ConvergenceError
+from pipeline.errors import ConvergenceError, MissingMappingError
 
 
 class Step1cReconcileTotalsStep(Step):
@@ -82,7 +82,19 @@ class Step1cReconcileTotalsStep(Step):
         osv_df['синтетический_счет'] = normalize_account(osv_df['Счет'])
         missing_acc = [x for x in osv_df['синтетический_счет'].unique() if x not in unique_chart_accounts]
         if missing_acc:
-            raise ValueError(f"Обнаружены несуществующие синтетические счета в общей ОСВ: {missing_acc}")
+            # ReferenceMismatchError (вместо сырого ValueError): штатная
+            # остановка [STOP] + список недостающих счетов в mismatches/
+            raise MissingMappingError(
+                message=(
+                    f"В справочнике ПланСчетовБУ отсутствуют синтетические счета "
+                    f"из общей ОСВ: {sorted(missing_acc)}. Дополните лист "
+                    f"ПланСчетовБУ в Справочники.xlsx."
+                ),
+                problem_data=pd.DataFrame({
+                    'отсутствующий_синтетический_счет': sorted(missing_acc),
+                }),
+                reference_name="ПланСчетовБУ",
+            )
             
         osv_agg = osv_df.groupby('синтетический_счет')[['Дебет_оборот', 'Кредит_оборот', 'Дебет_конец', 'Кредит_конец']].sum().reset_index()
         

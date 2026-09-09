@@ -98,7 +98,7 @@ class Step17AddOtherIncomeExpensesToOpuStep(
         )
 
         df_9101, df_9102 = self._process_ppa(
-            df_9101, df_9102, refs['ppa']
+            df_9101, df_9102, refs['ppa'], name_company
         )
 
         df_9101, df_9102 = self._process_asset_sales(

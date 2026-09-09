@@ -540,6 +540,68 @@ class Step(ABC):
         text = text.lower()
         text = re.sub(r'[^\wа-я]+', '_', text, flags=re.IGNORECASE)
         return text.strip('_')
+
+    @staticmethod
+    def make_missing_values_problem_data(
+        missing_by_type: dict,
+        company: str,
+    ) -> pd.DataFrame:
+        """
+        Собирает problem_data из списка недостающих значений справочника.
+
+        Единый формат отчёта mismatches/ для справочников, данные которых
+        подтягиваются по имени компании: одна строка на отсутствующее
+        значение + колонка с компанией для контекста.
+
+        Args:
+            missing_by_type: Словарь {тип значения: [список недостающих значений]}.
+                Например, {'договор_аренды': ['Д-1', 'Д-2'], 'рбп': ['Р-1']}.
+            company: Имя компании (пишется в колонку 'компания').
+
+        Returns:
+            DataFrame с колонками: 'отсутствующее_значение', 'тип', 'компания'.
+        """
+        rows = []
+        for value_type, values in missing_by_type.items():
+            for value in sorted(str(v) for v in values):
+                rows.append({
+                    'отсутствующее_значение': value,
+                    'тип': value_type,
+                    'компания': company,
+                })
+        return pd.DataFrame(
+            rows,
+            columns=['отсутствующее_значение', 'тип', 'компания'],
+        )
+
+    @staticmethod
+    def hint_companies_in_reference(
+        reference_df: pd.DataFrame,
+        company_column: str,
+    ) -> str:
+        """
+        Формирует подсказку со списком компаний, имеющихся в справочнике.
+
+        Используется в сообщениях ReferenceMismatchError, когда по текущей
+        компании в справочнике нет ни одной записи: бухгалтер сразу видит,
+        какие компании заведены и в каком формате записано наименование.
+        """
+        if company_column not in reference_df.columns:
+            return ""
+        companies = (
+            reference_df[company_column]
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+        companies = sorted(c for c in companies.unique() if c)
+        if not companies:
+            return "Справочник пуст (нет ни одной компании)."
+        return (
+            "Компании, имеющиеся в справочнике: "
+            + ", ".join(f"'{c}'" for c in companies)
+            + "."
+        )
     
     # =========================================================================
     # HELPER-МЕТОДЫ ДЛЯ ШАГОВ
