@@ -16,6 +16,8 @@ from pathlib import Path
 from loguru import logger
 from utils import cast_columns_to_types, detect_txt_encoding, normalize_ragged_tab_rows
 
+from pipeline.constants import Values
+
 from data_processors.file_processor import FileProcessor
 
 pd.set_option('future.no_silent_downcasting', True)
@@ -235,6 +237,18 @@ class Posting_UPPFileProcessor(FileProcessor):
         df['Документ'] = df['Документ'].str.replace(r'_end\d+$', '', regex=True)
         df = df[df['Сумма'].notna() & (df['Сумма'] != 0)]
         df = df.dropna(how='all').dropna(how='all', axis=1)
+        
+        # Пустые субконто УПП-отчёта (pd.NA / пустая строка) заменяем штатной
+        # заглушкой 'не_указано'. Это согласует субконто-значения со справочниками,
+        # в которых пустые значения имеют заглушку, и защищает хрупкий маппинг:
+        # Субконто Дт_1/Кт_1 -> доход_расход (шаг 17, справочник Меппинг_опу),
+        # ном_группа/контрагент (шаги 14/15/16). Непустые значения не трогаем.
+        subconto_cols = [
+            col for col in df.columns
+            if col.startswith('Субконто Дт') or col.startswith('Субконто Кт')
+        ]
+        if subconto_cols:
+            df[subconto_cols] = df[subconto_cols].replace(['', pd.NA], Values.UNSPECIFIED)
         
         return df
 
