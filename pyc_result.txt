@@ -1,1 +1,0 @@
-SUCCESS: py_compile passed

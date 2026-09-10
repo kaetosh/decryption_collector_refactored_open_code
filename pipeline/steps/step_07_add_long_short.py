@@ -4,8 +4,6 @@
 Для счета 97.21 разбивает на долгосрочную и краткосрочную части
 на основе данных справочника и периода отчетности.
 """
-from typing import Optional
-
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -164,13 +162,27 @@ class Step7AddLongShortTermColumnStep(Step):
     # МЕТОДЫ ОБРАБОТКИ ОТЧЕТОВ
     # =========================================================================
     
-    def _process_lease_report_decoding(
-        self, 
+    def _process_lease_report(
+        self,
         type_register: str,
         name_company: str,
         period: str
-    ) -> Optional[pd.DataFrame]:
-        """Оркестратор: ищет файл, загружает и обрабатывает отчет расшифровки."""
+    ) -> pd.DataFrame:
+        """
+        Ищет, загружает и обрабатывает отчет расшифровки 1450/1550/1230.
+
+        Поиск файла выполняется вне мягкой обработки ошибок: отсутствие файла —
+        штатная ситуация (WARNING, пустой DataFrame). Ошибки чтения/обработки
+        найденного файла перехватывает _run_optional_special_report() в
+        _process_lease_type.
+
+        Returns:
+            Нормализованный DataFrame отчета; пустой DataFrame, если файл не найден.
+
+        Raises:
+            FileNotFoundError: папка спецотчетов не найдена.
+            ValueError: файл найден, но не содержит данных / не читается.
+        """
         input_path = find_register_file(
             folder_path=SPECIAL_REPORTS_DIR,
             type_register=type_register
@@ -184,7 +196,7 @@ class Step7AddLongShortTermColumnStep(Step):
                 "Рекласс на долгую/короткую части по 76 и 97 счету не проводим.",
                 expected_filename,
             )
-            return None
+            return pd.DataFrame()
         
         logger.debug("Файл {} найден. Проводим рекласс.", expected_filename)
         
@@ -192,7 +204,14 @@ class Step7AddLongShortTermColumnStep(Step):
         return self._transform_lease_report(raw_df)
     
     def _transform_lease_report(self, raw_df: pd.DataFrame) -> pd.DataFrame:
-        """Трансформирует сырой отчет расшифровки в нормализованный DataFrame."""
+        """
+        Трансформирует сырой отчет расшифровки в нормализованный DataFrame.
+
+        Raises:
+            ValueError: в файле нет строки 'Краткосрочные' или отсутствуют
+                ожидаемые столбцы (краткосрочные/долгосрочные) — например,
+                файл неполный: заполнен только столбец 'Договор'.
+        """
         df = raw_df.copy()
         
         # Базовая очистка
@@ -432,7 +451,16 @@ class Step7AddLongShortTermColumnStep(Step):
     def _process_97_reclass(self, osv_all_df: pd.DataFrame, 
                            name_company: str, 
                            period: str) -> pd.DataFrame:
-        """Обрабатывает рекласс долгие/короткие по 97 счету (кроме аренды/лизинга)."""
+        """
+        Обрабатывает рекласс долгие/короткие по 97 счету (кроме аренды/лизинга).
+
+        Спецотчет необязательный: при ошибке обработки найденного файла
+        (нет строки 'Субконто1', значения нет в сводной ОСВ и т.п.) рекласс
+        пропускается с WARNING — расшифровка собирается без этой детализации
+        (см. _run_optional_special_report). Под защитой — только подготовка
+        (загрузка/очистка/валидация): применение рекласса мутирует osv_all_df
+        in-place, поэтому выполняется вне защиты.
+        """
         file_path = find_register_file(
             folder_path=SPECIAL_REPORTS_DIR,
             type_register='реклассдолгкорт'
@@ -447,6 +475,33 @@ class Step7AddLongShortTermColumnStep(Step):
         
         logger.debug("Файл {} найден. Проводим рекласс по 97 счету.", file_path.name)
         
+        prepared = self._run_optional_special_report(
+            label="Рекласс РБП 97.21 (долгая/короткая часть)",
+            report_file=file_path.name,
+            processor=lambda: self._prepare_97_reclass(osv_all_df, file_path),
+        )
+        
+        if prepared is None:
+            return osv_all_df
+        
+        mask, reclass_dict = prepared
+        
+        if not mask.any():
+            logger.debug("Нет строк для рекласса по 97 счету")
+            return osv_all_df
+        
+        return self._apply_97_reclass(osv_all_df, mask, reclass_dict)
+    
+    def _prepare_97_reclass(self, osv_all_df: pd.DataFrame,
+                            file_path) -> tuple:
+        """
+        Загружает и подготавливает рекласс по 97 счету до применения.
+
+        Raises:
+            ValueError: в файле нет строки 'Субконто1'.
+            ReferenceMismatchError: значения Субконто1 отсутствуют
+                в сводной ОСВ (problem_data сохраняется в mismatches/).
+        """
         reclass_97_df = DataLoader.load_long_short_register(file_path)
         reclass_97_df = self._clean_reclass_97(reclass_97_df)
                 
@@ -461,7 +516,8 @@ class Step7AddLongShortTermColumnStep(Step):
             )
             
             # ★ Выбрасываем ReferenceMismatchError
-            # Базовый класс сам сохранит в Excel и залогорирует
+            # Мягкий режим (_run_optional_special_report): problem_data
+            # сохраняется в Excel, рекласс пропускается с WARNING.
             raise ReferenceMismatchError(
                 message=(
                     f"Найдено {len(missing_values)} отсутствующих значений "
@@ -482,11 +538,7 @@ class Step7AddLongShortTermColumnStep(Step):
             (osv_all_df['допсубконто'].isin(reclass_97_df[LONG_SHORT_SUBCONTO_COL]))
         )
         
-        if not mask.any():
-            logger.debug("Нет строк для рекласса по 97 счету")
-            return osv_all_df
-        
-        return self._apply_97_reclass(osv_all_df, mask, reclass_dict)
+        return mask, reclass_dict
     
     def _clean_reclass_97(self, df: pd.DataFrame) -> pd.DataFrame:
         """Очищает DataFrame рекласса по 97 счету."""
@@ -648,19 +700,42 @@ class Step7AddLongShortTermColumnStep(Step):
                            lease_type: str,
                            name_company: str,
                            period: str) -> pd.DataFrame:
-        """Обрабатывает один тип договоров (лизинг или аренда)."""
+        """
+        Обрабатывает один тип договоров (лизинг или аренда).
+
+        Отчет 1450/1550/1230 необязательный: при ошибке обработки найденного
+        файла (пустой файл, нет столбцов, битые данные) рекласс пропускается
+        с WARNING — расшифровка собирается без этой детализации
+        (см. _run_optional_special_report).
+        """
         logger.debug("Обработка {}-договоров", lease_type)
         
-        decoded_report = self._process_lease_report_decoding(
-            type_register=type_register,
-            name_company=name_company,
-            period=period
+        decoded_report = self._run_optional_special_report(
+            label=f"Рекласс долгая/короткая часть ({lease_type})",
+            report_file=f"{name_company}_{type_register}_7697_{period}_.xlsx",
+            processor=lambda: self._process_lease_report(
+                type_register=type_register,
+                name_company=name_company,
+                period=period,
+            ),
         )
         
         if not isinstance(decoded_report, pd.DataFrame) or decoded_report.empty:
             logger.debug("Отчет по {}ым договорам пуст или не найден", lease_type)
             return osv_all_df
         
+        return self._apply_lease_split(osv_all_df, decoded_report, lease_type)
+    
+    def _apply_lease_split(self, osv_all_df: pd.DataFrame,
+                           decoded_report: pd.DataFrame,
+                           lease_type: str) -> pd.DataFrame:
+        """
+        Применяет разбивку долгой/короткой части из decoded_report к ОСВ.
+
+        Выделено из _process_lease_type, чтобы попадало под мягкую обработку
+        ошибок вместе с загрузкой: операции работают на копиях (merge),
+        поэтому при ошибке безопасно вернуть исходную osv_all_df.
+        """
         decoded_report_original = decoded_report.copy()
         decoded_report_split = self._split_long_short_debt(decoded_report, osv_all_df)
         

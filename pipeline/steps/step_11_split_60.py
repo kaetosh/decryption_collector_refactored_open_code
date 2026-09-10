@@ -56,8 +56,14 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         """
         Оркестратор: ищет файл, загружает и обрабатывает ОСВ 60 Инвест.
         
+        Поиск файла выполняется вне мягкой обработки ошибок: отсутствие файла —
+        штатная ситуация (WARNING, None). Ошибки чтения/обработки найденного
+        файла (пустой файл, нет Level_-столбцов, несходимость) перехватывает
+        _run_optional_special_report() — спецотчет необязательный.
+
         Returns:
             Обработанный DataFrame или None, если файл не найден
+            либо обработка не удалась (мягкий режим).
         """
         input_path = find_register_file(
             folder_path=SPECIAL_REPORTS_DIR,
@@ -76,6 +82,21 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         
         logger.debug("Файл {} найден. Проводим рекласс.", expected_filename)
         
+        return self._run_optional_special_report(
+            label="ОСВ 60 ИнвестДоговоры (разбиение 60 на инвест/неинвест)",
+            report_file=input_path.name,
+            processor=lambda: self._process_60_invest_data(input_path),
+        )
+    
+    def _process_60_invest_data(self, input_path) -> pd.DataFrame:
+        """
+        Загружает и обрабатывает данные спецотчета ОСВ 60 Инвест.
+
+        Raises:
+            ValueError: файл не содержит данных или не читается.
+            ConvergenceError: контрольная таблица не сходится
+                (problem_data сохраняется в mismatches/).
+        """
         # Загрузка сырых данных
         df, check_df = DataLoader.load_process_60_invest(input_path)
         
@@ -407,8 +428,9 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
         if df is None or df.empty:
             # ★ КРИТИЧЕСКИ ВАЖНО: даже без спецотчёта добавляем столбец 'инвест_договор'
             # Иначе следующие шаги (особенно шаг 13) упадут с KeyError
+            # (None — файл не найден либо обработан с ошибкой в мягком режиме)
             logger.info(
-                "Спецотчет 60 Инвест не найден или пуст. "
+                "Спецотчет 60 Инвест не найден, пуст или обработан с ошибкой. "
                 "Добавляем столбец 'инвест_договор' с дефолтными значениями."
             )
             osv_all_df = self._ensure_invest_contract_column(osv_all_df)

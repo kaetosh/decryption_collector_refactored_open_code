@@ -8,7 +8,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import pandas as pd
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
 from io_module.output_manager import get_output_dir, get_run_id
 from pipeline.errors import (
@@ -25,6 +25,7 @@ from pipeline.constants import (
     Values,
 )
 from pipeline.decorators import handle_pipeline_errors
+from config.settings import SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR
 
 
 @dataclass(slots=True)
@@ -199,6 +200,64 @@ class Step(ABC):
                 message += f" {hint}"
             raise ValueError(message)
         return df
+
+    def _run_optional_special_report(
+        self,
+        label: str,
+        report_file: str,
+        processor: Callable[[], Any],
+    ) -> Optional[Any]:
+        """
+        Обрабатывает необязательный спецотчёт: при ошибке — пропуск, а не падение.
+
+        Необязательные спецотчёты (арендареклассдолгкорт_7697,
+        лизингреклассдолгкорт_7697, осв_60инвест, реклассдолгкорт_97) не влияют
+        на штатный ход конвейера — только добавляют детализацию. Поэтому при
+        ошибке обработки найденного файла (пустой файл, не тот формат, битые
+        данные) шаг продолжается, как будто файла не было.
+
+        Поведение управляется SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR
+        (config/settings.py):
+            True  — WARNING в лог + None (мягкий режим, по умолчанию);
+            False — исключение пробрасывается наверх (жёсткое поведение).
+
+        Для ReferenceMismatchError дополнительно сохраняется problem_data
+        в mismatches/ — диагностика не теряется.
+
+        Args:
+            label: Человекочитаемое имя отчёта для лога.
+            report_file: Имя файла отчёта для лога.
+            processor: Callable без аргументов — загрузка и обработка отчёта.
+
+        Returns:
+            Результат processor() или None, если обработка не удалась
+            (мягкий режим).
+        """
+        try:
+            return processor()
+        except ReferenceMismatchError as e:
+            if not SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR:
+                raise
+            self._save_reference_mismatch_report(e)
+            self._log_optional_report_skip(label, report_file, e)
+            return None
+        except Exception as e:
+            if not SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR:
+                raise
+            self._log_optional_report_skip(label, report_file, e)
+            return None
+
+    @staticmethod
+    def _log_optional_report_skip(label: str, report_file: str, error: Exception) -> None:
+        """Единый WARNING о пропуске необязательного спецотчёта из-за ошибки."""
+        logger.warning(
+            "[!] Спецотчёт '{}' (файл {}) найден, но обработка не удалась: {}. "
+            "Отчёт необязательный — пропускаем: расшифровка будет собрана без "
+            "этой детализации. Проверьте файл на полноту и формат.",
+            label,
+            report_file,
+            error,
+        )
 
     def _dump_df_for_debug(
         self,
