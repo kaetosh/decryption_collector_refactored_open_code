@@ -21,6 +21,21 @@ SPECIAL_REPORTS_DIR = INPUT_DATA_DIR / "special_reports"       # 3. Спецот
 ACCOUNTS_OSV_LEASE_DIR = INPUT_DATA_DIR / "accounts_osv_lease" # 4. ОСВ по 76 в части аренды/лизинга (по договорам)
 ACCOUNT_CARDS_DIR = INPUT_DATA_DIR / "transaction_report"      # 5. Папка с отетами по проводкам
 # Справочники
+# Папка «single drop»: пользователь выгружает файлы из 1С одним движением
+# сюда, а скрипт сам раскладывает их по целевым подпапкам (io_module/auto_sort.py)
+INBOX_DIR = INPUT_DATA_DIR / "00_inbox"        # 0. Папка для свежих выгрузок из 1С
+
+# Архив автосортировки: левые/хвостовые файлы прошлых сессий переносятся сюда
+# (_archive/<run_id>/...), а не удаляются — ничего не теряется безвозвратно
+ARCHIVE_DIR = INPUT_DATA_DIR / "_archive"
+
+# Автосортировка выгрузок из 00_inbox (две волны: общая ОСВ до Фазы 0,
+# остальные файлы после шага 1a). False — прежнее поведение: пользователь
+# раскладывает файлы по подпапкам вручную
+AUTO_SORT_ENABLED = True
+
+# Справочники
+REFERENCE_DATA_FILE = REFERENCE_DIR / "Справочники.xlsx"
 REFERENCE_DATA_FILE = REFERENCE_DIR / "Справочники.xlsx"
 
 

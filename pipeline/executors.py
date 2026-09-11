@@ -20,9 +20,10 @@ from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError, PeriodMismatchError, TooManyFilesError
 from pipeline.step_config import OpuReportConstants
-from config.settings import REFERENCE_CONFIGS
+from config.settings import REFERENCE_CONFIGS, AUTO_SORT_ENABLED, INBOX_DIR
 from io_module import DataLoader, DataSaver
 from io_module.output_manager import get_run_dir
+from io_module.auto_sort import prepare_general_osv_from_inbox, sort_inbox_by_expected_list
 from utils.currency_utils import (
     needs_conversion,
     get_currency,
@@ -37,29 +38,43 @@ BALANCE_DATE_FORMAT = '%d.%m.%Y'
 
 def pause_for_osv_general_export(interactive: bool = True) -> None:
     """
-    Приостанавливает выполнение и ждет, пока бухгалтер выгрузит Общую ОСВ из 1С.
+    Приостанавливает выполнение и ждет, пока бухгалтер выгрузит файлы из 1С.
+
+    После нажатия Enter (волна 1 автосортировки, io_module/auto_sort.py)
+    файлы общей ОСВ из 00_inbox переносятся в general_osv; остальные
+    файлы inbox остаются ждать волну 2 (pause_for_1c_export).
     """
     print("\n" + "=" * 80)
     print()
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
-    print("   1. Убедитесь, что файл с актуальной Общей ОСВ расположен в папке INPUT_DATA.")
+    print(f"   1. Выгрузите из 1С ВСЕ нужные файлы и положите их в папку {INBOX_DIR}")
+    print("      (одним движением, без подпапок: Общая ОСВ, ОСВ по счетам, спецотчёты,")
+    print("      отчеты по проводкам — скрипт сам разложит их по папкам)")
     print("   2. Убедитесь, что имя файла с Общей ОСВ имеет следующий формат:")
     print("      СокрНаименованиеКомпании_общаяосв_нд_Период_.xlsx, например, РЗК_общаяосв_нд_2025_.xlsx")
     print("   3. Убедитесь, что наименование компании соотвествует данным на листе КомпанииГруппы файла Справочники.xlsx из папки _REFERENCE_DATA")
     print()
+    print("[i]  После нажатия Enter скрипт перенесет Общую ОСВ из 00_inbox в general_osv;")
+    print("[i]  остальные файлы останутся в 00_inbox до следующей паузы")
     print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")
     print("=" * 80)
     if interactive:
         try:
-            input("\n[PAUSE] Когда файл с Общей ОСВ будет готов, нажмите Enter для продолжения...")
+            input("\n[PAUSE] Когда файлы будут выгружены, нажмите Enter для продолжения...")
         except EOFError:
             pass
     print("=" * 80 + "\n")
+    if AUTO_SORT_ENABLED:
+        prepare_general_osv_from_inbox()
 
 
 def pause_for_1c_export(context: ProcessingContext, interactive: bool = True) -> None:
     """
     Приостанавливает выполнение и ждет, пока бухгалтер выгрузит файлы из 1С.
+
+    После нажатия Enter (волна 2 автосортировки, io_module/auto_sort.py)
+    файлы из 00_inbox раскладываются по целевым папкам согласно списку
+    выгрузок «Выгрузить_<компания>_<период>.xlsx».
     """
     expected_count = len(context.data.get('expected_filenames', []))
     print("\n" + "=" * 80)
@@ -69,7 +84,8 @@ def pause_for_1c_export(context: ProcessingContext, interactive: bool = True) ->
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
     print(f"   1. Откройте файл 'Выгрузить_*.xlsx' в папке {get_run_dir()}")
     print("   2. Выгрузите указанные регистры из 1С")
-    print("   3. Положите все файлы в папку INPUT_DATA в подпапки, указанные в поле 'куда класть' файла 'Выгрузить_*.xlsx'")
+    print(f"   3. Положите все файлы в папку {INBOX_DIR} (одним движением, без подпапок);")
+    print("      после нажатия Enter скрипт сам разложит их по папкам согласно списку")
     print()
     print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")
     print("=" * 80)
@@ -79,6 +95,8 @@ def pause_for_1c_export(context: ProcessingContext, interactive: bool = True) ->
         except EOFError:
             pass
     print("=" * 80 + "\n")
+    if AUTO_SORT_ENABLED:
+        sort_inbox_by_expected_list(context)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
