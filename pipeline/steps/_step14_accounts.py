@@ -17,6 +17,7 @@ import pandas as pd
 from loguru import logger
 
 from io_module import DataSaver
+from config.defaults import DEFAULTS
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
 
 
@@ -61,7 +62,9 @@ class Step14AccountsMixin:
         # (раньше NaN молча «сгорал» в groupby().sum(), завышая выручку ОПУ).
         # Ставка восстанавливается по аналогичным строкам («ном_группа»),
         # иначе берётся дефолт из листа «Параметры» (nds_missing_values).
-        default_vat_rate = context.tolerance_params.get('nds_missing_values', 0.20)
+        default_vat_rate = context.tolerance_params.get(
+            'nds_missing_values', DEFAULTS['nds_missing_values']
+        )
         df9001, _vat_audit_df = self._restore_missing_vat_rates(
             df9001, default_vat_rate, context
         )

@@ -16,9 +16,11 @@ from pathlib import Path
 from loguru import logger
 from utils import cast_columns_to_types, detect_txt_encoding, normalize_ragged_tab_rows
 
-from pipeline.constants import Values
-
 from data_processors.file_processor import FileProcessor
+
+# Заглушка для пустых субконто — значения из 1С; совпадает с Values.UNSPECIFIED
+# в pipeline/constants.py (не импортируем pipeline из низкоуровневого пакета)
+UNSPECIFIED = 'не_указано'
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -248,7 +250,7 @@ class Posting_UPPFileProcessor(FileProcessor):
             if col.startswith('Субконто Дт') or col.startswith('Субконто Кт')
         ]
         if subconto_cols:
-            df[subconto_cols] = df[subconto_cols].replace(['', pd.NA], Values.UNSPECIFIED)
+            df[subconto_cols] = df[subconto_cols].replace(['', pd.NA], UNSPECIFIED)
         
         return df
 

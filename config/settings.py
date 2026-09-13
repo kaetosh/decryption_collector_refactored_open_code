@@ -20,7 +20,6 @@ ACCOUNTS_OSV_DIR = INPUT_DATA_DIR / "accounts_osv"             # 2. ОСВ по 
 SPECIAL_REPORTS_DIR = INPUT_DATA_DIR / "special_reports"       # 3. Спецотчеты
 ACCOUNTS_OSV_LEASE_DIR = INPUT_DATA_DIR / "accounts_osv_lease" # 4. ОСВ по 76 в части аренды/лизинга (по договорам)
 ACCOUNT_CARDS_DIR = INPUT_DATA_DIR / "transaction_report"      # 5. Папка с отетами по проводкам
-# Справочники
 # Папка «single drop»: пользователь выгружает файлы из 1С одним движением
 # сюда, а скрипт сам раскладывает их по целевым подпапкам (io_module/auto_sort.py)
 INBOX_DIR = INPUT_DATA_DIR / "00_inbox"        # 0. Папка для свежих выгрузок из 1С
@@ -35,7 +34,6 @@ ARCHIVE_DIR = INPUT_DATA_DIR / "_archive"
 AUTO_SORT_ENABLED = True
 
 # Справочники
-REFERENCE_DATA_FILE = REFERENCE_DIR / "Справочники.xlsx"
 REFERENCE_DATA_FILE = REFERENCE_DIR / "Справочники.xlsx"
 
 
@@ -79,7 +77,6 @@ STRICT_CREDIT_CONTRACTOR_CHECK = True
 #         (ключ OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY).
 # False — строгий режим: ConvergenceError -> декоратор сохраняет диагностику
 #         в mismatches/ и останавливает конвейер, финальный отчёт не выгружается.
-EXPORT_REPORT_ON_MISMATCH = True
 EXPORT_REPORT_ON_MISMATCH = True
 
 # Необязательные спецотчёты (арендареклассдолгкорт_7697, лизингреклассдолгкорт_7697,

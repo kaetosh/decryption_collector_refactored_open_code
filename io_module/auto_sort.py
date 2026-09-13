@@ -419,7 +419,7 @@ def prepare_general_osv_from_inbox(
             _move_to_dir(f, target_dir, archive_dir, actions, "перенесён в general_osv")
 
     if actions:
-        _log_and_save(actions, label="Волна 1 (общая ОСВ)")
+        _log_and_save(actions, label="Волна 1 (общая ОСВ)", sheet_name="Волна 1")
     else:
         logger.debug("[SORT] Волна 1: переносов не было")
     return [Path(a["куда"]) for a in actions if a["действие"] == "перенесён в general_osv"]
@@ -561,7 +561,11 @@ def sort_inbox_by_expected_list(
         return
     actions = sort_all(expected_map, inbox_dir=inbox_dir, archive_dir=archive_dir)
     if actions:
-        _log_and_save(actions, label=f"Волна 2 ({context.company}, {context.period})")
+        _log_and_save(
+            actions,
+            label=f"Волна 2 ({context.company}, {context.period})",
+            sheet_name="Волна 2",
+        )
     else:
         logger.debug("[SORT] Волна 2: раскладывать нечего")
 
@@ -570,18 +574,22 @@ def sort_inbox_by_expected_list(
 # Отчёт и сводка
 # ═════════════════════════════════════════════════════════════════════════
 
-def _log_and_save(actions: list, label: str) -> None:
-    """INFO-сводка по действиям + sort_report.xlsx в папке запуска."""
+def _log_and_save(actions: list, label: str, sheet_name: str) -> None:
+    """INFO-сводка по действиям + лист в sort_report.xlsx папки запуска."""
     result_df = pd.DataFrame(actions, columns=["файл", "действие", "откуда", "куда"])
     counts = result_df["действие"].value_counts()
     summary = ", ".join(f"{name}: {count}" for name, count in counts.items())
     logger.info("[SORT] {} — {}", label, summary)
-    report_path = _save_sort_report(result_df)
-    logger.info("[SORT] Отчёт о раскладке: {}", report_path)
+    report_path = _save_sort_report(result_df, sheet_name=sheet_name)
+    logger.info("[SORT] Отчёт о раскладке: {} (лист '{}')", report_path, sheet_name)
 
 
-def _save_sort_report(result_df: pd.DataFrame) -> Path:
-    """Сохраняет список действий в sort_report.xlsx папки запуска."""
+def _save_sort_report(result_df: pd.DataFrame, sheet_name: str = "Сортировка") -> Path:
+    """Сохраняет список действий в sort_report.xlsx папки запуска.
+
+    Каждая волна пишет свой лист (Волна 1 / Волна 2): повторный вызов
+    добавляет лист и не перезаписывает отчёт предыдущей волны.
+    """
     from io_module.output_manager import get_run_dir
 
     try:
@@ -590,8 +598,14 @@ def _save_sort_report(result_df: pd.DataFrame) -> Path:
         report_dir = ARCHIVE_DIR
     report_path = report_dir / "sort_report.xlsx"
     try:
-        with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
-            result_df.to_excel(writer, sheet_name="Сортировка", index=False)
+        if report_path.exists():
+            with pd.ExcelWriter(
+                report_path, engine="openpyxl", mode="a", if_sheet_exists="replace"
+            ) as writer:
+                result_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        else:
+            with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
+                result_df.to_excel(writer, sheet_name=sheet_name, index=False)
     except PermissionError:
         logger.warning(
             "[SORT] Не удалось записать '{}': файл открыт в Excel. "

@@ -195,6 +195,9 @@ class Step17ProcessingMixin:
                 missing_by_type[column] = sorted(missing_values)
 
         if not missing_by_type:
+            self._warn_ppa_mapping_without_company_entries(
+                reference_ppa_df, name_company
+            )
             return
 
         raise MissingMappingError(
@@ -213,6 +216,37 @@ class Step17ProcessingMixin:
             ),
             reference_name="ППА",
             searched_company=name_company,
+        )
+
+    def _warn_ppa_mapping_without_company_entries(
+        self,
+        reference_ppa_df: pd.DataFrame,
+        name_company: str,
+    ) -> None:
+        """
+        WARNING вместо тихого возврата: в ППА нет записей по компании,
+        но объектов ОС для подтягивания контрагентов в данных шага 17 нет.
+
+        Единообразие со шагом 6 (_raise_ppa_company_missing): маппинг не нужен,
+        поэтому шаг продолжается — но бухгалтер должен знать, что компания
+        в справочнике не заведена.
+        """
+        company_col = 'наименование_компании'
+        has_company_entries = (
+            company_col in reference_ppa_df.columns
+            and not reference_ppa_df[
+                reference_ppa_df[company_col].astype(str).str.strip() == name_company
+            ].empty
+        )
+        if has_company_entries:
+            return
+        logger.warning(
+            "[!] В справочнике ППА нет ни одной записи по компании '{}', "
+            "но в данных шага 17 нет объектов ОС, требующих подтягивания "
+            "контрагентов (выбытие прав пользования / изменение условий "
+            "договоров аренды) — шаг продолжается. {}",
+            name_company,
+            self.hint_companies_in_reference(reference_ppa_df, company_col),
         )
 
     def _process_asset_sales(

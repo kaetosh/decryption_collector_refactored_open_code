@@ -21,9 +21,13 @@ from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError, PeriodMismatchError, TooManyFilesError
 from pipeline.step_config import OpuReportConstants
 from config.settings import REFERENCE_CONFIGS, AUTO_SORT_ENABLED, INBOX_DIR
-from io_module import DataLoader, DataSaver
+from io_module import (
+    DataLoader,
+    DataSaver,
+    prepare_general_osv_from_inbox,
+    sort_inbox_by_expected_list,
+)
 from io_module.output_manager import get_run_dir
-from io_module.auto_sort import prepare_general_osv_from_inbox, sort_inbox_by_expected_list
 from utils.currency_utils import (
     needs_conversion,
     get_currency,
