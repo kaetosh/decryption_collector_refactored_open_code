@@ -34,7 +34,7 @@
 
 ## Работа со справочниками и обработка ошибок
 * **Справочники:** единая точка — `REFERENCE_REGISTRY` (`pipeline/executors.py:83`, `ReferenceSpec`). Загрузка -> `DataLoader.load_reference_data()` (`io_module/data_io.py:427`). Ключевые: `ПланСчетов`, `ПланСчетовБУ`, `Меппинг_бб`, `Меппинг_опу`, `КомпанииГруппы`, `Выгрузки`, `СправочникУФР`, `ВидСвязиКА`, `ППА`, `КредитОбслуж`, `ПрочиеДоходыНДС`, `ВидыРБП_АрендаЛизинг`, `Параметры`.
-* **Допуски сходимости:** лист «Параметры» -> `load_params(context)` (`config/loader.py:14`) -> `context.tolerance_params`. Валидация по `SCHEMA` (`config/defaults.py:20`), fallback — `DEFAULTS`. Ключевые: `tolerance_balance` (5000), `tolerance_reconciliation` (1050), `tolerance_leased_os` (3000), `tolerance_pnl_balance` (1050), `tolerance_rate_deviation` (0.3).
+* **Допуски сходимости:** лист «Параметры» -> `load_params(context)` (`config/loader.py:14`) -> `context.tolerance_params`. Валидация по `SCHEMA` (`config/defaults.py:20`), fallback — `DEFAULTS`. Ключевые: `tolerance_balance` (5000), `tolerance_reconciliation` (1050), `tolerance_leased_os` (3000), `tolerance_pnl_balance` (1050), `tolerance_rate_deviation` (0.3), `nds_missing_values` (0.20 — ставка НДС для проводок с пропущенным субконто ставки; конкретная книга задаёт своё значение, например 0.22).
 
 | Исключение | Поведение |
 |---|---|
@@ -101,7 +101,7 @@
 
 **Ключевые шаги:**
 - **1c** (`step_01c_reconcile_totals.py`) — реконциляция итогов ОСВ vs выгрузки, загрузка `journal_df`
-- **14** (`step_14_build_opu_foundation.py`) — 90.01/90.02, распределение себестоимости, `transactions_all_df` в `context.data`. Шаг разбит на 4 миксина: `_step14_base`, `_step14_data`, `_step14_accounts`, `_step14_transform`.
+- **14** (`step_14_build_opu_foundation.py`) — 90.01/90.02, распределение себестоимости, `transactions_all_df` в `context.data`. Шаг разбит на 4 миксина: `_step14_base`, `_step14_data`, `_step14_accounts`, `_step14_transform`. Пропущенные ставки НДС 90.01 (пустое «Субконто Кт_2», напр. «Корректировка записей регистров») НЕ сжигаются: `_restore_missing_vat_rates()` восстанавливает ставку по аналогам той же «ном_группа» (мода при нескольких) или берёт дефолт `nds_missing_values`; текстовые «Без НДС»/«0%» = ставка 0; WARNING + Excel-аудит `warnings/nds_missing_rows_<компания>_<период>.xlsx`.
 - **15-16** (`base_expenses_step.py`) — управленческие (90.08/26) и коммерческие (90.07/44) расходы
 - **17** (`step_17_add_other_income_and_expenses.py`) — прочие доходы/расходы (91.01/91.02). Шаг разбит на 5 миксинов: `_step17_base`, `_step17_data`, `_step17_processing`, `_step17_fx`, `_step17_merge`.
 - **18** (`step_18_add_task_and_other_movements.py`) — налог на прибыль (99), исключение реформации

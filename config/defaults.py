@@ -15,6 +15,10 @@ DEFAULTS = {
     "tolerance_leased_os": 3000.0,
     "tolerance_pnl_balance": 1050.0,
     "tolerance_rate_deviation": 0.3,
+    # Ставка НДС для проводок с пропущенным значением субконто ставки
+    # (доля; 0.22 = 22%). Fallback — если параметра нет в листе «Параметры».
+    # Стандартная ставка РФ — 0.20; конкретная книга задаёт своё значение.
+    "nds_missing_values": 0.20,
 }
 
 # Схема валидации: имя -> (тип, min, max, nullable)
@@ -24,6 +28,7 @@ SCHEMA = {
     "tolerance_leased_os": (float, 0.0, 10000.0, False),
     "tolerance_pnl_balance": (float, 0.0, 10000.0, False),
     "tolerance_rate_deviation": (float, 0.0, 10.0, False),
+    "nds_missing_values": (float, 0.0, 1.0, False),
 }
 
 TOLERANCE_DESCRIPTIONS: dict[str, str] = {
@@ -32,5 +37,6 @@ TOLERANCE_DESCRIPTIONS: dict[str, str] = {
     "tolerance_leased_os": "Расхождение по арендованным ОС (ОСВ 01.03/02.03 = Ведомость аморизации)",
     "tolerance_pnl_balance": "Взаимоувязка ОПУ и Баланса (Чистая прибыль = НРП периода)",
     "tolerance_rate_deviation": "Отклонение курса от медианы листа Курс_<валюта> при конвертации проводок ОПУ (доля; 0.35 = 35%)",
+    "nds_missing_values": "Ставка НДС для проводок с пропущенным субконто ставки (доля; 0.22 = 22%). Используется в шаге 14 (выручка 90.01)",
 }
 

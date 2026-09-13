@@ -9,12 +9,14 @@ Mixin с обработкой счетов 90.01/90.02 для Шага 14.
     _validate_cost_against_osv: сверка себестоимости с ОСВ
     _distribute_cost_to_buyers: распределение себестоимости пропорционально выручке
 """
+from collections import Counter
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
+from io_module import DataSaver
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
 
 
@@ -42,6 +44,10 @@ class Step14AccountsMixin:
 
         df9001.loc[df9001['Дт'].str.startswith('76.15'), 'контрагент'] = 'пайщики'
 
+        # Исходное значение субконто ставки НДС — для аудита пропущенных
+        # ставок и распознавания явного «Без НДС» (текстовые маркеры).
+        df9001['ндс_ставка_исх'] = df9001['Субконто Кт_2'].astype(str).str.strip()
+
         df9001['ндс_ставка'] = (
             df9001['Субконто Кт_2']
             .astype(str)
@@ -50,6 +56,15 @@ class Step14AccountsMixin:
             .replace('', pd.NA)
         )
         df9001['ндс_ставка'] = pd.to_numeric(df9001['ндс_ставка'], errors='coerce') / 100
+
+        # Защитный механизм: строки с пропущенной ставкой НДС НЕ удаляются
+        # (раньше NaN молча «сгорал» в groupby().sum(), завышая выручку ОПУ).
+        # Ставка восстанавливается по аналогичным строкам («ном_группа»),
+        # иначе берётся дефолт из листа «Параметры» (nds_missing_values).
+        default_vat_rate = context.tolerance_params.get('nds_missing_values', 0.20)
+        df9001, _vat_audit_df = self._restore_missing_vat_rates(
+            df9001, default_vat_rate, context
+        )
 
         df9001['выручка_без_ндс_тыс_ед'] = (df9001['Сумма'] / 1000) / (1 + df9001['ндс_ставка'])
         df9001['выручка_без_ндс_тыс_руб'] = (df9001['Сумма_руб'] / 1000) / (1 + df9001['ндс_ставка'])
@@ -65,6 +80,162 @@ class Step14AccountsMixin:
         logger.debug("Выручка обработана: {} строк", len(df9001))
 
         return df9001
+
+    def _restore_missing_vat_rates(
+        self,
+        df9001: pd.DataFrame,
+        default_rate: float,
+        context,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Восстанавливает пропущенные ставки НДС для строк 90.01.
+
+        Раньше строки с пустой ставкой («не_указано» в «Субконто Кт_2») молча
+        «сгорали» в groupby().sum() из-за NaN, что завышало выручку ОПУ
+        (характерный кейс — «Корректировка записей регистров» 1С без субконто
+        ставки НДС). Теперь такие строки НЕ удаляются:
+
+        1. ставка восстанавливается по аналогичным строкам (одинаковая
+           номенклатурная группа «ном_группа» = «Субконто Кт_1»); при
+           нескольких ставках берётся наиболее частая, при равенстве частот —
+           дефолт;
+        2. если аналогов нет — берётся дефолт из листа «Параметры»
+           (параметр nds_missing_values);
+        3. явные текстовые маркеры нулевой ставки («Без НДС» и т.п.)
+           трактуются как ставка 0 и дефолтом не заменяются.
+
+        Возвращает (df9001 с заполненными ставками, audit_df). При наличии
+        затронутых строк аудит сохраняется в
+        warnings/nds_missing_rows_<компания>_<период>.xlsx папки запуска.
+        """
+        rate = df9001['ндс_ставка']
+        missing = rate.isna()
+
+        if not missing.any():
+            return df9001, pd.DataFrame()
+
+        raw = df9001['ндс_ставка_исх'].astype(str).str.strip().str.lower()
+        zero_marker = raw.str.contains('без', na=False) | raw.isin(
+            ['0%', '0 %', '0', 'ноль']
+        )
+        zero_idx = missing & zero_marker
+        missing_idx = missing & ~zero_marker
+
+        df9001 = df9001.copy()
+        audit_records: list = []
+
+        if zero_idx.any():
+            df9001.loc[zero_idx, 'ндс_ставка'] = 0.0
+            for idx in df9001.index[zero_idx]:
+                audit_records.append(self._build_vat_audit_row(
+                    df9001, idx, 0.0, 'явная_0%',
+                    'текстовый маркер нулевой ставки («без НДС»)',
+                ))
+            logger.warning(
+                "НДС 90.01: {} строк помечены как «без НДС» (текстовый маркер) — "
+                "использована ставка 0%. Строки не удалены. Детали: "
+                "warnings/nds_missing_rows_*.xlsx",
+                int(zero_idx.sum()),
+            )
+
+        if missing_idx.any():
+            known = df9001.loc[rate.notna(), ['ном_группа', 'ндс_ставка']]
+            # Список значений с повторами: нужен и для проверки «одна уникальная
+            # ставка», и для подсчёта моды (Counter).
+            group_rates = known.groupby('ном_группа')['ндс_ставка'].agg(
+                lambda s: [float(x) for x in s.dropna()]
+            )
+
+            restored_n = 0
+            default_n = 0
+            for idx in df9001.index[missing_idx]:
+                group_key = df9001.loc[idx, 'ном_группа']
+                candidates = group_rates.get(group_key, None)
+
+                rate_val = default_rate
+                source = 'дефолт'
+                note = 'нет аналогичных строк с известной ставкой'
+                if candidates:
+                    unique_rates = sorted({float(x) for x in candidates})
+                    if len(unique_rates) == 1:
+                        rate_val = unique_rates[0]
+                        source = 'аналоги'
+                        note = ''
+                    else:
+                        top1, top2 = Counter(candidates).most_common(2)
+                        if top1[1] == top2[1]:
+                            note = (
+                                'неоднозначные аналоги ({}), взят дефолт'
+                                .format(', '.join('{:.1%}'.format(x) for x in unique_rates))
+                            )
+                        else:
+                            rate_val = top1[0]
+                            source = 'аналоги'
+                            note = 'по наиболее частой ставке аналогов'
+                if not (0.0 < rate_val <= 1.0):
+                    rate_val = default_rate
+                    source = 'дефолт'
+                    note = 'восстановленная ставка вне (0;1], взят дефолт'
+                df9001.loc[idx, 'ндс_ставка'] = rate_val
+                if source == 'аналоги':
+                    restored_n += 1
+                else:
+                    default_n += 1
+                audit_records.append(self._build_vat_audit_row(
+                    df9001, idx, rate_val, source, note,
+                ))
+
+            logger.warning(
+                "НДС 90.01: обнаружено {} строк с пропущенной ставкой "
+                "(«Субконто Кт_2» пусто): восстановлено по аналогам {}, "
+                "дефолтом ({:.1%}) — {}. Строки не удаляются, выручка "
+                "пересчитана. Детали: warnings/nds_missing_rows_*.xlsx",
+                int(missing_idx.sum()), restored_n, default_rate, default_n,
+            )
+
+        if not audit_records:
+            return df9001, pd.DataFrame()
+
+        audit_df = pd.DataFrame(audit_records)
+        company = getattr(context, 'company', None) or 'unknown'
+        period = (
+            getattr(context, 'period', None)
+            or getattr(context, 'run_id', None)
+            or 'run'
+        )
+        try:
+            DataSaver.save_to_excel(
+                audit_df,
+                f'nds_missing_rows_{company}_{period}.xlsx',
+                subfolder='warnings',
+            )
+        except Exception as e:  # прагматично: аудит не должен ронять шаг
+            logger.warning("Не удалось сохранить аудит НДС в Excel: {}", e)
+
+        return df9001, audit_df
+
+    @staticmethod
+    def _build_vat_audit_row(
+        df9001: pd.DataFrame,
+        idx,
+        restored_rate: float,
+        source: str,
+        note: str,
+    ) -> dict:
+        """Формирует строку аудита для проводки с восстановленной ставкой НДС."""
+        row = df9001.loc[idx]
+        return {
+            'Имя_файла': row['Имя_файла'],
+            'Документ': row['Документ'],
+            'контрагент': row['контрагент'],
+            'ном_группа': row['ном_группа'],
+            'Сумма': row['Сумма'],
+            'Сумма_руб': row['Сумма_руб'],
+            'исходная_ставка': row['ндс_ставка_исх'],
+            'восстановленная_ставка': restored_rate,
+            'источник': source,
+            'примечание': note,
+        }
 
     def _validate_revenue_against_osv(
         self,
