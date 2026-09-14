@@ -76,7 +76,7 @@ STRICT_CREDIT_CONTRACTOR_CHECK = True
 #         сохраняются в Excel (mismatches/);
 # False — мягкий режим: WARNING + сохранение отчёта + замена контрагента
 #         на '3 лица' для несмапленных объектов, шаг продолжается.
-STRICT_PPA_MAPPING_CHECK = False
+STRICT_PPA_MAPPING_CHECK = True
 # True  — мягкий режим: при несходимости ERROR/WARNING в лог, шаг продолжается,
 #         финальный отчёт выгружается в Excel «как есть» (несведённый) —
 #         для анализа расхождения; детали диагностики в context.data
