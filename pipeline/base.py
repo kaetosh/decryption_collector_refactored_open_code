@@ -604,6 +604,7 @@ class Step(ABC):
     def make_missing_values_problem_data(
         missing_by_type: dict,
         company: str,
+        source_by_type: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Собирает problem_data из списка недостающих значений справочника.
@@ -616,21 +617,68 @@ class Step(ABC):
             missing_by_type: Словарь {тип значения: [список недостающих значений]}.
                 Например, {'договор_аренды': ['Д-1', 'Д-2'], 'рбп': ['Р-1']}.
             company: Имя компании (пишется в колонку 'компания').
+            source_by_type: {тип: (source_df, колонка_со_значением, [колонки_сумм])}.
+                Если задан — к каждому отсутствующему значению в отчёт добавляются
+                'количество_строк' и суммы по колонкам_сумм из source_df (строки
+                фильтруются по колонка_со_значением == значение). Нужно, чтобы
+                бухгалтер сразу видел суммы по позициям, отсутствующим в
+                справочнике, и мог оценить существенность для мягкого режима.
 
         Returns:
-            DataFrame с колонками: 'отсутствующее_значение', 'тип', 'компания'.
+            DataFrame с колонками: 'отсутствующее_значение', 'тип', 'компания'
+            (+ 'количество_строк' и суммы по колонкам_сумм при source_by_type).
         """
-        rows = []
-        for value_type, values in missing_by_type.items():
-            for value in sorted(str(v) for v in values):
-                rows.append({
+        if not source_by_type:
+            rows = [
+                {
                     'отсутствующее_значение': value,
                     'тип': value_type,
                     'компания': company,
-                })
+                }
+                for value_type, values in missing_by_type.items()
+                for value in sorted(str(v) for v in values)
+            ]
+            return pd.DataFrame(
+                rows,
+                columns=['отсутствующее_значение', 'тип', 'компания'],
+            )
+
+        detail_rows = []
+        for value_type, (source_df, value_col, amount_cols) in source_by_type.items():
+            values = missing_by_type.get(value_type, [])
+            if not values or source_df is None or source_df.empty or value_col not in source_df.columns:
+                continue
+            value_series = source_df[value_col].astype(str)
+            for value in sorted(set(str(v) for v in values)):
+                mask = value_series == value
+                if not mask.any():
+                    continue
+                rows_df = source_df.loc[mask]
+                row = {
+                    'отсутствующее_значение': value,
+                    'тип': value_type,
+                    'компания': company,
+                    'количество_строк': int(mask.sum()),
+                }
+                for col in amount_cols or ():
+                    if col in rows_df.columns:
+                        row[col] = pd.to_numeric(rows_df[col], errors='coerce').sum()
+                    else:
+                        row[col] = None
+                detail_rows.append(row)
+
+        if not detail_rows:
+            # Не удалось построить детализацию — возвращаем базовый формат
+            return Step.make_missing_values_problem_data(missing_by_type, company)
+
+        amount_columns = []
+        for value_type, (source_df, value_col, amount_cols) in source_by_type.items():
+            for col in amount_cols or ():
+                if col not in amount_columns:
+                    amount_columns.append(col)
         return pd.DataFrame(
-            rows,
-            columns=['отсутствующее_значение', 'тип', 'компания'],
+            detail_rows,
+            columns=['отсутствующее_значение', 'тип', 'компания', 'количество_строк'] + amount_columns,
         )
 
     @staticmethod

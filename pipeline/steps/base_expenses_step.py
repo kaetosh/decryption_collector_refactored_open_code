@@ -320,14 +320,29 @@ class StepAddExpensesToOpuBase(Step):
         # Проверка: все ли ном_группы замапились
         unmapped_mask = df_opu['сегмент'].isna()
         if unmapped_mask.any():
-            unmapped_groups = df_opu.loc[unmapped_mask, 'ном_группа'].unique()
-            
-            problem_data = pd.DataFrame({
-                'ном_группа_без_сегмента': unmapped_groups,
-                'сегмент_в_справочнике': [
-                    mapping_segment.get(g, 'ОТСУТСТВУЕТ') for g in unmapped_groups
-                ],
-            })
+            # Группируем по ном_группе и добавляем обороты, чтобы в отчёте
+            # mismatches/ бухгалтер сразу видел суммы по позициям, отсутствующим
+            # в СправочникУФР (оценка существенности для мягкого режима).
+            problem_cols = ['ном_группа', 'оборот, тыс.ед.', 'оборот, тыс.руб.']
+            problem_cols = [c for c in problem_cols if c in df_opu.columns]
+            agg_dict = {
+                'количество_строк': pd.NamedAgg(column='ном_группа', aggfunc='size'),
+            }
+            for amount_col in ('оборот, тыс.ед.', 'оборот, тыс.руб.'):
+                if amount_col in problem_cols:
+                    agg_dict[amount_col] = pd.NamedAgg(column=amount_col, aggfunc='sum')
+
+            problem_data = (
+                df_opu.loc[unmapped_mask, problem_cols]
+                .groupby('ном_группа', dropna=False, as_index=False)
+                .agg(**agg_dict)
+                .rename(columns={'ном_группа': 'ном_группа_без_сегмента'})
+            )
+            problem_data['сегмент_в_справочнике'] = (
+                problem_data['ном_группа_без_сегмента']
+                .map(mapping_segment)
+                .fillna('ОТСУТСТВУЕТ')
+            )
             
             empty_note = (
                 "В справочнике СправочникУФР нет ни одной записи по компании. "
@@ -339,7 +354,7 @@ class StepAddExpensesToOpuBase(Step):
                 message=(
                     f"{empty_note}"
                     f"В справочнике УФР отсутствуют сегменты для "
-                    f"{len(unmapped_groups)} ном_групп"
+                    f"{len(problem_data)} ном_групп"
                 ),
                 problem_data=problem_data,
                 reference_name="Справочник УФР (directory_ufr)",

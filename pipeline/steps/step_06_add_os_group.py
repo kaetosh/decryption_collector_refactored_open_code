@@ -383,7 +383,12 @@ class Step6AddOSGroupColumnStep(Step):
             missing_by_type['рбп'] = rbps
 
         problem_data = self.make_missing_values_problem_data(
-            missing_by_type, name_company
+            missing_by_type,
+            name_company,
+            source_by_type={
+                'договор_аренды': (osv_all_df, 'договор', ['сальдо, тыс.ед.']),
+                'рбп': (osv_all_df, 'допсубконто', ['сальдо, тыс.ед.']),
+            },
         )
 
         raise MissingOSGroupError(

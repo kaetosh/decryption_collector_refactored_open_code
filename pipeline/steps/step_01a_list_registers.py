@@ -301,7 +301,7 @@ class Step1aListExpectedRegistersStep(Step):
                 # (в т.ч. на синтетическом уровне, 04.01 -> '04') — штатная
                 # подстановка.
                 if len(matched_codes) > 1:
-                    self._raise_balance_mapping_error(osv_code, matched_prefix, matched_codes)
+                    self._raise_balance_mapping_error(osv_code, matched_prefix, matched_codes, df)
                 
                 stats['partial'] += 1
                 partial_matches.append({
@@ -518,6 +518,7 @@ class Step1aListExpectedRegistersStep(Step):
         osv_code: str,
         matched_prefix: str,
         matched_codes: list,
+        osv_df: pd.DataFrame = None,
     ) -> None:
         """
         Жёсткая ошибка неоднозначного сопоставления балансового счёта
@@ -547,14 +548,31 @@ class Step1aListExpectedRegistersStep(Step):
             )
         osv_parts_full = osv_code.split('.')
         parent_levels = ['.'.join(osv_parts_full[:i]) for i in range(1, len(osv_parts_full))]
-        problem_data = pd.DataFrame([{
+        problem_row = {
             'счет_осв': osv_code,
             'причина': ('несколько кандидатов под синтетическим уровнем' if is_synthetic
                         else 'несколько кандидатов на детальном уровне'),
             'найденный_уровень_в_справочнике': matched_prefix,
             'количество_кандидатов': len(matched_codes),
             'счета_кандидаты': ', '.join(sorted(matched_codes)),
-        }])
+        }
+        # Добавляем наименование и сальдо счёта из общей ОСВ, чтобы бухгалтер
+        # сразу видел сумму, по которой произошла неоднозначность сопоставления.
+        if osv_df is not None and osv_code in osv_df.index:
+            try:
+                osv_row = osv_df.loc[osv_code]
+                if isinstance(osv_row, pd.DataFrame):
+                    osv_row = osv_row.iloc[0]
+                if 'Наименование' in osv_row.index and pd.notna(osv_row['Наименование']):
+                    problem_row['наименование_счета'] = osv_row['Наименование']
+                if 'Сальдо, тыс.ед.' in osv_row.index:
+                    saldo = osv_row['Сальдо, тыс.ед.']
+                    problem_row['сальдо, тыс.ед.'] = (
+                        float(saldo) if pd.notna(saldo) else None
+                    )
+            except KeyError:
+                pass
+        problem_data = pd.DataFrame([problem_row])
         raise ReferenceMismatchError(
             message=(
                 f"Не удалось сопоставить счет '{osv_code}' из общей ОСВ со "

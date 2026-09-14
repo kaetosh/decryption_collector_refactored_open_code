@@ -30,6 +30,20 @@
 ---
 
 ## Завершённые задачи
+### ✅ Полный срез с суммами в отчётах mismatches/ (оценка существенности для мягкого режима)
+- **Дата:** сессия 14.09.2026 — **завершена**
+- **Суть:** в ряде мест несоответствия справочникам в mismatches/ сохранялся только список недостающих значений без сумм/счёта — пользователь не мог оценить существенность позиций, чтобы решить, можно ли включать мягкий режим. Добавлены суммы и строки-источники из ОСВ/журнала там, где данные доступны в точке броска ошибки.
+- **Реализовано:**
+  - `pipeline/base.py` — `Step.make_missing_values_problem_data(missing_by_type, company, source_by_type=None)` — новый необязательный аргумент `{тип: (source_df, колонка_значения, [колонки_сумм])}`: в отчёт добавляются `количество_строк` и суммы по позициям (фильтр по колонка_значения == значение). Базовый формат не изменился (совместимость).
+  - `pipeline/steps/_step17_data.py` — `_add_income_expense_type` (Меппинг_опу, 91.01/91.02): problem_data группируется по ключу маппинга с `количество_строк` + `оборот, тыс.ед.`/`оборот, тыс.руб.` — ключевой кейс «новые прочие доходы/расходы».
+  - `pipeline/steps/_step17_processing.py` — `_validate_ppa_mapping` (строгий) и `_apply_soft_ppa_mapping` (мягкий): отчёт по объектам ОС содержит суммы оборотов из df_9101/df_9102 (`оборот, тыс.ед.`/`оборот, тыс.руб.`).
+  - `pipeline/steps/step_06_add_os_group.py` — `_raise_ppa_company_missing`: договоры 76.07/76.05.3 и РБП 97.21 отдаются с `сальдо, тыс.ед.` из osv_all_df.
+  - `pipeline/steps/_step14_transform.py` и `pipeline/steps/base_expenses_step.py` — Справочник УФР: `ном_группа` + `количество_строк` + обороты (тыс.ед./тыс.руб.) + колонки «что в справочнике».
+  - `pipeline/steps/step_01c_reconcile_totals.py` — ПланСчетовБУ: недостающие синтетические счета из общей ОСВ с оборотами и сальдо.
+  - `pipeline/steps/step_01a_list_registers.py` — `_raise_balance_mapping_error`: в однострочный отчёт добавлены `наименование_счета` и `сальдо, тыс.ед.` счёта из общей ОСВ.
+- **Проверка:** `py_compile` всех затронутых модулей; `_smoke_17_ppa_strict_soft.py` обновлён (реальный расчёт problem_data, проверка сумм в строгом и мягком режимах) — `SMOKE_OK`; функциональные скрипты по хелперу base, `_add_income_expense_type`, шагам 14 и 15/16 (УФР) — `VALIDATE_OK`.
+- **Файлы:** `pipeline/base.py`, `pipeline/steps/_step17_data.py`, `pipeline/steps/_step17_processing.py`, `pipeline/steps/step_06_add_os_group.py`, `pipeline/steps/_step14_transform.py`, `pipeline/steps/base_expenses_step.py`, `pipeline/steps/step_01c_reconcile_totals.py`, `pipeline/steps/step_01a_list_registers.py`, `_smoke_17_ppa_strict_soft.py`, `AGENTS.md`.
+
 ### ✅ Режимы Строгий/Мягкий для меппинга ППА в шаге 17 (STRICT_PPA_MAPPING_CHECK)
 - **Дата:** сессия 14.09.2026 — **завершена**
 - **Суть:** в `_validate_ppa_mapping` (`pipeline/steps/_step17_processing.py`) меппинг ППА проверялся только в строгом режиме — при неполном списке объектов ОС всегда выбрасывался `MissingMappingError` и конвейер останавливался. Не было возможности продолжить обработку с заменой несмапленных объектов на `'3 лица'` (как это реализовано для других справочников: `STRICT_CONTRACTOR_CHECK`, `STRICT_OS_GROUP_CHECK`, `STRICT_CREDIT_CONTRACTOR_CHECK`). Добавлен аналогичный флаг `STRICT_PPA_MAPPING_CHECK`.

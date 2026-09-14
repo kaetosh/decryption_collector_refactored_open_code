@@ -236,6 +236,29 @@ class Step17ProcessingMixin:
             return {}
 
         if strict:
+            # Собираем строки-источники из данных шага 17 (df_9101/df_9102),
+            # чтобы в отчёте mismatches/ кроме объектов ОС были и суммы оборотов
+            # по ним — бухгалтер сразу оценит существенность позиций.
+            source_frames = []
+            for column, checks in missing_by_mapping.items():
+                if column not in missing_by_type:
+                    continue
+                for df, mask, mapped in checks:
+                    rows_df = df.loc[mask & mapped.isna()]
+                    if not rows_df.empty:
+                        source_frames.append(rows_df)
+            source_by_type = None
+            if source_frames:
+                detail_source = pd.concat(source_frames, ignore_index=True)
+                source_by_type = {
+                    column: (
+                        detail_source,
+                        'объект для изм ппа',
+                        ['оборот, тыс.ед.', 'оборот, тыс.руб.'],
+                    )
+                    for column in missing_by_type
+                }
+
             raise MissingMappingError(
                 message=(
                     f"В справочнике ППА отсутствуют объекты ОС для подтягивания "
@@ -248,7 +271,7 @@ class Step17ProcessingMixin:
                     )
                 ),
                 problem_data=self.make_missing_values_problem_data(
-                    missing_by_type, name_company
+                    missing_by_type, name_company, source_by_type=source_by_type,
                 ),
                 reference_name="ППА",
                 searched_company=name_company,
@@ -329,8 +352,21 @@ class Step17ProcessingMixin:
 
         # Сохраняем отчёт
         try:
+            # Строки-источники: df_9101 + df_9102 целиком, фильтрует хелпер
+            # по 'объект для изм ппа' (для не-ППА строк там 'не_указано',
+            # которое никогда не входит в missing_by_type).
+            detail_source = pd.concat([df_9101, df_9102], ignore_index=True)
             problem_data = self.make_missing_values_problem_data(
-                missing_by_type, name_company
+                missing_by_type,
+                name_company,
+                source_by_type={
+                    column: (
+                        detail_source,
+                        'объект для изм ппа',
+                        ['оборот, тыс.ед.', 'оборот, тыс.руб.'],
+                    )
+                    for column in missing_by_type
+                },
             )
             report_error = MissingMappingError(
                 message=(

@@ -83,16 +83,36 @@ class Step1cReconcileTotalsStep(Step):
         missing_acc = [x for x in osv_df['синтетический_счет'].unique() if x not in unique_chart_accounts]
         if missing_acc:
             # ReferenceMismatchError (вместо сырого ValueError): штатная
-            # остановка [STOP] + список недостающих счетов в mismatches/
+            # остановка [STOP] + срез из общей ОСВ по недостающим синтетическим
+            # счетам (обороты и сальдо), чтобы бухгалтер сразу оценил суммы.
+            missing_mask_osv = osv_df['синтетический_счет'].isin(missing_acc)
+            problem_agg = (
+                osv_df.loc[missing_mask_osv]
+                .groupby('синтетический_счет', as_index=False)
+                [['Дебет_оборот', 'Кредит_оборот', 'Дебет_конец', 'Кредит_конец']]
+                .sum()
+            )
+            problem_agg['дебет_оборот, тыс. ед.'] = (problem_agg['Дебет_оборот'] / 1000).round(2)
+            problem_agg['кредит_оборот, тыс. ед.'] = (problem_agg['Кредит_оборот'] / 1000).round(2)
+            problem_agg['сальдо_свернуто, тыс. ед.'] = (
+                problem_agg['Дебет_конец'].sub(problem_agg['Кредит_конец']).div(1000).round(2)
+            )
+            problem_data = problem_agg.rename(
+                columns={'синтетический_счет': 'отсутствующий_синтетический_счет'}
+            )[[
+                'отсутствующий_синтетический_счет',
+                'дебет_оборот, тыс. ед.',
+                'кредит_оборот, тыс. ед.',
+                'сальдо_свернуто, тыс. ед.',
+            ]]
+
             raise MissingMappingError(
                 message=(
                     f"В справочнике ПланСчетовБУ отсутствуют синтетические счета "
                     f"из общей ОСВ: {sorted(missing_acc)}. Дополните лист "
                     f"ПланСчетовБУ в Справочники.xlsx."
                 ),
-                problem_data=pd.DataFrame({
-                    'отсутствующий_синтетический_счет': sorted(missing_acc),
-                }),
+                problem_data=problem_data,
                 reference_name="ПланСчетовБУ",
             )
             
