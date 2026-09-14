@@ -3,6 +3,8 @@ Mixin с бизнес-обработкой для Шага 17.
 
 Методы:
     _process_ppa: подтягивание контрагентов из справочника ППА
+    _build_ppa_mapping: маппинг 'объект ОС -> контрагент' по колонке справочника ППА
+    _validate_ppa_mapping: проверка полноты меппинга ППА (MissingMappingError)
     _process_asset_sales: обработка продажи активов (НДС, контрагенты, распределение)
     _build_asset_masks: построение масок продажи активов
     _ensure_aligned_bool_mask: выравнивание булевых масок по индексу
@@ -72,16 +74,9 @@ class Step17ProcessingMixin:
             'не_указано'
         ).astype('string')
 
-        mapping_ppa = (
-            reference_ppa_df
-            .drop_duplicates(subset='ос_ппа')
-            .set_index('ос_ппа')['контрагент']
-        )
-
-        mapping_transfer = (
-            reference_ppa_df
-            .drop_duplicates(subset='ос_после_перехода_в_собственность')
-            .set_index('ос_после_перехода_в_собственность')['контрагент']
+        mapping_ppa = self._build_ppa_mapping(reference_ppa_df, 'ос_ппа')
+        mapping_transfer = self._build_ppa_mapping(
+            reference_ppa_df, 'ос_после_перехода_в_собственность'
         )
 
         mask_01_09_9101 = (
@@ -162,6 +157,32 @@ class Step17ProcessingMixin:
 
         return df_9101, df_9102
 
+    @staticmethod
+    def _build_ppa_mapping(
+        reference_ppa_df: pd.DataFrame,
+        key_column: str,
+    ) -> pd.Series:
+        """
+        Строит маппинг 'объект ОС -> контрагент' по ключевой колонке справочника ППА.
+
+        Колонка может отсутствовать в справочнике (лист ППА заполнен не
+        полностью) — тогда возвращается пустой маппинг: все строки с такими
+        объектами ОС не смапятся и штатно попадут в MissingMappingError
+        (_validate_ppa_mapping), а не в KeyError здесь.
+        """
+        if key_column not in reference_ppa_df.columns:
+            logger.warning(
+                "[!] В справочнике ППА нет колонки '{}' — меппинг по ней невозможен.",
+                key_column,
+            )
+            return pd.Series(dtype='string')
+
+        return (
+            reference_ppa_df
+            .drop_duplicates(subset=key_column)
+            .set_index(key_column)['контрагент']
+        )
+
     def _validate_ppa_mapping(
         self,
         reference_ppa_df: pd.DataFrame,
@@ -169,23 +190,22 @@ class Step17ProcessingMixin:
         missing_by_mapping: dict,
     ) -> None:
         """
-        Проверяет полноту маппинга контрагентов из справочника ППА (шаг 17).
+        Проверяет полноту меппинга контрагентов из справочника ППА (шаг 17).
 
         Единообразие с другими справочниками, данные которых подтягиваются
         по имени компании: при отсутствии записей по компании (в том числе
         когда справочник пуст) и при неполном списке формируется отчёт
         с недостающими позициями — объектами ОС, по которым не подтянулся
-        контрагент. Меппинг по 'ос_ппа' обязателен, по
-        'ос_после_перехода_в_собственность' — только если в справочнике
-        заполнен хотя бы один такой ключ.
+        контрагент.
+
+        Оба меппинга обязательны и проверяются одинаково ('ос_ппа' и
+        'ос_после_перехода_в_собственность') — независимо от наличия колонки
+        в справочнике и её заполненности. Иначе объекты ОС без контрагента
+        молча проходят дальше и искажают группа_ка/вид_связи (заменяются
+        на '3 лица' в _enrich_with_connection_info).
         """
         missing_by_type = {}
         for column, checks in missing_by_mapping.items():
-            if column == 'ос_после_перехода_в_собственность':
-                if 'ос_после_перехода_в_собственность' not in reference_ppa_df.columns:
-                    continue
-                if reference_ppa_df['ос_после_перехода_в_собственность'].dropna().empty:
-                    continue
             missing_values = set()
             for df, mask, mapped in checks:
                 unmapped = df.loc[mask & mapped.isna(), 'объект для изм ппа']
