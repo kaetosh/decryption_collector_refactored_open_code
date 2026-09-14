@@ -69,6 +69,12 @@ class Step14TransformMixin:
         """Обогащает DataFrame данными из справочников."""
         logger.debug("Обогащение данными из справочников")
 
+        # Защита от object-типов (валидация выхода шага требует 'string'):
+        # контрагент/ном_группа приходят из распределения себестоимости
+        # (включая concat с сиротами «3 лица») — приводим к string до маппингов.
+        df_result['контрагент'] = df_result['контрагент'].astype('string')
+        df_result['ном_группа'] = df_result['ном_группа'].astype('string')
+
         mapping_account = (
             mapping_opu_df
             .drop_duplicates(subset='счет')
@@ -210,6 +216,22 @@ class Step14TransformMixin:
         """Объединяет основной результат с переоценкой."""
         logger.debug("Объединение с переоценкой")
 
+        text_cols = [
+            'счет', 'контрагент', 'ном_группа', 'доход_расход',
+            'вид_дохода_расхода', 'сегмент', 'группа_ка', 'сегмент_ка', 'вид_связи'
+        ]
+
+        def _cast_text_columns(df: pd.DataFrame) -> pd.DataFrame:
+            for col in text_cols:
+                if col in df.columns:
+                    df[col] = df[col].astype('string')
+            return df
+
+        # Каст обязателен в ОБЕИХ ветках: при отсутствии переоценки ранний
+        # return раньше пропускал приведение типов, и object-столбцы
+        # (например, 'контрагент' сирот «3 лица») доезжали до валидации.
+        df_result = _cast_text_columns(df_result)
+
         if df9002_16.empty:
             logger.debug("Переоценка отсутствует, объединение не требуется")
             return df_result
@@ -220,14 +242,7 @@ class Step14TransformMixin:
         )
 
         df_final = pd.concat([df_result, df9002_16_aligned], ignore_index=True)
-
-        text_cols = [
-            'счет', 'контрагент', 'ном_группа', 'доход_расход',
-            'вид_дохода_расхода', 'сегмент', 'группа_ка', 'сегмент_ка', 'вид_связи'
-        ]
-        for col in text_cols:
-            if col in df_final.columns:
-                df_final[col] = df_final[col].astype('string')
+        df_final = _cast_text_columns(df_final)
 
         logger.debug(
             "Объединение завершено: {} + {} = {} строк",

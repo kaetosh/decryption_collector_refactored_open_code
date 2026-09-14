@@ -18,6 +18,19 @@ cd C:\Users\a.karabedyan\Documents\PythonProject\decryption_collector_refactored
 python main.py
 ```
 
+### Зависимости
+
+Версии библиотек зафиксированы в `requirements.txt` (эталон — рабочий ноутбук,
+conda env `fl_acc_card`). Фиксация защищает от расхождений поведения pandas
+между машинами — например, `pd.concat` в pandas 2.x понижает `string` + `object`
+до `object`, а в pandas 3.x оставляет `string` (класс скрытых «дома работает /
+на работе падает»):
+
+```powershell
+conda activate fl_acc_card
+pip install -r requirements.txt
+```
+
 Флаги командной строки:
 
 | Флаг | Назначение |

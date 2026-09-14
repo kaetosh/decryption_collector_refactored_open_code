@@ -1,0 +1,14 @@
+# -*- coding: utf-8 -*-
+# Зафиксированные версии окружения (эталон: рабочий ноутбук, conda env fl_acc_card).
+# Python: 3.13.14
+# Зафиксировано 2026-09-14 после расхождения поведения дом/работа (баг dtype
+# шага 14: pd.concat в pandas 2.x понижает string + object до object, в 3.x — нет).
+#
+# Установка: conda activate fl_acc_card && pip install -r requirements.txt
+pandas==2.3.1
+numpy==2.3.2
+openpyxl==3.1.5
+loguru==0.7.3
+xlwings==0.33.15
+pyarrow==25.0.0
+rapidfuzz==3.14.5

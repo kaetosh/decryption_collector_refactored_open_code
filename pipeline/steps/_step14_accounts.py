@@ -528,17 +528,19 @@ class Step14AccountsMixin:
                               'выручка_без_ндс_тыс_руб', 'Итоговая_себестоимость_руб']]
 
         if not orphans.empty:
-            df_result = pd.concat([
-                df_result,
-                pd.DataFrame({
-                    'контрагент': ['3 лица'] * len(orphans),
-                    'ном_группа': orphans.index,
-                    'выручка_без_ндс_тыс_ед': 0.0,
-                    'Итоговая_себестоимость': orphans['кост_остаток'].to_numpy(),
-                    'выручка_без_ндс_тыс_руб': 0.0,
-                    'Итоговая_себестоимость_руб': orphans['кост_остаток_руб'].to_numpy(),
-                }),
-            ], ignore_index=True)
+            # Сироты строим с явными dtype: столбец из python-списка получает
+            # 'object', а pd.concat(string, object) в pandas 2.x понижает итог
+            # до 'object' — валидация выхода шага требует 'string'
+            # (регрессия 14.09.2026: journal_df['контрагент'] = object).
+            df_orphans = pd.DataFrame({
+                'контрагент': pd.Series(['3 лица'] * len(orphans), dtype='string'),
+                'ном_группа': pd.Series(orphans.index.to_numpy(), dtype='string'),
+                'выручка_без_ндс_тыс_ед': 0.0,
+                'Итоговая_себестоимость': orphans['кост_остаток'].to_numpy(),
+                'выручка_без_ндс_тыс_руб': 0.0,
+                'Итоговая_себестоимость_руб': orphans['кост_остаток_руб'].to_numpy(),
+            })
+            df_result = pd.concat([df_result, df_orphans], ignore_index=True)
 
         df_result = df_result.groupby(['контрагент', 'ном_группа'], as_index=False)[
             ['выручка_без_ндс_тыс_ед', 'Итоговая_себестоимость',
