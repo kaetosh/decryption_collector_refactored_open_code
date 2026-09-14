@@ -22,7 +22,7 @@ from loguru import logger
 from pipeline.base import ProcessingContext
 from pipeline.errors import MissingCreditContractorError, MissingMappingError
 from pipeline.step_config import StepConstants
-from config.settings import STRICT_CREDIT_CONTRACTOR_CHECK
+from config.settings import STRICT_CREDIT_CONTRACTOR_CHECK, STRICT_PPA_MAPPING_CHECK
 
 
 class Step17ProcessingMixin:
@@ -140,7 +140,7 @@ class Step17ProcessingMixin:
             count_ppa_9101 + count_ppa_9102,
         )
 
-        self._validate_ppa_mapping(
+        missing_by_type = self._validate_ppa_mapping(
             reference_ppa_df,
             name_company,
             missing_by_mapping={
@@ -153,7 +153,17 @@ class Step17ProcessingMixin:
                     (df_9102, mask_02_01_or_01_01_9102, mapped_2_9102),
                 ),
             },
+            strict=STRICT_PPA_MAPPING_CHECK,
         )
+
+        if missing_by_type:
+            # Мягкий режим: заменяем несмапленные объекты ОС на '3 лица'
+            self._apply_soft_ppa_mapping(
+                df_9101, df_9102,
+                mask_01_09_9101, mask_01_09_9102,
+                mask_02_01_or_01_01_9101, mask_02_01_or_01_01_9102,
+                missing_by_type, name_company,
+            )
 
         return df_9101, df_9102
 
@@ -188,7 +198,8 @@ class Step17ProcessingMixin:
         reference_ppa_df: pd.DataFrame,
         name_company: str,
         missing_by_mapping: dict,
-    ) -> None:
+        strict: bool = True,
+    ) -> dict:
         """
         Проверяет полноту меппинга контрагентов из справочника ППА (шаг 17).
 
@@ -203,6 +214,10 @@ class Step17ProcessingMixin:
         в справочнике и её заполненности. Иначе объекты ОС без контрагента
         молча проходят дальше и искажают группа_ка/вид_связи (заменяются
         на '3 лица' в _enrich_with_connection_info).
+
+        :param strict: True — строгий режим (raise MissingMappingError);
+            False — мягкий режим (вернуть missing_by_type для замены на '3 лица').
+        :return: Словарь missing_by_type (пустой в строгом режиме при успехе).
         """
         missing_by_type = {}
         for column, checks in missing_by_mapping.items():
@@ -218,25 +233,124 @@ class Step17ProcessingMixin:
             self._warn_ppa_mapping_without_company_entries(
                 reference_ppa_df, name_company
             )
-            return
+            return {}
 
-        raise MissingMappingError(
-            message=(
-                f"В справочнике ППА отсутствуют объекты ОС для подтягивания "
-                f"контрагентов при выбытии прав пользования активами / изменении "
-                f"условий договоров аренды (шаг 17) по компании '{name_company}'. "
-                f"Колонки без меппинга: {sorted(missing_by_type)}. Дополните лист "
-                f"ППА в Справочники.xlsx. "
-                + self.hint_companies_in_reference(
-                    reference_ppa_df, 'наименование_компании'
-                )
-            ),
-            problem_data=self.make_missing_values_problem_data(
-                missing_by_type, name_company
-            ),
-            reference_name="ППА",
-            searched_company=name_company,
+        if strict:
+            raise MissingMappingError(
+                message=(
+                    f"В справочнике ППА отсутствуют объекты ОС для подтягивания "
+                    f"контрагентов при выбытии прав пользования активами / изменении "
+                    f"условий договоров аренды (шаг 17) по компании '{name_company}'. "
+                    f"Колонки без меппинга: {sorted(missing_by_type)}. Дополните лист "
+                    f"ППА в Справочники.xlsx. "
+                    + self.hint_companies_in_reference(
+                        reference_ppa_df, 'наименование_компании'
+                    )
+                ),
+                problem_data=self.make_missing_values_problem_data(
+                    missing_by_type, name_company
+                ),
+                reference_name="ППА",
+                searched_company=name_company,
+            )
+
+        return missing_by_type
+
+    def _apply_soft_ppa_mapping(
+        self,
+        df_9101: pd.DataFrame,
+        df_9102: pd.DataFrame,
+        mask_01_09_9101: pd.Series,
+        mask_01_09_9102: pd.Series,
+        mask_02_01_or_01_01_9101: pd.Series,
+        mask_02_01_or_01_01_9102: pd.Series,
+        missing_by_type: dict,
+        name_company: str,
+    ) -> None:
+        """
+        Мягкий режим: заменяет несмапленные объекты ОС на '3 лица'.
+
+        Вызывается при STRICT_PPA_MAPPING_CHECK=False. Логирует WARNING,
+        сохраняет отчёт в Excel (mismatches/) и заменяет контрагента
+        для объектов ОС, отсутствующих в справочнике ППА.
+        """
+        missing_os_ppa = set(missing_by_type.get('ос_ппа', []))
+        missing_os_transfer = set(missing_by_type.get('ос_после_перехода_в_собственность', []))
+
+        all_missing = sorted(missing_os_ppa | missing_os_transfer)
+        logger.warning(
+            "[!] Мягкий режим (STRICT_PPA_MAPPING_CHECK=False): в справочнике ППА "
+            "отсутствуют {} объектов ОС для компании '{}' — заменяются на '{}'",
+            len(all_missing), name_company, StepConstants.THIRD_PARTY,
         )
+        for item in all_missing:
+            column_type = []
+            if item in missing_os_ppa:
+                column_type.append('ос_ппа')
+            if item in missing_os_transfer:
+                column_type.append('ос_после_перехода_в_собственность')
+            logger.warning("      - {} (тип: {})", item, ', '.join(column_type))
+
+        # Замена в df_9101: маска 01.09 + ос_ппа
+        if missing_os_ppa:
+            mask_unmapped_9101_01 = (
+                mask_01_09_9101 &
+                df_9101['объект для изм ппа'].isin(missing_os_ppa) &
+                df_9101['контрагент'].isna()
+            )
+            df_9101.loc[mask_unmapped_9101_01, 'контрагент'] = StepConstants.THIRD_PARTY
+
+        # Замена в df_9102: маска 01.09 + ос_ппа
+        if missing_os_ppa:
+            mask_unmapped_9102_01 = (
+                mask_01_09_9102 &
+                df_9102['объект для изм ппа'].isin(missing_os_ppa) &
+                df_9102['контрагент'].isna()
+            )
+            df_9102.loc[mask_unmapped_9102_01, 'контрагент'] = StepConstants.THIRD_PARTY
+
+        # Замена в df_9101: маска 02.01/01.01 + ос_после_перехода_в_собственность
+        if missing_os_transfer:
+            mask_unmapped_9101_02 = (
+                mask_02_01_or_01_01_9101 &
+                df_9101['объект для изм ппа'].isin(missing_os_transfer) &
+                df_9101['контрагент'].isna()
+            )
+            df_9101.loc[mask_unmapped_9101_02, 'контрагент'] = StepConstants.THIRD_PARTY
+
+        # Замена в df_9102: маска 02.01/01.01 + ос_после_перехода_в_собственность
+        if missing_os_transfer:
+            mask_unmapped_9102_02 = (
+                mask_02_01_or_01_01_9102 &
+                df_9102['объект для изм ппа'].isin(missing_os_transfer) &
+                df_9102['контрагент'].isna()
+            )
+            df_9102.loc[mask_unmapped_9102_02, 'контрагент'] = StepConstants.THIRD_PARTY
+
+        # Сохраняем отчёт
+        try:
+            problem_data = self.make_missing_values_problem_data(
+                missing_by_type, name_company
+            )
+            report_error = MissingMappingError(
+                message=(
+                    f"В справочнике ППА отсутствуют объекты ОС для подтягивания "
+                    f"контрагентов при выбытии прав пользования активами / изменении "
+                    f"условий договоров аренды (шаг 17) по компании '{name_company}' "
+                    f"(мягкий режим STRICT_PPA_MAPPING_CHECK=False). "
+                    f"Колонки без меппинга: {sorted(missing_by_type)}. "
+                    f"Несмапленные объекты заменены на '{StepConstants.THIRD_PARTY}'."
+                ),
+                problem_data=problem_data,
+                reference_name="ППА",
+                searched_company=name_company,
+            )
+            self._save_reference_mismatch_report(report_error)
+        except Exception as report_exc:
+            logger.warning(
+                "[!] Не удалось сохранить отчёт по отсутствующим объектам ОС в ППА: {}",
+                report_exc,
+            )
 
     def _warn_ppa_mapping_without_company_entries(
         self,
