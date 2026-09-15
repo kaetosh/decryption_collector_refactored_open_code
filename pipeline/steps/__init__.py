@@ -26,6 +26,7 @@ from pipeline.steps.step_17_add_other_income_and_expenses import Step17AddOtherI
 from pipeline.steps.step_18_add_task_and_other_movements import Step18AddTaskAndOtherMovementsStep
 from pipeline.steps.step_19_build_opu import Step19BuildOpuStep
 from pipeline.steps.step_20_collapse_opu import Step20CollapseOtherIncomeExpensesStep
+from pipeline.steps.step_21_collapse_balance import Step21CollapseBalanceArticlesStep
 
 
 
@@ -54,4 +55,5 @@ __all__ = [
     'Step18AddTaskAndOtherMovementsStep',
     'Step19BuildOpuStep',
     'Step20CollapseOtherIncomeExpensesStep',
+    'Step21CollapseBalanceArticlesStep',
 ]

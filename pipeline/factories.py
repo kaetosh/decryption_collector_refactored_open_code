@@ -33,6 +33,7 @@ from pipeline.steps import (
     Step18AddTaskAndOtherMovementsStep,
     Step19BuildOpuStep,
     Step20CollapseOtherIncomeExpensesStep,
+    Step21CollapseBalanceArticlesStep,
 )
 
 
@@ -97,5 +98,6 @@ def create_main_pipeline() -> Pipeline:
     # ЭТАП 6: Финальная сборка расшифровки опу
     pipeline.add_step(Step19BuildOpuStep())
     pipeline.add_step(Step20CollapseOtherIncomeExpensesStep())
+    pipeline.add_step(Step21CollapseBalanceArticlesStep())
 
     return pipeline

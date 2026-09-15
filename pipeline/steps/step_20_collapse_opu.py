@@ -314,10 +314,10 @@ class Step20CollapseOtherIncomeExpensesStep(Step):
             return pnl_df, collapsed_rows
 
         result_df = pnl_df.drop(index=list(used_indices)).copy()
-        if self.ACCOUNT_COL not in result_df.columns:
-            result_df = result_df.reset_index()
 
         if collapsed_rows:
+            if self.ACCOUNT_COL not in result_df.columns:
+                result_df = result_df.reset_index()
             new_rows = pd.DataFrame(collapsed_rows)
             for col in output_cols:
                 if col not in new_rows.columns:
