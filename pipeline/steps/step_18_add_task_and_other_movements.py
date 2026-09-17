@@ -9,6 +9,7 @@
 import pandas as pd
 from loguru import logger
 from pipeline.base import Step, ProcessingContext
+from pipeline.step_config import StepConstants
 from io_module import DataLoader
 
 
@@ -99,31 +100,56 @@ class Step18AddTaskAndOtherMovementsStep(Step):
                 'счет_фо': '1300000100'
             })
 
+        # Строки налога/прочих движений формируются только при ненулевых оборотах
         if new_rows_data:
             new_rows = pd.DataFrame(new_rows_data)
-            
+
             # Заполняем стандартные значения для всех строк
-            default_cols = ['контрагент', 'ном_группа', 'группа_ка', 'сегмент_ка', 
+            default_cols = ['контрагент', 'ном_группа', 'группа_ка', 'сегмент_ка',
                             'вид_связи', 'объект для изм ппа', 'рбп_кредитные_линии']
             for col in default_cols:
-                new_rows[col] = 'не_указано'
+                new_rows[col] = StepConstants.UNSPECIFIED
             new_rows['сегмент'] = segment_company
 
             # Добавляем в основной DataFrame
             main_df = pd.concat([context.journal_df, new_rows], ignore_index=True)
+        else:
+            # Оборотов по 99 счёту нет: состав строк журнала не меняется,
+            # но общие нормализации ниже выполняются всё равно (см. пояснение).
+            main_df = context.journal_df.copy()
 
-            # Приводим типы и заполняем пропуски
-            str_cols = ['контрагент', 'ном_группа', 'счет', 'доход_расход', 'вид_дохода_расхода',
-                        'сегмент', 'группа_ка', 'сегмент_ка', 'вид_связи', 'объект для изм ппа', 'рбп_кредитные_линии']
-            
-            main_df[str_cols] = main_df[str_cols].astype('string').fillna('не_указано')
+        # ── Общие нормализации журнала ОПУ: выполняются ВСЕГДА ──────────────
+        # Раньше эти операции жили внутри ветки «есть обороты по 99 счёту»,
+        # поэтому у компании без налога на прибыль / прочих движений по 99
+        # журнал оставался ненормализованным:
+        #   • вид_связи='не_указано' не заменялось на '3 лица' → шаг 19 не
+        #     находил ключ в Меппинг_опу (в справочнике только '3 лица');
+        #   • счёт не обрезался до 5 символов ('91.02.1' оставался как есть) →
+        #     ключ маппинга шага 19 тоже не совпадал.
+        # Итог: одна и та же компания проходила/не проходила шаг 19 в
+        # зависимости от наличия налога за период.
+        str_cols = ['контрагент', 'ном_группа', 'счет', 'доход_расход', 'вид_дохода_расхода',
+                    'сегмент', 'группа_ка', 'сегмент_ка', 'вид_связи', 'объект для изм ппа', 'рбп_кредитные_линии']
+        existing_str_cols = [col for col in str_cols if col in main_df.columns]
+
+        main_df[existing_str_cols] = (
+            main_df[existing_str_cols]
+            .astype('string')
+            .fillna(StepConstants.UNSPECIFIED)
+        )
+
+        if 'счет_фо' in main_df.columns:
             main_df['счет_фо'] = main_df['счет_фо'].astype('string')
-            
-            main_df.loc[main_df['вид_связи'] == 'не_указано', 'вид_связи'] = '3 лица'
-            
+
+        if 'вид_связи' in main_df.columns:
+            main_df.loc[
+                main_df['вид_связи'] == StepConstants.UNSPECIFIED, 'вид_связи'
+            ] = StepConstants.THIRD_PARTY
+
+        if 'счет' in main_df.columns:
             main_df['счет'] = main_df['счет'].str[:5]
 
-            context.journal_df = main_df
+        context.journal_df = main_df
 
         logger.info(
             "[OK] Добавлен налог на прибыль ({:,.0f} тыс. ед.) и прочие движения ({:,.0f} тыс. ед.)",
