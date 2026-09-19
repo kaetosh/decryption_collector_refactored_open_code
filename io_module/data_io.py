@@ -17,7 +17,7 @@ from config.settings import (OSV_GENERAL_DIR,
                              ACCOUNT_CARDS_DIR)
 from io_module.output_manager import get_output_dir
 from data_processors import FileHandler
-from pipeline.errors import TooManyFilesError
+from pipeline.errors import TooManyFilesError, InputDataError
 
 
 class DataLoader:
@@ -147,7 +147,17 @@ class DataLoader:
                 len(handler.not_correct_files),
                 "\n".join(f"  - {name}: {error}" for name, error in handler.not_correct_files.items()),
             )
-        
+
+        # Если обработка не дала ни одной строки и при этом были ошибки —
+        # поднимаем первопричину вместо молча пустого DataFrame (иначе
+        # вызывающий код маскирует её сообщениями вида «не содержит данных»).
+        if df.empty and handler.not_correct_files:
+            first_name, first_error = next(iter(handler.not_correct_files.items()))
+            raise InputDataError(
+                f"Не удалось обработать файл {first_name}: {first_error}. "
+                f"Проверьте формат выгрузки и актуальность обработчиков."
+            )
+
         return df, check_df
     
     @staticmethod

@@ -307,19 +307,57 @@ class GeneralOSV_NonUPPFileProcessor(BaseOSVFileProcessor):
         df.columns = ['Уровень', 'Курсив'] + df.columns[2:].tolist()
 
         cols = df.columns.tolist()
-        target_idx_0 = cols.index('Наименование счета')
-        target_idx_a = cols.index('Сальдо на начало периода')
-        target_idx_b = cols.index('Обороты за период')
-        target_idx_c = cols.index('Сальдо на конец периода')
+        # Имена колонок после установки шапки могут содержать pd.NA:
+        # list.index() в pandas 2.x падает на них ('boolean value of NA is ambiguous').
+        # Нормализуем имена в строки для безопасного поиска.
+        normalized_cols = df.columns.astype(str).str.strip().tolist()
+
+        def find_column(name: str) -> int:
+            if name in normalized_cols:
+                return normalized_cols.index(name)
+            raise ValueError(
+                f'Отсутствует обязательный столбец: {name}. '
+                f'Доступные столбцы: '
+                f'{[c for c in normalized_cols if c and c.lower() != "<na>"]}'
+            )
+
+        target_idx_0 = find_column('Наименование счета')
+        target_idx_a = find_column('Сальдо на начало периода')
+        target_idx_b = find_column('Обороты за период')
+        target_idx_c = find_column('Сальдо на конец периода')
+
+        # Под-строка шапки ('Дебет'/'Кредит') идёт сразу после основной и в
+        # расширенных форматах разносит колонки Дебет/Кредит с пустыми
+        # промежутками (напр. столбцы I/L, O/Q, R/S). Поэтому фактические
+        # позиции Дебета/Кредита ищем по под-строке, а не по смежности с
+        # заголовком блока. Фоллбэк — смежные колонки (стандартный формат).
+        sub_header = df.iloc[0].astype(str).str.strip().str.lower().tolist()
+
+        def find_debit_credit(start: int) -> tuple:
+            debit = start
+            for i in range(start, min(start + 25, len(sub_header))):
+                if sub_header[i] == 'дебет':
+                    debit = i
+                    break
+            credit = debit + 1
+            for i in range(debit + 1, min(debit + 25, len(sub_header))):
+                if sub_header[i] == 'кредит':
+                    credit = i
+                    break
+            return debit, credit
+
+        debit_a, credit_a = find_debit_credit(target_idx_a)
+        debit_b, credit_b = find_debit_credit(target_idx_b)
+        debit_c, credit_c = find_debit_credit(target_idx_c)
 
         new_cols = cols.copy()
         new_cols[target_idx_0] = 'Наименование'
-        new_cols[target_idx_a] = 'Дебет_начало'
-        new_cols[target_idx_a + 1] = 'Кредит_начало'
-        new_cols[target_idx_b] = 'Дебет_оборот'
-        new_cols[target_idx_b + 1] = 'Кредит_оборот'
-        new_cols[target_idx_c] = 'Дебет_конец'
-        new_cols[target_idx_c + 1] = 'Кредит_конец'
+        new_cols[debit_a] = 'Дебет_начало'
+        new_cols[credit_a] = 'Кредит_начало'
+        new_cols[debit_b] = 'Дебет_оборот'
+        new_cols[credit_b] = 'Кредит_оборот'
+        new_cols[debit_c] = 'Дебет_конец'
+        new_cols[credit_c] = 'Кредит_конец'
 
         df.columns = new_cols
         df = df.loc[:, df.columns.notna()]
