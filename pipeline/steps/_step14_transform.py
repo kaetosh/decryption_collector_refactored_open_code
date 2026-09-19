@@ -155,33 +155,14 @@ class Step14TransformMixin:
                 else ""
             )
 
-            # Группируем по ном_группе и добавляем обороты, чтобы в отчёте
-            # mismatches/ бухгалтер сразу видел суммы по позициям, отсутствующим
-            # в СправочникУФР (оценка существенности для мягкого режима).
-            problem_cols = ['ном_группа', 'оборот, тыс.ед.', 'оборот, тыс.руб.']
-            problem_cols = [c for c in problem_cols if c in df_result.columns]
-            agg_dict = {
-                'количество_строк': pd.NamedAgg(column='ном_группа', aggfunc='size'),
-            }
-            for amount_col in ('оборот, тыс.ед.', 'оборот, тыс.руб.'):
-                if amount_col in problem_cols:
-                    agg_dict[amount_col] = pd.NamedAgg(column=amount_col, aggfunc='sum')
-
-            problem_data = (
-                df_result.loc[unmapped_mask, problem_cols]
-                .groupby('ном_группа', dropna=False, as_index=False)
-                .agg(**agg_dict)
-                .rename(columns={'ном_группа': 'ном_группа_без_маппинга'})
-            )
-            problem_data['строка_уфр_в_справочнике'] = (
-                problem_data['ном_группа_без_маппинга']
-                .map(mapping_revenue)
-                .fillna('ОТСУТСТВУЕТ')
-            )
-            problem_data['сегмент_в_справочнике'] = (
-                problem_data['ном_группа_без_маппинга']
-                .map(mapping_segment)
-                .fillna('ОТСУТСТВУЕТ')
+            problem_data = self.build_unmapped_problem_data(
+                df_result.loc[unmapped_mask],
+                group_cols=['ном_группа'],
+                rename_map={'ном_группа': 'ном_группа_без_маппинга'},
+                marker_map={
+                    'строка_уфр_в_справочнике': mapping_revenue,
+                    'сегмент_в_справочнике': mapping_segment,
+                },
             )
 
             raise MissingMappingError(

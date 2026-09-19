@@ -140,19 +140,20 @@ class Step17ProcessingMixin:
             count_ppa_9101 + count_ppa_9102,
         )
 
+        missing_by_mapping = {
+            'ос_ппа': (
+                (df_9101, mask_01_09_9101, mapped_1_9101),
+                (df_9102, mask_01_09_9102, mapped_1_9102),
+            ),
+            'ос_после_перехода_в_собственность': (
+                (df_9101, mask_02_01_or_01_01_9101, mapped_2_9101),
+                (df_9102, mask_02_01_or_01_01_9102, mapped_2_9102),
+            ),
+        }
         missing_by_type = self._validate_ppa_mapping(
             reference_ppa_df,
             name_company,
-            missing_by_mapping={
-                'ос_ппа': (
-                    (df_9101, mask_01_09_9101, mapped_1_9101),
-                    (df_9102, mask_01_09_9102, mapped_1_9102),
-                ),
-                'ос_после_перехода_в_собственность': (
-                    (df_9101, mask_02_01_or_01_01_9101, mapped_2_9101),
-                    (df_9102, mask_02_01_or_01_01_9102, mapped_2_9102),
-                ),
-            },
+            missing_by_mapping,
             strict=STRICT_PPA_MAPPING_CHECK,
         )
 
@@ -160,9 +161,7 @@ class Step17ProcessingMixin:
             # Мягкий режим: заменяем несмапленные объекты ОС на '3 лица'
             self._apply_soft_ppa_mapping(
                 df_9101, df_9102,
-                mask_01_09_9101, mask_01_09_9102,
-                mask_02_01_or_01_01_9101, mask_02_01_or_01_01_9102,
-                missing_by_type, name_company,
+                missing_by_mapping, missing_by_type, name_company,
             )
 
         return df_9101, df_9102
@@ -283,10 +282,7 @@ class Step17ProcessingMixin:
         self,
         df_9101: pd.DataFrame,
         df_9102: pd.DataFrame,
-        mask_01_09_9101: pd.Series,
-        mask_01_09_9102: pd.Series,
-        mask_02_01_or_01_01_9101: pd.Series,
-        mask_02_01_or_01_01_9102: pd.Series,
+        missing_by_mapping: dict,
         missing_by_type: dict,
         name_company: str,
     ) -> None:
@@ -296,6 +292,12 @@ class Step17ProcessingMixin:
         Вызывается при STRICT_PPA_MAPPING_CHECK=False. Логирует WARNING,
         сохраняет отчёт в Excel (mismatches/) и заменяет контрагента
         для объектов ОС, отсутствующих в справочнике ППА.
+
+        :param missing_by_mapping: структура {колонка_ППА: [(df, mask, mapped)]}
+            — пары df+маска уже несут позиции, где контрагент должен быть
+            подтянут из справочника (то же, что передаётся в _validate_ppa_mapping).
+        :param missing_by_type: результат _validate_ppa_mapping — какие объекты ОС
+            не смаплены по каждой колонке.
         """
         missing_os_ppa = set(missing_by_type.get('ос_ппа', []))
         missing_os_transfer = set(missing_by_type.get('ос_после_перехода_в_собственность', []))
@@ -314,41 +316,20 @@ class Step17ProcessingMixin:
                 column_type.append('ос_после_перехода_в_собственность')
             logger.warning("      - {} (тип: {})", item, ', '.join(column_type))
 
-        # Замена в df_9101: маска 01.09 + ос_ппа
-        if missing_os_ppa:
-            mask_unmapped_9101_01 = (
-                mask_01_09_9101 &
-                df_9101['объект для изм ппа'].isin(missing_os_ppa) &
-                df_9101['контрагент'].isna()
-            )
-            df_9101.loc[mask_unmapped_9101_01, 'контрагент'] = StepConstants.THIRD_PARTY
-
-        # Замена в df_9102: маска 01.09 + ос_ппа
-        if missing_os_ppa:
-            mask_unmapped_9102_01 = (
-                mask_01_09_9102 &
-                df_9102['объект для изм ппа'].isin(missing_os_ppa) &
-                df_9102['контрагент'].isna()
-            )
-            df_9102.loc[mask_unmapped_9102_01, 'контрагент'] = StepConstants.THIRD_PARTY
-
-        # Замена в df_9101: маска 02.01/01.01 + ос_после_перехода_в_собственность
-        if missing_os_transfer:
-            mask_unmapped_9101_02 = (
-                mask_02_01_or_01_01_9101 &
-                df_9101['объект для изм ппа'].isin(missing_os_transfer) &
-                df_9101['контрагент'].isna()
-            )
-            df_9101.loc[mask_unmapped_9101_02, 'контрагент'] = StepConstants.THIRD_PARTY
-
-        # Замена в df_9102: маска 02.01/01.01 + ос_после_перехода_в_собственность
-        if missing_os_transfer:
-            mask_unmapped_9102_02 = (
-                mask_02_01_or_01_01_9102 &
-                df_9102['объект для изм ппа'].isin(missing_os_transfer) &
-                df_9102['контрагент'].isna()
-            )
-            df_9102.loc[mask_unmapped_9102_02, 'контрагент'] = StepConstants.THIRD_PARTY
+        # Замена контрагента на '3 лица' для каждого (df, маска, значение-в-типе)
+        # из missing_by_mapping: изменения по объектам ОС, отсутствующим
+        # в справочнике ППА.
+        for column, checks in missing_by_mapping.items():
+            missing_set = set(missing_by_type.get(column, []))
+            if not missing_set:
+                continue
+            for df, mask, _mapped in checks:
+                unmapped_mask = (
+                    mask
+                    & df['объект для изм ппа'].isin(missing_set)
+                    & df['контрагент'].isna()
+                )
+                df.loc[unmapped_mask, 'контрагент'] = StepConstants.THIRD_PARTY
 
         # Сохраняем отчёт
         try:

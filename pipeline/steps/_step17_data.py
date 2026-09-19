@@ -231,32 +231,10 @@ class Step17DataMixin:
         unmapped_mask = df['вид_дохода_расхода'].isna()
 
         if unmapped_mask.any():
-            # Группируем по ключу маппинга и добавляем суммы оборотов, чтобы
-            # в отчёте mismatches/ бухгалтер сразу видел и обороты по позициям
-            # 91.01/91.02, отсутствующим в Меппинг_опу (оценка существенности
-            # для решения о мягком режиме).
-            problem_cols = ['счет', 'Корр.счет', 'доход_расход', '_key']
-            for amount_col in ('оборот, тыс.ед.', 'оборот, тыс.руб.'):
-                if amount_col in df.columns:
-                    problem_cols.append(amount_col)
-            problem_rows = df.loc[unmapped_mask, problem_cols].copy()
-
-            agg_dict = {
-                'количество_строк': pd.NamedAgg(column='_key', aggfunc='size'),
-            }
-            for amount_col in ('оборот, тыс.ед.', 'оборот, тыс.руб.'):
-                if amount_col in problem_rows.columns:
-                    agg_dict[amount_col] = pd.NamedAgg(column=amount_col, aggfunc='sum')
-
-            problem_data = (
-                problem_rows
-                .groupby(
-                    ['_key', 'счет', 'Корр.счет', 'доход_расход'],
-                    dropna=False,
-                    as_index=False,
-                )
-                .agg(**agg_dict)
-                .rename(columns={'_key': 'ключ_поиска'})
+            problem_data = self.build_unmapped_problem_data(
+                df.loc[unmapped_mask],
+                group_cols=['_key', 'счет', 'Корр.счет', 'доход_расход'],
+                rename_map={'_key': 'ключ_поиска'},
             )
 
             raise MissingMappingError(

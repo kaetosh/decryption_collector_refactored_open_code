@@ -682,6 +682,61 @@ class Step(ABC):
         )
 
     @staticmethod
+    def build_unmapped_problem_data(
+        unmapped_df: pd.DataFrame,
+        group_cols: list[str],
+        sum_cols: tuple[str, ...] = ('оборот, тыс.ед.', 'оборот, тыс.руб.'),
+        rename_map: Optional[dict] = None,
+        marker_map: Optional[dict] = None,
+    ) -> pd.DataFrame:
+        """
+        Строит отчёт mismatches/ «незамапленные строки + суммы».
+
+        Агрегирует строки незамапленных данных по group_cols (dropna=False):
+        количество строк и суммы по sum_cols — чтобы бухгалтер сразу видел
+        обороты по позициям, отсутствующим в справочнике (оценка
+        существенности для мягкого режима). Затем переименовывает ключевые
+        колонки (rename_map) и добавляет маркеры «что в справочнике» из
+        mapping-серий (marker_map: {новая колонка: mapping_series}) с
+        заполнением 'ОТСУТСТВУЕТ' для значений вне справочника.
+
+        Args:
+            unmapped_df: DataFrame с незамапленными строками (уже отфильтрован).
+            group_cols: колонки группировки (первая — «ключ» для
+                'количество_строк').
+            sum_cols: колонки сумм (добавляются, если присутствуют).
+            rename_map: переименование колонок после группировки.
+            marker_map: {новая колонка: mapping_series с 'как в справочнике'}.
+
+        Returns:
+            DataFrame: group_cols (+rename) + 'количество_строк' + суммы по
+            sum_cols + колонки из marker_map.
+        """
+        agg_dict = {
+            'количество_строк': pd.NamedAgg(column=group_cols[0], aggfunc='size'),
+        }
+        for col in sum_cols:
+            if col in unmapped_df.columns:
+                agg_dict[col] = pd.NamedAgg(column=col, aggfunc='sum')
+
+        result = (
+            unmapped_df
+            .groupby(group_cols, dropna=False, as_index=False)
+            .agg(**agg_dict)
+        )
+
+        if rename_map:
+            result = result.rename(columns=rename_map)
+            key_col = rename_map.get(group_cols[0], group_cols[0])
+        else:
+            key_col = group_cols[0]
+
+        for new_col, mapping in (marker_map or {}).items():
+            result[new_col] = result[key_col].map(mapping).fillna('ОТСУТСТВУЕТ')
+
+        return result
+
+    @staticmethod
     def hint_companies_in_reference(
         reference_df: pd.DataFrame,
         company_column: str,

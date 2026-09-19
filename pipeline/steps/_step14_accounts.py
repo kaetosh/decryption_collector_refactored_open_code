@@ -440,6 +440,30 @@ class Step14AccountsMixin:
         """
         logger.debug("Распределение себестоимости на контрагентов")
 
+        df_alloc = self._prepare_cost_allocation(df9001, df9002)
+        df9002_rem, group_pot = self._compute_key_remainder(df9002, df_alloc)
+        df_alloc, revenue_group = self._share_group_remainder(df9001, df_alloc, group_pot)
+
+        orphans = self._find_orphan_cost_groups(group_pot, revenue_group)
+        df_result = self._finalize_distribution(df_alloc, orphans)
+
+        logger.debug(
+            "Себестоимость распределена: {} строк с контрагентами ({} строк сиротских)",
+            len(df_result),
+            len(orphans),
+        )
+
+        return df_result
+
+    def _prepare_cost_allocation(
+        self,
+        df9001: pd.DataFrame,
+        df9002: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Собирает общий DataFrame-скелет распределения: выручка по контрагентам
+        (df9001) × выручка ключа (Документ, ном_группа) × себестоимость ключа
+        (df9002); затем считает долю строки в выручке ключа и прямой кост по строке.
+        """
         df_buyers = df9001.copy()
 
         revenue_key = df9001.groupby(
@@ -469,6 +493,17 @@ class Step14AccountsMixin:
             df_alloc['себестоимость_тыс_руб'].fillna(0) * df_alloc['доля_строки']
         )
 
+        return df_alloc
+
+    def _compute_key_remainder(
+        self,
+        df9002: pd.DataFrame,
+        df_alloc: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Считает остаток коста по ключу после прямого распределения (df9002_rem)
+        и свод остатков по номенклатурным группам с ненулевым костом (group_pot).
+        """
+
         # Остаток коста после прямого распределения по контрагентам ключа
         allocated_key = df_alloc.groupby(['Документ', 'ном_группа'], as_index=False)[
             ['кост_прямой', 'кост_прямой_руб']
@@ -490,6 +525,17 @@ class Step14AccountsMixin:
         group_pot = df9002_rem.groupby('ном_группа')[['кост_остаток', 'кост_остаток_руб']].sum()
         group_pot = group_pot[group_pot['кост_остаток'] != 0]
 
+        return df9002_rem, group_pot
+
+    def _share_group_remainder(
+        self,
+        df9001: pd.DataFrame,
+        df_alloc: pd.DataFrame,
+        group_pot: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Распределяет остаток коста по группе между строками пропорционально
+        выручке группы и считает итоговую себестоимость по строке.
+        """
         revenue_group = df9001.groupby('ном_группа', as_index=False)[
             ['выручка_без_ндс_тыс_ед', 'выручка_без_ндс_тыс_руб']
         ].sum().rename(columns={
@@ -514,8 +560,15 @@ class Step14AccountsMixin:
             df_alloc['кост_прямой_руб'] + df_alloc['кост_группы_руб']
         )
 
-        # Группы, у которых остался кост без выручки, — контрагент '3 лица'
-        orphans = group_pot[
+        return df_alloc, revenue_group
+
+    def _find_orphan_cost_groups(
+        self,
+        group_pot: pd.DataFrame,
+        revenue_group: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Группы, у которых остался кост без выручки, — контрагент '3 лица'."""
+        return group_pot[
             ~group_pot.index.isin(revenue_group['ном_группа'])
             | (
                 revenue_group.set_index('ном_группа')['выручка_группы_ед']
@@ -523,6 +576,14 @@ class Step14AccountsMixin:
             )
         ]
 
+    def _finalize_distribution(
+        self,
+        df_alloc: pd.DataFrame,
+        orphans: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Формирует итог: строки по контрагентам + сироты по '3 лица', сводит по
+        (контрагент, ном_группа) и переименовывает колонки себестоимости.
+        """
         df_result = df_alloc[['контрагент', 'ном_группа',
                               'выручка_без_ндс_тыс_ед', 'Итоговая_себестоимость',
                               'выручка_без_ндс_тыс_руб', 'Итоговая_себестоимость_руб']]
@@ -547,15 +608,7 @@ class Step14AccountsMixin:
              'выручка_без_ндс_тыс_руб', 'Итоговая_себестоимость_руб']
         ].sum()
 
-        df_result = df_result.rename(columns={
+        return df_result.rename(columns={
             'Итоговая_себестоимость': 'себестоимость_тыс_ед',
             'Итоговая_себестоимость_руб': 'себестоимость_тыс_руб',
         })
-
-        logger.debug(
-            "Себестоимость распределена: {} строк с контрагентами ({} строк сиротских)",
-            len(df_result),
-            len(orphans),
-        )
-
-        return df_result

@@ -565,8 +565,11 @@ class Step1aListExpectedRegistersStep(Step):
                     osv_row = osv_row.iloc[0]
                 if 'Наименование' in osv_row.index and pd.notna(osv_row['Наименование']):
                     problem_row['наименование_счета'] = osv_row['Наименование']
-                if 'Сальдо, тыс.ед.' in osv_row.index:
-                    saldo = osv_row['Сальдо, тыс.ед.']
+                saldo_col = 'сальдо, тыс.ед.'
+                if saldo_col not in osv_row.index and 'Сальдо, тыс.ед.' in osv_row.index:
+                    saldo_col = 'Сальдо, тыс.ед.'
+                if saldo_col in osv_row.index:
+                    saldo = osv_row[saldo_col]
                     problem_row['сальдо, тыс.ед.'] = (
                         float(saldo) if pd.notna(saldo) else None
                     )

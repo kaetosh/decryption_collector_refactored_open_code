@@ -28,12 +28,12 @@ from typing import Final
 import pandas as pd
 from loguru import logger
 
-from io_module.output_manager import get_output_dir
-from pipeline.base import ProcessingContext, Step
+from pipeline.base import ProcessingContext
+from pipeline.steps.collapse_base import CollapseStepBase
 from utils import needs_conversion
 
 
-class Step21CollapseBalanceArticlesStep(Step):
+class Step21CollapseBalanceArticlesStep(CollapseStepBase):
     """
     Шаг 21: Свёртывание статей расшифровки баланса.
 
@@ -44,23 +44,8 @@ class Step21CollapseBalanceArticlesStep(Step):
 
     REF_NAME: Final = "статьи_баланс_свернуто"
 
-    LEVEL1_COL: Final = "1 уровень"
-    LEVEL2_COL: Final = "2 уровень (точка плана)"
-    LEVEL3_COL: Final = "3 уровень"
-    LEVEL4_COL: Final = "4 уровень: СВЯЗАННОСТЬ"
-    VALUE_COL: Final = "Значение"
-    RUB_VALUE_COL: Final = "Значение_руб"
-    RSBU_CODE_COL: Final = "РСБУ Код отчетности"
-    ACCOUNT_COL: Final = "Итоговый номер счета"
-    REPORT_TYPE_COL: Final = "Отчетность"
-    ARTICLE_COL: Final = "Статья отчетности"
-    ASSET_LIABILITY_COL: Final = "Актив/Пассив"
-
-    GROUP_COL: Final = "номер_группы_сворачивания"
     ASSET_SIDE: Final = "А"
     PASSIVE_SIDE: Final = "П"
-
-    ZERO_EPSILON: Final = 1e-6
 
     def __init__(self) -> None:
         super().__init__(
@@ -122,6 +107,7 @@ class Step21CollapseBalanceArticlesStep(Step):
             collapsed_report_rows,
             context.company,
             context.period,
+            report_prefix="step21_collapse_balance",
         )
 
         logger.info(
@@ -348,69 +334,7 @@ class Step21CollapseBalanceArticlesStep(Step):
             result_df = pd.concat([result_df, new_rows], ignore_index=True)
             result_df = result_df.set_index(self.ACCOUNT_COL)
 
-        result_df = self._clean_balance_dtypes(result_df)
+        result_df = self._clean_collapse_dtypes(result_df, numeric_codes=True)
         result_df = result_df.sort_index(na_position="last")
 
         return result_df, report_rows
-
-    def _clean_balance_dtypes(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Приводит DataFrame к чистым типам (string для текста, float/Int64
-        для чисел), запрещая object dtype (иначе поймаем TypeError
-        при сохранении в Excel).
-        """
-        result = df.copy()
-        for col in result.columns:
-            if col in (self.VALUE_COL, self.RUB_VALUE_COL):
-                if not pd.api.types.is_numeric_dtype(result[col]):
-                    result[col] = pd.to_numeric(result[col], errors="coerce").fillna(0.0)
-                continue
-            if pd.api.types.is_numeric_dtype(result[col]) and not pd.api.types.is_bool_dtype(result[col]):
-                # Числовые служебные коды (РСБУ Код отчетности и т.п.)
-                # приводим к nullable Int64 — как в исходном балансе
-                non_null = result[col].dropna()
-                if not non_null.empty and (non_null % 1 == 0).all():
-                    try:
-                        result[col] = result[col].astype("Int64")
-                        continue
-                    except (TypeError, ValueError, OverflowError):
-                        pass
-                result[col] = result[col].astype("Float64")
-                continue
-            result[col] = result[col].astype("string").str.strip().replace({"": pd.NA})
-        return result
-
-    # ------------------------------------------------------------------
-    # Сохранение отчёта
-    # ------------------------------------------------------------------
-
-    def _save_collapse_report(
-        self,
-        collapsed_rows: list[dict],
-        company: str,
-        period: str,
-    ) -> None:
-        """
-        Сохраняет отчёт о сворачивании в mismatches/.
-        """
-        if not collapsed_rows:
-            return
-
-        report_df = pd.DataFrame(collapsed_rows)
-
-        try:
-            output_path = (
-                get_output_dir("mismatches")
-                / f"step21_collapse_balance_{company}_{period}.xlsx"
-            )
-            report_df.to_excel(output_path, index=False)
-            logger.info(
-                "[FOLDER] Отчёт о свёрнутых статьях баланса сохранён: {}",
-                output_path,
-            )
-        except PermissionError:
-            logger.warning(
-                "[!] Не удалось сохранить отчёт о свертке: файл открыт в другой программе"
-            )
-        except Exception as exc:
-            logger.warning("[!] Ошибка сохранения отчёта о свертке: {}", exc)
