@@ -11,8 +11,10 @@ Created on Mon Aug 25 12:20:46 2025
 
 @author: a.karabedyan
 """
+import numpy as np
 import pandas as pd
 from pathlib import Path
+from typing import Tuple
 from loguru import logger
 from utils import cast_columns_to_types, detect_txt_encoding, normalize_ragged_tab_rows
 
@@ -24,17 +26,19 @@ UNSPECIFIED = 'не_указано'
 
 pd.set_option('future.no_silent_downcasting', True)
 
-class Posting_UPPFileProcessor(FileProcessor):
-    """Обработчик для файлов отчётов по проводкам из 1С УПП (TXT-формат)."""
+class PostingTXTFileProcessor(FileProcessor):
+    """Базовый обработчик TXT-выгрузок отчётов по проводкам (загрузка файла)."""
+
+    HEADER_KEYWORD = 'дата'
 
     # =========================================================================
     # ЗАГРУЗКА ФАЙЛА
     # =========================================================================
-    
+
     @staticmethod
     def _find_header_row(
-        file_path: Path, 
-        keyword: str = 'дата', 
+        file_path: Path,
+        keyword: str = 'дата',
         encoding: str = 'cp1251',
         max_lines_to_read: int = 50,
         errors: str = 'strict',
@@ -49,7 +53,7 @@ class Posting_UPPFileProcessor(FileProcessor):
             errors: Режим обработки ошибок декодирования ('strict'/'replace').
         """
         keyword_lower = keyword.lower()
-        
+
         with open(file_path, 'r', encoding=encoding, errors=errors) as f:
             for physical_line_idx, line in enumerate(f):
                 if physical_line_idx >= max_lines_to_read:
@@ -61,11 +65,11 @@ class Posting_UPPFileProcessor(FileProcessor):
                         line.strip()[:50],
                     )
                     return physical_line_idx
-        
+
         raise ValueError(
             f"Строка с '{keyword}' не найдена в первых {max_lines_to_read} строках файла"
         )
-    
+
     def _load_txt_file(self, file_path: Path) -> pd.DataFrame:
         """Загружает TXT-файл с автоопределением кодировки и заголовка."""
         encoding, encoding_errors = detect_txt_encoding(file_path)
@@ -73,14 +77,14 @@ class Posting_UPPFileProcessor(FileProcessor):
             "Загрузка {}: кодировка {}, errors={}",
             file_path.name, encoding, encoding_errors,
         )
-        
+
         header_row = self._find_header_row(
             file_path,
-            'дата',
+            self.HEADER_KEYWORD,
             encoding=encoding,
             errors=encoding_errors,
         )
-        
+
         # Нормализация «рваных» строк: склейка табуляций, попавших внутрь
         # свободно-текстовых полей (иначе pd.read_csv падает с ParserError).
 
@@ -106,8 +110,14 @@ class Posting_UPPFileProcessor(FileProcessor):
             # dtype=str,
             # engine='python',
         )
-        
+
         return df
+
+
+class Posting_UPPFileProcessor(PostingTXTFileProcessor):
+    """Обработчик для файлов отчётов по проводкам из 1С УПП (TXT-формат)."""
+
+    HEADER_KEYWORD = 'дата'
 
     # =========================================================================
     # БАЗОВАЯ ОБРАБОТКА
@@ -281,166 +291,240 @@ class Posting_UPPFileProcessor(FileProcessor):
         
         return result, pd.DataFrame()
 
+class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
+    """Обработчик для файлов отчётов по проводкам из 1С не-УПП (TXT-формат)."""
 
-class Posting_NonUPPFileProcessor(FileProcessor):
-    """Обработчик для файлов из 1С (не УПП)"""
+    HEADER_KEYWORD = 'период'
 
+    # =========================================================================
+    # ЗАГРУЗКА ФАЙЛА
+    # =========================================================================
+
+    @staticmethod
+    def _find_header_row(
+        file_path: Path,
+        keyword: str = 'период',
+        encoding: str = 'cp1251',
+        max_lines_to_read: int = 50,
+        errors: str = 'strict',
+    ) -> int:
+        """Находит физический номер строки с заголовком.
+
+        Для не-УПП выгрузок заголовок — строка таблицы, где одна из ячеек
+        в точности равна ключевому слову (например, 'Период'). Подстрока не
+        используется, чтобы не ошибиться на служебной строке 'Период: ...'.
+        """
+        keyword_lower = keyword.lower()
+
+        with open(file_path, 'r', encoding=encoding, errors=errors) as f:
+            for physical_line_idx, line in enumerate(f):
+                if physical_line_idx >= max_lines_to_read:
+                    break
+                cells = [cell.strip().lower() for cell in line.rstrip('\n\r').split('\t')]
+                if keyword_lower in cells:
+                    logger.debug(
+                        "Заголовок найден на строке {}: {}...",
+                        physical_line_idx,
+                        line.strip()[:50],
+                    )
+                    return physical_line_idx
+
+        raise ValueError(
+            f"Строка с '{keyword}' не найдена в первых {max_lines_to_read} строках файла"
+        )
+
+    # =========================================================================
+    # БАЗОВАЯ ОБРАБОТКА
+    # =========================================================================
+
+    @staticmethod
+    def _rename_columns_after_pokaz(df: pd.DataFrame) -> pd.DataFrame:
+        """Корректировка столбцов для версии ERP."""
+        pokaz_cols = [col for col in df.columns if str(col).startswith('Показ')]
+        if not pokaz_cols:
+            return df
+
+        pokaz_idx = df.columns.get_loc(pokaz_cols[0])
+
+        if pokaz_idx + 4 >= len(df.columns):
+            return df
+
+        next_cols = df.columns[pokaz_idx + 1:pokaz_idx + 5]
+        if not all(pd.isna(col) for col in next_cols):
+            return df
+
+        new_names = ['Дебет', 'Дебет_значение', 'Кредит', 'Кредит_значение']
+        cols = list(df.columns)
+        for i, new_name in enumerate(new_names, start=1):
+            cols[pokaz_idx + i] = new_name
+
+        df.columns = cols
+        return df
 
     @staticmethod
     def _split_and_expand(df: pd.DataFrame, col_name: str, prefix: str) -> None:
-        """Оптимизированное разбиение столбца с разделителем \n"""
+        """Оптимизированное разбиение столбца с разделителем \\n."""
         if col_name not in df.columns:
             return
-            
+
         new_cols = df[col_name].str.split('\n', expand=True)
         if new_cols.empty:
             df.drop(columns=[col_name], inplace=True)
             return
-            
+
         n_cols = new_cols.shape[1]
-        new_cols.columns = [f'{prefix}_{i+1}' for i in range(n_cols)]
+        new_cols.columns = [f'{prefix}_{i + 1}' for i in range(n_cols)]
         df[new_cols.columns] = new_cols
         df.drop(columns=[col_name], inplace=True)
-    
-    @staticmethod    
-    def _rename_columns_after_pokaz(df: pd.DataFrame) -> pd.DataFrame:
-        """Корректировка столбцов для версии ERP"""
-        # Поиск столбца "Показ"
-        pokaz_cols = [col for col in df.columns if str(col).startswith("Показ")]
-        if not pokaz_cols:
-            return df
-            
-        pokaz_idx = df.columns.get_loc(pokaz_cols[0])
-        
-        # Проверка следующих 4 столбцов
-        if pokaz_idx + 4 >= len(df.columns):
-            return df
-            
-        # Проверка пустых имен
-        next_cols = df.columns[pokaz_idx+1:pokaz_idx+5]
-        if not all(pd.isna(col) for col in next_cols):
-            return df
-            
-        # Переименование
-        new_names = ["Дебет", "Дебет_значение", "Кредит", "Кредит_значение"]
-        cols = list(df.columns)
-        for i, new_name in enumerate(new_names, start=1):
-            cols[pokaz_idx + i] = new_name
-            
-        df.columns = cols
-        return df
 
-    def process_file(self, file_path: Path) -> pd.DataFrame:
-        fixed_data = fix_1c_excel_case(file_path)
-        df = pd.read_excel(fixed_data, header=None)
-        df.dropna(axis=1, how='all', inplace=True)
-
-        # Поиск строки с заголовками
-        period_rows = df.index[df.iloc[:, 0] == 'Период'].tolist()
-        if not period_rows:
-            raise RegisterProcessingError('Не найден заголовок Период в шапке таблицы')
-            
-        header_row = period_rows[0]
-        df.columns = df.iloc[header_row]
-        df = df.iloc[header_row + 1:].reset_index(drop=True)
-        
-        # Обработка специальных разделов
+    def _extract_quantity_currency_sections(
+        self, df: pd.DataFrame
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Вычленяет подтаблицы количества (Кол.) и валюты (Вал.) из раздела 'Показ...'."""
         df_with_col = pd.DataFrame()
         df_with_currency = pd.DataFrame()
-        
-        pokaz_cols = [col for col in df.columns if str(col).startswith('Показ')]
-        if pokaz_cols:
-            col_name = pokaz_cols[0]
-            
-            # Обработка количества
-            if (df[col_name] == 'Кол.').any():
-                df_with_col = df[df[col_name]=='Кол.'].copy()
-                if not df_with_col.empty:
-                    try:
-                        dt_idx = df_with_col.columns.get_loc('Дебет')
-                        df_with_col['Дебет_количество'] = pd.to_numeric(
-                            df_with_col.iloc[:, dt_idx + 1], errors='coerce').fillna(0)
-                    except (KeyError, IndexError):
-                        pass
-                        
-                    try:
-                        kt_idx = df_with_col.columns.get_loc('Кредит')
-                        df_with_col['Кредит_количество'] = pd.to_numeric(
-                            df_with_col.iloc[:, kt_idx + 1], errors='coerce').fillna(0)
-                    except (KeyError, IndexError):
-                        pass
-                    
-                    # Фильтрация валидных колонок
-                    cols = ['Дебет_количество', 'Кредит_количество']
-                    df_with_col = df_with_col[[col for col in cols if col in df_with_col.columns]].copy()
-                    df_with_col = df_with_col.iloc[:-1]  # Удаление последней строки
 
-            # Обработка валюты
-            if (df[col_name] == 'Вал.').any():
-                df_with_currency = df[df[col_name]=='Вал.'].copy()
-                if not df_with_currency.empty:
-                    try:
-                        dt_idx = df_with_currency.columns.get_loc('Дебет')
-                        df_with_currency['Дебет_валюта'] = df_with_currency.iloc[:, dt_idx + 1]
-                        df_with_currency['Дебет_валютное_количество'] = pd.to_numeric(
-                            df_with_currency.iloc[:, dt_idx + 2], errors='coerce').fillna(0)
-                    except (KeyError, IndexError):
-                        pass
-                        
-                    try:
-                        kt_idx = df_with_currency.columns.get_loc('Кредит')
-                        df_with_currency['Кредит_валюта'] = df_with_currency.iloc[:, kt_idx + 1]
-                        df_with_currency['Кредит_валютное_количество'] = pd.to_numeric(
-                            df_with_currency.iloc[:, kt_idx + 2], errors='coerce').fillna(0)
-                    except (KeyError, IndexError):
-                        pass
-                    
-                    cols = ['Дебет_валюта', 'Дебет_валютное_количество', 
-                           'Кредит_валюта', 'Кредит_валютное_количество']
-                    df_with_currency = df_with_currency[[col for col in cols if col in df_with_currency.columns]].copy()
-                    df_with_currency = df_with_currency.iloc[:-1]
-        
-        # Фильтрация по дате
+        pokaz_cols = [col for col in df.columns if str(col).startswith('Показ')]
+        if not pokaz_cols:
+            return df_with_col, df_with_currency
+
+        col_name = pokaz_cols[0]
+
+        if (df[col_name] == 'Кол.').any():
+            section = df[df[col_name] == 'Кол.'].copy()
+            if not section.empty:
+                try:
+                    dt_idx = section.columns.get_loc('Дебет')
+                    section['Дебет_количество'] = pd.to_numeric(
+                        section.iloc[:, dt_idx + 1], errors='coerce'
+                    ).fillna(0)
+                except (KeyError, IndexError):
+                    pass
+                try:
+                    kt_idx = section.columns.get_loc('Кредит')
+                    section['Кредит_количество'] = pd.to_numeric(
+                        section.iloc[:, kt_idx + 1], errors='coerce'
+                    ).fillna(0)
+                except (KeyError, IndexError):
+                    pass
+                cols = ['Дебет_количество', 'Кредит_количество']
+                df_with_col = section[[c for c in cols if c in section.columns]].copy()
+                df_with_col = df_with_col.iloc[:-1]  # удаление последней строки
+
+        if (df[col_name] == 'Вал.').any():
+            section = df[df[col_name] == 'Вал.'].copy()
+            if not section.empty:
+                try:
+                    dt_idx = section.columns.get_loc('Дебет')
+                    section['Дебет_валюта'] = section.iloc[:, dt_idx + 1]
+                    section['Дебет_валютное_количество'] = pd.to_numeric(
+                        section.iloc[:, dt_idx + 2], errors='coerce'
+                    ).fillna(0)
+                except (KeyError, IndexError):
+                    pass
+                try:
+                    kt_idx = section.columns.get_loc('Кредит')
+                    section['Кредит_валюта'] = section.iloc[:, kt_idx + 1]
+                    section['Кредит_валютное_количество'] = pd.to_numeric(
+                        section.iloc[:, kt_idx + 2], errors='coerce'
+                    ).fillna(0)
+                except (KeyError, IndexError):
+                    pass
+                cols = [
+                    'Дебет_валюта', 'Дебет_валютное_количество',
+                    'Кредит_валюта', 'Кредит_валютное_количество',
+                ]
+                df_with_currency = section[[c for c in cols if c in section.columns]].copy()
+                df_with_currency = df_with_currency.iloc[:-1]
+
+        return df_with_col, df_with_currency
+
+    def _process_dataframe_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Нормализация не-УПП отчёта по проводкам."""
+        if 'Период' not in df.columns:
+            raise ValueError('Не найден заголовок "Период" в шапке таблицы')
+
+        # Приводим «безымянные» столбцы pd.read_csv (Unnamed: N) к NA,
+        # как в исходных выгрузках (иначе секции Кол./Вал. не распознаются)
+        df.columns = pd.Index([
+            col if isinstance(col, str) and col and not str(col).startswith('Unnamed:')
+            else np.nan
+            for col in df.columns
+        ])
+
+        # 1. Обработка специальных разделов (Кол./Вал.)
+        df_with_col, df_with_currency = self._extract_quantity_currency_sections(df)
+
+        # 2. Фильтрация по дате
         df['Период'] = pd.to_datetime(df['Период'], format='%d.%m.%Y', errors='coerce')
         df = df[df['Период'].notna()].copy().reset_index(drop=True)
-        
-        # Добавление специальных разделов
+
+        # 3. Добавление специальных разделов
         for section_df in [df_with_col, df_with_currency]:
             if not section_df.empty and len(section_df) == len(df):
                 df = pd.concat([df, section_df.reset_index(drop=True)], axis=1)
-        
-        # Дополнительная обработка
-        df.dropna(axis=1, how='all', inplace=True)
+
+        # 4. Дополнительная обработка (переименование столбцов после «Показ...»)
         df = self._rename_columns_after_pokaz(df)
-        
-        
-        
-        # Разбиение столбцов
+
+        # 5. Разбиение многострочных столбцов
+        # 5a. pd.read_csv выводит числовой dtype для колонок, где есть цифры
+        # и пустые ячейки (напр., 'Аналитика Кт'). Приводим к строковому типу,
+        # чтобы .str-разбиение не падало, как в исходных XLSX-выгрузках.
         for col_prefix in ['Документ', 'Аналитика Дт', 'Аналитика Кт']:
+            if col_prefix in df.columns:
+                df[col_prefix] = df[col_prefix].astype('string')
             self._split_and_expand(df, col_prefix, col_prefix)
-            # self._split_and_expand(df, col_prefix, col_prefix.replace(' ', '_'))
-        
-        
-        # Переименование колонок
+
+        # 6. Переименование безымянных колонок («значение» предыдущего столбца)
         new_columns = []
         cols = df.columns.tolist()
         for i, col in enumerate(cols):
             if pd.isna(col) or col == '':
-                new_name = f'{cols[i-1]}_значение' if i > 0 else 'NoNameCol0'
+                new_name = f'{cols[i - 1]}_значение' if i > 0 else 'NoNameCol0'
                 new_columns.append(new_name)
             else:
                 new_columns.append(col)
-                
         df.columns = new_columns
-        
-        # Очистка
-        df.dropna(how='all', inplace=True)
-        df.dropna(how='all', axis=1, inplace=True)
 
-        # Добавление имени файла
-        df.insert(0, 'Имя_файла', file_path.name)
-        
+        return df
+
+    # =========================================================================
+    # ФИНАЛИЗАЦИЯ
+    # =========================================================================
+
+    def _finalize_result(self, df: pd.DataFrame, file_path: Path) -> pd.DataFrame:
+        """Финальная очистка и добавление служебных столбцов."""
+        df.dropna(how='all', inplace=True)
+        df.dropna(axis=1, how='all', inplace=True)
+
         if df.empty:
-            raise RegisterProcessingError("Отчет по проводкам 1с пустой, обработка невозможна.")
-            
-        return df, self.table_for_check
+            raise ValueError('Отчет по проводкам 1с пустой, обработка невозможна.')
+
+        df.insert(0, 'Имя_файла', file_path.name)
+
+        return df
+
+    # =========================================================================
+    # ГЛАВНЫЙ МЕТОД
+    # =========================================================================
+
+    def process_file(self, file_path: Path, file_name: str):
+        """Основной метод обработки TXT-файла отчёта по проводкам (не-УПП)."""
+        logger.debug("Начата обработка {}", file_path.name)
+
+        df = self._load_txt_file(file_path)
+        logger.debug('# 1. Загрузка')
+
+        if df.empty:
+            raise ValueError(f"Файл {file_path.name} пустой после загрузки")
+
+        df = self._process_dataframe_optimized(df)
+        logger.debug('# 2. Базовая обработка')
+
+        df = self._finalize_result(df, file_path)
+        logger.debug('# 3. Финализация')
+
+        logger.debug("Обработка {} завершена: {} строк", file_path.name, len(df))
+
+        return df, pd.DataFrame()

@@ -445,14 +445,11 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
 class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
     """Обработчик для ОСВ счета 1С не УПП"""
     
-    @staticmethod
-    def _process_dataframe_optimized(df: pd.DataFrame) -> pd.DataFrame:
+    def _process_dataframe_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
         """Поиск шапки таблицы, переименование заголовков, очистка"""
         df = BaseAccountOSVProcessor._clean_dataframe(df)
         
-        # Создаем экземпляр только для доступа к методам поиска, т.к. они не static
-        processor = AccountOSV_NonUPPFileProcessor()
-        col_idx, header_row_idx = processor._find_header_column(df, 'счет')
+        col_idx, header_row_idx = self._find_header_column(df, 'счет')
         
         if col_idx is None or header_row_idx is None:
             raise ValueError('Не найден столбец с "Счет" в первых 30 строках.')
@@ -461,23 +458,23 @@ class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
         if not (first_col == 'Счет').any():
             raise ValueError('Файл не является ОСВ счета 1с.')
         
-        df = processor._process_header(df, header_row_idx, rename_columns=True)
+        df = self._process_header(df, header_row_idx, rename_columns=True)
         
         cols = df.columns.tolist()
-        # В Non-UPP структура обычно проще: Сальдо на начало (Дебет, Кредит) идут подряд
+        # В Non-УПП структура обычно проще: Сальдо на начало (Дебет, Кредит) идут подряд
         try:
             target_indices = [
                 (cols.index('Сальдо на начало периода'), ['Дебет_начало', 'Кредит_начало']),
                 (cols.index('Обороты за период'), ['Дебет_оборот', 'Кредит_оборот']),
                 (cols.index('Сальдо на конец периода'), ['Дебет_конец', 'Кредит_конец'])
             ]
-            df = processor._rename_balance_columns(df, cols, target_indices)
+            df = self._rename_balance_columns(df, cols, target_indices)
         except ValueError as e:
             raise ValueError(f"Ошибка структуры столбцов: {e}")
             
-        df = processor._clean_after_header(df)
-        processor._validate_empty_osv(df)
-        processor._validate_level_columns(df)
+        df = self._clean_after_header(df)
+        self._validate_empty_osv(df)
+        self._validate_level_columns(df)
         
         return df
     

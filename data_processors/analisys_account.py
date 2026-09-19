@@ -6,7 +6,7 @@
 """
 import pandas as pd
 import numpy as np
-from typing import Tuple, List, Set, Dict
+from typing import Tuple, List, Optional, Set, Dict
 from io import BytesIO
 from loguru import logger
 
@@ -118,6 +118,14 @@ class BaseAnalysisProcessor(FileProcessor):
     # ФОРМИРОВАНИЕ УРОВНЕЙ И СЧЕТОВ
     # =========================================================================
     
+    def _resolve_korr_col(self, df: pd.DataFrame) -> Optional[str]:
+        """Определяет имя столбца корреспондирующего счёта ('Кор.счет' / 'Кор. Счет')."""
+        korr_col_name = 'Кор.счет' if 'Кор.счет' in df.columns else 'Кор. Счет'
+        if korr_col_name not in df.columns:
+            candidates = [c for c in df.columns if 'кор' in c.lower()]
+            korr_col_name = candidates[0] if candidates else None
+        return korr_col_name
+
     def _prepare_levels_and_accounts(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         """Распределяет счета по уровням и формирует основные столбцы."""
         # Приводим 'Счет' к строке
@@ -146,10 +154,7 @@ class BaseAnalysisProcessor(FileProcessor):
             df[col] = df[col].ffill()
         
         # Корреспондирующий счет
-        korr_col_name = 'Кор.счет' if 'Кор.счет' in df.columns else 'Кор. Счет'
-        if korr_col_name not in df.columns:
-            candidates = [c for c in df.columns if 'кор' in c.lower()]
-            korr_col_name = candidates[0] if candidates else None
+        korr_col_name = self._resolve_korr_col(df)
         
         if korr_col_name:
             df['Корр_счет'] = df[korr_col_name].astype('string')
@@ -666,7 +671,8 @@ class Analisys_NonUPPFileProcessor(BaseAnalysisProcessor):
             )
         
         # 5. Обработка пустых счетов
-        kor_schet = df['Кор. Счет'].astype('string')
+        korr_col = self._resolve_korr_col(df)
+        kor_schet = df[korr_col].astype('string')
         is_valid_account = self._is_accounting_code_vectorized(kor_schet)
         
         mask = (
@@ -687,9 +693,8 @@ class Analisys_NonUPPFileProcessor(BaseAnalysisProcessor):
         )
         
         # 8. Удаление промежуточных строк (КЛЮЧЕВОЙ ШАГ!)
-        accounts_without_subaccount = get_accounts_without_subaccount()
         df_filtered = self._filter_intermediate_rows(
-            df, korr_col='Кор. Счет',
+            df, korr_col=korr_col,
             accounts_without_subaccount=accounts_without_subaccount
         )
         
@@ -706,9 +711,8 @@ class Analisys_NonUPPFileProcessor(BaseAnalysisProcessor):
         df_filtered = self._determine_subaccount(df_filtered, level_cols)
         
         # 11. Финальная обработка корр.счетов
-        orig_korr_col = 'Кор. Счет' if 'Кор. Счет' in df_filtered.columns else 'Кор.счет'
-        if orig_korr_col in df_filtered.columns:
-            df_filtered['Субконто_корр_счета'] = df_filtered[orig_korr_col].astype('string')
+        if korr_col and korr_col in df_filtered.columns:
+            df_filtered['Субконто_корр_счета'] = df_filtered[korr_col].astype('string')
         else:
             df_filtered['Субконто_корр_счета'] = df_filtered['Корр_счет']
         
