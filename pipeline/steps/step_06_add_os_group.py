@@ -409,15 +409,46 @@ class Step6AddOSGroupColumnStep(Step):
 
     def _create_mapping(self, df: pd.DataFrame, key_col: str, value_col: str) -> dict:
         """
-        Создает маппинг из DataFrame, исключая NaN в ключе.
+        Создает маппинг из DataFrame, исключая NaN и служебные значения
+        (заглушка 'не_указано' и пустые строки) в ключе.
+
+        Заглушка 'не_указано' штатно присутствует в листе ППА (строки,
+        где заполнена только часть колонок), и НЕ является бизнес-ключом:
+        иначе placeholder из ОСВ (синтетические счета из общей ОСВ,
+        строки с пустым Субконто) получал бы произвольную группу ОС
+        либо чужой договор.
         """
+        keys = df[key_col].astype('string').str.strip()
+        is_service = keys.fillna('').isin(['', self.UNSPECIFIED])
+
+        skipped = int(is_service.sum())
+        if skipped:
+            logger.debug(
+                'Меппинг ППА ({}): исключены служебные значения: {} строк',
+                key_col,
+                skipped,
+            )
+
         return (
-            df.dropna(subset=[key_col])
+            df.loc[~is_service]
             .drop_duplicates(key_col)
             .set_index(key_col)[value_col]
             .to_dict()
         )
     
+    def _map_os_groups_by_rbp(
+        self, osv_all_df: pd.DataFrame, os_group_by_rbp: dict
+    ) -> pd.Series:
+        '''
+        Определяет группу ОС по РБП (счета 97.21, Аренда/Лизинг).
+
+        Служебная заглушка 'не_указано' в 'допсубконто' не является РБП:
+        по ней группа не переносится — иначе placeholder получил бы
+        произвольную группу из справочника ППА.
+        '''
+        groups = osv_all_df['допсубконто'].map(os_group_by_rbp)
+        return groups.where(osv_all_df['допсубконто'] != self.UNSPECIFIED)
+
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Добавление группы ОС")
         osv_all_df = context.summary_osv_df.copy()
@@ -495,7 +526,7 @@ class Step6AddOSGroupColumnStep(Step):
                                 column_name='допсубконто'
                             )
 
-        os_groups_97 = osv_all_df['допсубконто'].map(os_group_by_rbp)
+        os_groups_97 = self._map_os_groups_by_rbp(osv_all_df, os_group_by_rbp)
 
         # Замена всех NaN на 'не_указано' или выброс ошибки в зависимости от режима
         osv_all_df['группа_ос_аренды_лизинга'] = (
