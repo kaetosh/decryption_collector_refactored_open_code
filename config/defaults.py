@@ -46,3 +46,42 @@ TOLERANCE_DESCRIPTIONS: dict[str, str] = {
     "tolerance_orphan_distribution": "Допуск на потерю суммы при распределении расходов 91.02 по выручке 91.01 (шаг 17). Превышение = нераспределённый остаток, сохраняется отдельной строкой",
 }
 
+# Параметры, заданные долей (0.22 = 22%): показываются в процентах.
+# Остальные параметры — суммы в тысячах единиц.
+FRACTION_PARAMS = frozenset({
+    "tolerance_rate_deviation",
+    "nds_missing_values",
+    "tolerance_orphan_distribution",
+})
+
+
+def format_amount(value: float) -> str:
+    """
+    Сумма с разделителями разрядов пробелом: 4321.4 -> «4 321».
+
+    Формат файла отличается от формата сообщений лога (там запятая) —
+    в документе пробел читается однозначнее.
+    """
+    return f"{value:,.0f}".replace(",", " ")
+
+
+def format_tolerance_value(key: str, value: float) -> str:
+    """
+    Единое представление значения допуска с единицей измерения.
+
+    Используется в двух местах — в консоли перед запуском Фазы 2
+    (cli/main.py) и на титульном листе отчёта
+    (io_module/report_cover.py), — чтобы печать и файл не расходились.
+
+    Args:
+        key: Ключ параметра из SCHEMA.
+        value: Значение параметра.
+
+    Returns:
+        Например «3 000 тыс.ед.» или «22%».
+    """
+    if key in FRACTION_PARAMS:
+        return f"{value * 100:.0f}%"
+    return format_amount(value) + " тыс.ед."
+
+

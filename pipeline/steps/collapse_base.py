@@ -17,22 +17,26 @@ from loguru import logger
 
 from io_module import DataSaver
 from pipeline.base import Step
+from pipeline.step_config import ReportLayoutConstants
 
 
 class CollapseStepBase(Step):
     """Общие константы и хелперы шагов сворачивания (20 и 21)."""
 
-    LEVEL1_COL: Final = "1 уровень"
-    LEVEL2_COL: Final = "2 уровень (точка плана)"
-    LEVEL3_COL: Final = "3 уровень"
-    LEVEL4_COL: Final = "4 уровень: СВЯЗАННОСТЬ"
-    VALUE_COL: Final = "Значение"
-    RUB_VALUE_COL: Final = "Значение_руб"
-    RSBU_CODE_COL: Final = "РСБУ Код отчетности"
-    ACCOUNT_COL: Final = "Итоговый номер счета"
-    REPORT_TYPE_COL: Final = "Отчетность"
-    ARTICLE_COL: Final = "Статья отчетности"
-    ASSET_LIABILITY_COL: Final = "Актив/Пассив"
+    # Имена колонок отчётных листов объявлены в step_config
+    # (ReportLayoutConstants) — одна точка правды для шагов и для
+    # представления результата (io_module).
+    LEVEL1_COL: Final = ReportLayoutConstants.LEVEL1_COL
+    LEVEL2_COL: Final = ReportLayoutConstants.LEVEL2_COL
+    LEVEL3_COL: Final = ReportLayoutConstants.LEVEL3_COL
+    LEVEL4_COL: Final = ReportLayoutConstants.LEVEL4_COL
+    VALUE_COL: Final = ReportLayoutConstants.VALUE_COL
+    RUB_VALUE_COL: Final = ReportLayoutConstants.RUB_VALUE_COL
+    RSBU_CODE_COL: Final = ReportLayoutConstants.RSBU_CODE_COL
+    ACCOUNT_COL: Final = ReportLayoutConstants.ACCOUNT_COL
+    REPORT_TYPE_COL: Final = ReportLayoutConstants.REPORT_TYPE_COL
+    ARTICLE_COL: Final = ReportLayoutConstants.ARTICLE_COL
+    ASSET_LIABILITY_COL: Final = ReportLayoutConstants.ASSET_LIABILITY_COL
 
     GROUP_COL: Final = "номер_группы_сворачивания"
 

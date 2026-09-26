@@ -18,8 +18,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from loguru import logger
-from logging_handling.logger_config import setup_logger
-from config.defaults import TOLERANCE_DESCRIPTIONS
+from logging_handling.logger_config import (
+    format_warnings_summary,
+    get_collected_warnings,
+    setup_logger,
+)
+
+from config.defaults import TOLERANCE_DESCRIPTIONS, format_tolerance_value
 from config.loader import load_params
 from pipeline.factories import (
     create_preparation_pipeline,
@@ -35,6 +40,65 @@ from pipeline.executors import (
 from pipeline.errors import PipelineError, ProcessingStepError
 from cli.arguments import parse_arguments, ask_user_about_traceback
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
+from io_module.run_summary import log_run_summary
+
+
+def _warn_about_unknown_args(
+    unknown_args: list,
+    suggestions: dict,
+) -> None:
+    """
+    Сообщает о нераспознанных аргументах командной строки.
+
+    Аргументы разбираются в entry_point() до настройки логирования,
+    поэтому предупреждение выводится здесь. Молчаливый прогон с опечаткой
+    опаснее явной ошибки: программа остаётся в интерактивном режиме и
+    выглядит «зависшей», а на самом деле ждёт ввод, которого не будет.
+    """
+    if not unknown_args:
+        return
+
+    for arg in unknown_args:
+        hint = suggestions.get(arg)
+        message = f"[!] Неизвестный аргумент: {arg}"
+        if hint:
+            message += f" (возможно, имелось в виду: {hint})"
+        else:
+            message += " — аргумент проигнорирован"
+        logger.warning(message)
+
+    logger.warning(
+        "[!] Список доступных аргументов: python main.py --help"
+    )
+
+
+def _log_warnings_summary() -> None:
+    """
+    Печатает в конце прогона сводку предупреждений — что программа
+    поправила или пропустила молча.
+
+    Отдельной таблицей, а не размазанным по шагам шумом: получатель
+    запуска видит полную картину одной таблицей, не листая app.log.
+    Каждое предупреждение логируется отдельной записью — иначе
+    многострочная сводка превысит лимит обрезки консольного сообщения.
+    Формулировки берутся из logging_handling.logger_config — те же
+    строки печатаются в консоли и попадают на титульный лист отчёта.
+    """
+    items = get_collected_warnings()
+    if not items:
+        logger.info("Предупреждений за прогон нет")
+        return
+
+    total = sum(count for _, count in items)
+    logger.info("=" * 80)
+    logger.info(
+        "СВОДКА ПРЕДУПРЕЖДЕНИЙ ЗА ПРОГОН: всего {} (позиций: {})",
+        total,
+        len(items),
+    )
+    for line in format_warnings_summary():
+        logger.info("  {}", line)
+    logger.info("=" * 80)
 
 
 def main(
@@ -42,6 +106,8 @@ def main(
     verbose: bool = False,
     balance_date: str | None = None,
     no_interactive: bool = False,
+    unknown_args: list | None = None,
+    suggestions: dict | None = None,
 ) -> int:
     """Главная функция приложения."""
     # Настраиваем логирование
@@ -49,6 +115,10 @@ def main(
         setup_logger(console_level='DEBUG')
     else:
         setup_logger()
+
+    # Аргументы разбираются до логирования (entry_point), поэтому
+    # предупреждение об опечатках печатаем здесь, когда логирование готово.
+    _warn_about_unknown_args(unknown_args, suggestions)
 
     logger.info("=" * 80)
     logger.info("Запуск приложения --СОБИРАТЕЛЬ РАСШИФРОВОК--")
@@ -90,21 +160,24 @@ def main(
         # ФАЗА 2
         logger.info("ФАЗА 2: Основная обработка данных")
 
-        lines = ["Используемые допуски сходимости, не более, в тыс.:"]
+        lines = ["Применённые допуски сходимости:"]
 
         for key, value in context.tolerance_params.items():
             description = TOLERANCE_DESCRIPTIONS.get(key, key)
-            if key == "tolerance_rate_deviation":
-                formatted_value = f"{value * 100:.0f}%"
-            else:
-                formatted_value = f"{value:,.0f}".replace(",", " ")
-            lines.append(f"  • {description}: {formatted_value}")
+            lines.append(f"  • {description}: {format_tolerance_value(key, value)}")
 
         logger.info("\n".join(lines))
         main_pipeline = create_main_pipeline()
         context = main_pipeline.run(context)
 
         save_results(context)
+
+        # Сводка цифр — до сводки предупреждений: сначала результат,
+        # затем его качество. Обе печатаются после save_results, где
+        # известны и собранные таблицы, и полный список предупреждений.
+        log_run_summary(context)
+
+        _log_warnings_summary()
 
         logger.info("=" * 80)
         logger.info("Приложение успешно завершено")
@@ -183,6 +256,8 @@ def entry_point() -> int:
         verbose=verbose,
         balance_date=args.balance_date,
         no_interactive=args.no_interactive,
+        unknown_args=getattr(args, 'unknown_args', None),
+        suggestions=getattr(args, 'suggestions', None),
     )
 
 

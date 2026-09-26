@@ -5,6 +5,7 @@
 """
 import sys
 import warnings
+from collections import Counter
 from loguru import logger
 from config.settings import LOG_LEVEL, LOG_FILE
 
@@ -13,6 +14,12 @@ from config.settings import LOG_LEVEL, LOG_FILE
 # openpyxl) несут технический текст, не понятный пользователю, поэтому
 # в консоль не попадают, но остаются в app.log для разбора.
 _FILE_ONLY_KEY = "file_only"
+
+# Сводка предупреждений за прогон: {текст: сколько раз встретился}.
+# Заполняется sink-ом _collect_warning_sink. Нужна, чтобы в конце прогона
+# показать все предупреждения одной таблицей (консоль) и перечислить их
+# на титульном листе отчёта, а не искать глазами среди сотен строк лога.
+_collected_warnings: Counter = Counter()
 
 
 def _route_warnings_to_log_file() -> None:
@@ -48,6 +55,60 @@ def _truncate_text(text: str, max_length: int = 35) -> str:
     if len(text) <= max_length:
         return text
     return f"{text[:max_length - 3]}..."
+
+def _collect_warning_sink(message) -> None:
+    """
+    Sink loguru уровня WARNING: складывает тексты предупреждений в счётчик.
+
+    Сообщение схлопывается в одну строку: часть предупреждений
+    формируется многострочными f-строками (списки файлов, позиций),
+    и в сводке каждое из них должно занимать ровно одну строку.
+    """
+    text = ' '.join(str(message).split())
+    if text:
+        _collected_warnings[text] += 1
+
+
+def get_collected_warnings() -> list[tuple[str, int]]:
+    """
+    Предупреждения, собранные за прогон: [(текст, сколько раз), ...].
+
+    Сортировка — по убыванию частоты, затем по алфавиту: сначала то,
+    что повторялось и важнее проверить, порядок запуска не важен.
+    """
+    return sorted(_collected_warnings.items(), key=lambda item: (-item[1], item[0]))
+
+
+def reset_collected_warnings() -> None:
+    """Очищает сводку — вызывается при настройке логирования (старт запуска)."""
+    _collected_warnings.clear()
+
+
+def format_warnings_summary(limit: int = None, max_length: int = 200) -> list[str]:
+    """
+    Готовая сводка предупреждений в виде строк для показа пользователю.
+
+    Текст обрезается до max_length символов: часть предупреждений
+    перечисляет позиции (группы, счета, файлы) и занимает сотни символов —
+    в сводке достаточно первых символов, полный текст остаётся в app.log.
+
+    Args:
+        limit: Оставить только первые N самых частых (None — без ограничения).
+        max_length: Максимальная длина текста предупреждения.
+
+    Returns:
+        Строки вида «текст предупреждения» или «текст (×12)».
+    """
+    items = get_collected_warnings()
+    if limit is not None:
+        items = items[:limit]
+    return [
+        _truncate_text(text, max_length=max_length) + (
+            f" (×{count})" if count > 1 else ""
+        )
+        for text, count in items
+    ]
+
 
 def _patch_record(record):
     """
@@ -110,6 +171,18 @@ def setup_logger(console_level: str = LOG_LEVEL) -> None:
         retention=None,
         enqueue=True,
         encoding="utf-8"
+    )
+
+    # Сборщик сводки предупреждений. Фильтр отбрасывает записи file_only
+    # (технические предупреждения библиотек) — в сводке они только шумят.
+    # Вызывается после logger.configure(patcher=...): сообщение приходит
+    # уже с подставленными аргументами, без обрезки short_message.
+    reset_collected_warnings()
+    logger.add(
+        _collect_warning_sink,
+        level='WARNING',
+        format='{message}',
+        filter=lambda record: not record["extra"].get(_FILE_ONLY_KEY, False),
     )
 
     # Предупреждения библиотек — только в файл (вызывается последним,

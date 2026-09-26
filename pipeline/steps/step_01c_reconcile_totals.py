@@ -10,6 +10,7 @@ from pipeline.base import Step, ProcessingContext
 from io_module import DataLoader
 from utils import find_target_column, normalize_account
 from pipeline.errors import ConvergenceError, MissingMappingError
+from pipeline.step_config import ReconciliationConstants
 
 
 class Step1cReconcileTotalsStep(Step):
@@ -327,4 +328,10 @@ class Step1cReconcileTotalsStep(Step):
             "в пределах нормы (до {} тыс. ед.)",
             context.tolerance_params['tolerance_reconciliation'],
         )
+
+        # Итог сверки — на титульный лист отчёта: получатель файла должен
+        # видеть, по каким допускам сверены выгрузки с Общей ОСВ
+        context.data[ReconciliationConstants.SUMMARY_KEY] = {
+            'tolerance': context.tolerance_params['tolerance_reconciliation'],
+        }
         return context

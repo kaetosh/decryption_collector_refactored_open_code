@@ -29,6 +29,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import ProcessingContext
+from pipeline.step_config import ReportLayoutConstants
 from pipeline.steps.collapse_base import CollapseStepBase
 from utils import align_dtypes_to_reference, needs_conversion
 
@@ -44,8 +45,8 @@ class Step21CollapseBalanceArticlesStep(CollapseStepBase):
 
     REF_NAME: Final = "статьи_баланс_свернуто"
 
-    ASSET_SIDE: Final = "А"
-    PASSIVE_SIDE: Final = "П"
+    ASSET_SIDE: Final = ReportLayoutConstants.ASSET_SIDE
+    PASSIVE_SIDE: Final = ReportLayoutConstants.PASSIVE_SIDE
 
     def __init__(self) -> None:
         super().__init__(

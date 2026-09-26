@@ -25,9 +25,11 @@ from io_module import (
     DataLoader,
     DataSaver,
     prepare_general_osv_from_inbox,
+    safe_build_cover_rows,
     sort_inbox_by_expected_list,
 )
 from io_module.output_manager import get_run_dir
+from logging_handling.logger_config import format_warnings_summary
 from utils.currency_utils import (
     needs_conversion,
     get_currency,
@@ -56,7 +58,7 @@ def pause_for_osv_general_export(interactive: bool = True) -> None:
     print("      отчеты по проводкам — скрипт сам разложит их по папкам)")
     print("   2. Убедитесь, что имя файла с Общей ОСВ имеет следующий формат:")
     print("      СокрНаименованиеКомпании_общаяосв_нд_Период_.xlsx, например, РЗК_общаяосв_нд_2025_.xlsx")
-    print("   3. Убедитесь, что наименование компании соотвествует данным на листе КомпанииГруппы файла Справочники.xlsx из папки _REFERENCE_DATA")
+    print("   3. Убедитесь, что наименование компании соответствует данным на листе КомпанииГруппы файла Справочники.xlsx из папки _REFERENCE_DATA")
     print()
     print("[i]  После нажатия Enter скрипт перенесет Общую ОСВ из 00_inbox в general_osv;")
     print("[i]  остальные файлы останутся в 00_inbox до следующей паузы")
@@ -453,6 +455,8 @@ def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = T
         )
         return
 
+    currency = get_currency(context)
+
     if context.balance_date:
         rate, rate_date = get_rate_for_date_with_info(context, context.balance_date)
         if rate_date == context.balance_date:
@@ -472,8 +476,6 @@ def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = T
         logger.info("Курс перевода остатков баланса: {}", rate)
         context.balance_date = rate_date
         return
-
-    currency = get_currency(context)
 
     def _fallback() -> None:
         last_date = get_last_rate_date(context)
@@ -687,7 +689,23 @@ def save_results(context: ProcessingContext) -> None:
             logger.warning("Нет данных для сохранения")
             return
 
-        output_path = DataSaver.save_combined_report(balance_df, summary_osv_df, pnl_df, journal_df, filename)
+        # Титульный лист собирается последним, перед сохранением: к этому
+        # моменту известны и результат конвейера, и все диагностические файлы.
+        # Сводка предупреждений — из коллектора logger_config: она наполняется
+        # по ходу прогона, и в момент сохранения уже полна.
+        cover_rows = safe_build_cover_rows(
+            context,
+            warnings=format_warnings_summary(),
+        )
+
+        output_path = DataSaver.save_combined_report(
+            balance_df,
+            summary_osv_df,
+            pnl_df,
+            journal_df,
+            filename,
+            cover_rows=cover_rows,
+        )
         logger.info("Комбинированный отчёт сохранён: {}", output_path)
 
     except Exception as e:

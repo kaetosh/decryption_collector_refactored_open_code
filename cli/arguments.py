@@ -7,6 +7,12 @@
 """
 
 import argparse
+import difflib
+
+# Приближение порога подсказки «возможно, имелось в виду» при опечатке
+# в названии аргумента. 0.6 — консервативно: подсказываем только при
+# явном сходстве, чтобы не предлагать бессмысленные варианты.
+_SUGGESTION_CUTOFF = 0.6
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -46,7 +52,39 @@ def parse_arguments() -> argparse.Namespace:
 
     # parse_known_args вместо parse_args - не падает, если аргументы не распознаны
     args, unknown = parser.parse_known_args()
+
+    # Неизвестные аргументы не роняем (иначе не откроется ни одна выгрузка),
+    # но и не глотаем молча: опечатка вроде «--no-interactiv» иначе тихо
+    # оставляет программу в интерактивном режиме с ожиданием ввода.
+    # Список отдаём в cli/main — там поднято логирование.
+    args.unknown_args = list(unknown)
+    args.suggestions = _suggest_known_options(unknown, parser)
     return args
+
+
+def _suggest_known_options(
+    unknown: list,
+    parser: argparse.ArgumentParser,
+) -> dict[str, str]:
+    """
+    Подбирает к неизвестному аргументу наиболее похожий известный.
+
+    Возвращает словарь {неизвестный аргумент: подсказка} — только для
+    аргументов, не уходящих явно далеко от существующих опций.
+    Пример: '--no-interactiv' -> '--no-interactive'.
+    """
+    known: list[str] = []
+    for action in parser._actions:
+        known.extend(action.option_strings)
+
+    suggestions: dict[str, str] = {}
+    for arg in unknown:
+        candidates = difflib.get_close_matches(
+            arg, known, n=1, cutoff=_SUGGESTION_CUTOFF,
+        )
+        if candidates:
+            suggestions[arg] = candidates[0]
+    return suggestions
 
 
 def ask_user_about_traceback() -> bool:

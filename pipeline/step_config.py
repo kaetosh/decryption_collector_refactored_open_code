@@ -141,11 +141,20 @@ class OpuReportConstants:
     MISMATCH_DIAGNOSTICS_KEY = "pnl_balance_mismatch"
 
 
+class ReconciliationConstants:
+    """Константы сверки итогов Общей ОСВ с выгрузками (шаг 1c)."""
+    # Ключ в context.data с итогом успешной сверки: {'tolerance': float}.
+    # Заполняется в шаге 1c после проверки расхождений и читается при
+    # сборке титульного листа отчёта (io_module/report_cover.py), чтобы
+    # получатель файла видел, по каким допускам сверены выгрузки.
+    SUMMARY_KEY = "reconciliation_summary"
+
+
 class BalanceReportConstants:
     """Константы для отчета баланса (Step 13)."""
     BALANCE_REPORT = 'Баланс'
     BALANCE_COL = 'сальдо, тыс.ед.'
-    
+
     # Столбцы, по которым строится маппинг на счёт ФО
     MAPPING_KEYS = [
         'счет',
@@ -158,3 +167,32 @@ class BalanceReportConstants:
         'вид_связи',
         'инвест_договор',
     ]
+
+
+class ReportLayoutConstants:
+    """
+    Имена колонок итоговых отчётных листов и значения их справочников.
+
+    Единая точка правды для шагов 13/20/21 (собирают листы) и для
+    представления результата: io_module/run_summary.py (сводка в консоль)
+    и io_module/report_cover.py (титульный лист). Модули io_module
+    импортируют константы отсюда, а не дублируют строковые литералы.
+    """
+    # Колонки листов «Расшифровка_ББЛ» / «Расшифровка_ОПУ»
+    VALUE_COL = 'Значение'
+    RUB_VALUE_COL = 'Значение_руб'
+    LEVEL1_COL = '1 уровень'
+    LEVEL2_COL = '2 уровень (точка плана)'
+    LEVEL3_COL = '3 уровень'
+    LEVEL4_COL = '4 уровень: СВЯЗАННОСТЬ'
+    ASSET_LIABILITY_COL = 'Актив/Пассив'
+    RSBU_CODE_COL = 'РСБУ Код отчетности'
+    ACCOUNT_COL = 'Итоговый номер счета'
+    REPORT_TYPE_COL = 'Отчетность'
+    ARTICLE_COL = 'Статья отчетности'
+
+    # Значения ASSET_LIABILITY_COL в расшифровке баланса: актив со знаком
+    # «+», пассив — со знаком «-» (в ОПУ колонка заполняется значением
+    # OpuReportConstants.OPU_REPORT).
+    ASSET_SIDE = 'А'
+    PASSIVE_SIDE = 'П'

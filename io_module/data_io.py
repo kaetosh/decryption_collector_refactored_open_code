@@ -16,6 +16,15 @@ from config.settings import (OSV_GENERAL_DIR,
                              ACCOUNTS_OSV_LEASE_DIR,
                              ACCOUNT_CARDS_DIR)
 from io_module.output_manager import get_output_dir
+from io_module.report_cover import (
+    SHEET_BALANCE,
+    SHEET_BALANCE_SOURCE,
+    SHEET_PNL,
+    SHEET_PNL_SOURCE,
+    TAB_COLOR_REPORT,
+    TAB_COLOR_SOURCE,
+    write_cover_sheet,
+)
 from data_processors import FileHandler
 from pipeline.errors import TooManyFilesError, InputDataError
 
@@ -518,16 +527,23 @@ class DataSaver:
     # =========================================================================
     
     @staticmethod
-    def _apply_excel_formatting(worksheet, numeric_columns: list = None) -> None:
+    def _apply_excel_formatting(
+        worksheet,
+        numeric_columns: list = None,
+        tab_color: str = None,
+    ) -> None:
         """
         Применяет форматирование к листу Excel:
         - Заголовки столбцов — жирным шрифтом с выравниванием по центру
         - Числовые столбцы — 2 знака после запятой с разделителями разрядов
         - Автоматическая ширина столбцов
-        
+        - Автофильтр по строке заголовков
+        - Цвет ярлычка листа (отчётные листы — зелёный, служебные — серый)
+
         Args:
             worksheet: Объект листа openpyxl
             numeric_columns: Список имён числовых столбцов (опционально)
+            tab_color: Цвет ярлычка листа в формате RRGGBB (опционально)
         """
         # Стили
         bold_font = Font(bold=True, size=11)
@@ -584,6 +600,17 @@ class DataSaver:
         
         # Закрепляем первую строку (заголовки)
         worksheet.freeze_panes = 'A2'
+
+        # Автофильтр по строке заголовков: получатель файла фильтрует строки
+        # прямо в Excel, не переспрашивая разработчика
+        if worksheet.max_row >= 2 and worksheet.max_column >= 1:
+            worksheet.auto_filter.ref = (
+                f"A1:{get_column_letter(worksheet.max_column)}{worksheet.max_row}"
+            )
+
+        # Цвет ярлычка листа: визуально отделяем отчётные листы от служебных
+        if tab_color:
+            worksheet.sheet_properties.tabColor = tab_color
     
     # =========================================================================
     # СОХРАНЕНИЕ КОМБИНИРОВАННОГО ОТЧЁТА
@@ -596,10 +623,14 @@ class DataSaver:
         pnl_df: pd.DataFrame,
         journal_df: pd.DataFrame,
         filename: str,
-        subfolder: str = None
+        subfolder: str = None,
+        cover_rows: list = None,
     ) -> Path:
         """
         Сохраняет четыре DataFrame в один Excel-файл на разных листах.
+
+        Лист «О отчёте» (если передан cover_rows) записывается первым: получатель
+        файла сразу видит, заказ, режимы сборки и статус сходимости.
     
         Args:
             balance_df: DataFrame для листа "Расшифровка_ББЛ" (собранный баланс)
@@ -608,6 +639,8 @@ class DataSaver:
             journal_df: DataFrame для листа "исходники ОПУ" (данные для ОПУ)
             filename: Имя выходного файла
             subfolder: Подпапка в OUTPUT_DATA (опционально)
+            cover_rows: Строки титульного листа из report_cover.build_cover_rows
+                (опционально; без них отчёт сохранится из четырёх листов)
     
         Returns:
             Путь к сохранённому файлу
@@ -642,48 +675,55 @@ class DataSaver:
         # =========================================================================
         try:
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                # Лист 1: Расшифровка баланса
+                # Лист 1: титульный — что за отчёт, какие режимы и допуски
+                write_cover_sheet(writer, cover_rows)
+
+                # Лист 2: Расшифровка баланса
                 balance_reset.to_excel(
                     writer,
-                    sheet_name='Расшифровка_ББЛ',
+                    sheet_name=SHEET_BALANCE,
                     index=False
                 )
                 DataSaver._apply_excel_formatting(
-                    writer.sheets['Расшифровка_ББЛ'],
-                    balance_numeric_cols
+                    writer.sheets[SHEET_BALANCE],
+                    balance_numeric_cols,
+                    tab_color=TAB_COLOR_REPORT,
                 )
     
-                # Лист 2: Исходники для баланса
+                # Лист 3: Исходники для баланса
                 summary_osv_df.to_excel(
                     writer,
-                    sheet_name='исходники ББЛ',
+                    sheet_name=SHEET_BALANCE_SOURCE,
                     index=False
                 )
                 DataSaver._apply_excel_formatting(
-                    writer.sheets['исходники ББЛ'],
-                    summary_numeric_cols
+                    writer.sheets[SHEET_BALANCE_SOURCE],
+                    summary_numeric_cols,
+                    tab_color=TAB_COLOR_SOURCE,
                 )
     
-                # Лист 3: Расшифровка ОПУ
+                # Лист 4: Расшифровка ОПУ
                 pnl_reset.to_excel(
                     writer,
-                    sheet_name='Расшифровка_ОПУ',
+                    sheet_name=SHEET_PNL,
                     index=False
                 )
                 DataSaver._apply_excel_formatting(
-                    writer.sheets['Расшифровка_ОПУ'],
-                    pnl_numeric_cols
+                    writer.sheets[SHEET_PNL],
+                    pnl_numeric_cols,
+                    tab_color=TAB_COLOR_REPORT,
                 )
     
-                # Лист 4: Исходники для ОПУ
+                # Лист 5: Исходники для ОПУ
                 journal_df.to_excel(
                     writer,
-                    sheet_name='исходники ОПУ',
+                    sheet_name=SHEET_PNL_SOURCE,
                     index=False
                 )
                 DataSaver._apply_excel_formatting(
-                    writer.sheets['исходники ОПУ'],
-                    journal_numeric_cols
+                    writer.sheets[SHEET_PNL_SOURCE],
+                    journal_numeric_cols,
+                    tab_color=TAB_COLOR_SOURCE,
                 )
         except PermissionError:
             raise PermissionError(
