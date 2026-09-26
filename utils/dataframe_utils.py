@@ -68,6 +68,57 @@ def cast_columns_to_types(df: pd.DataFrame, type_mapping: dict) -> pd.DataFrame:
     return df
 
 
+def align_dtypes_to_reference(
+    new_rows: pd.DataFrame,
+    reference_df: pd.DataFrame,
+    columns: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """
+    Приводит типы колонок new_rows к типам одноимённых колонок reference_df.
+
+    Вызывается перед pd.concat, когда строки собраны из python-словарей:
+    pandas выводит для них object/float64, а колонки, заполненные pd.NA,
+    остаются «пустыми» для concat. Из-за этого pandas 2.x понижает
+    string/Int64 до object (и печатает FutureWarning о поведении concat
+    с пустыми/all-NA записями), а валидация выхода шага object dtype
+    не принимает.
+
+    Приведение типов ДО concat сохраняет типы колонок результата без
+    последующей переприведки.
+
+    Args:
+        new_rows: DataFrame с добавляемыми строками.
+        reference_df: DataFrame, задающий целевые типы (обычно результат
+            шага до конкатенации).
+        columns: ограничить выравнивание подмножеством колонок;
+            по умолчанию — все общие колонки.
+
+    Returns:
+        Копия new_rows с приведёнными типами. Исходный DataFrame не меняется.
+    """
+    aligned = new_rows.copy()
+
+    targets = reference_df.columns if columns is None else columns
+    for col in targets:
+        if col not in aligned.columns or col not in reference_df.columns:
+            continue
+
+        target_dtype = reference_df[col].dtype
+        # object не несёт информации о типе — приводить не к чему
+        if target_dtype == object or aligned[col].dtype == target_dtype:
+            continue
+
+        try:
+            aligned[col] = aligned[col].astype(target_dtype)
+        except (TypeError, ValueError):
+            # Значения несовместимы с целевым типом (например, строка в
+            # числовой колонке) — оставляем как есть, разбором занимается
+            # шаг (_clean_collapse_dtypes / cast_columns_to_types).
+            continue
+
+    return aligned
+
+
 def _clean_numeric_series(series: pd.Series) -> pd.Series:
     """
     Очищает Series для последующего приведения к числовому типу.

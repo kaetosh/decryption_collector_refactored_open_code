@@ -30,7 +30,7 @@ from loguru import logger
 
 from pipeline.base import ProcessingContext
 from pipeline.steps.collapse_base import CollapseStepBase
-from utils import needs_conversion
+from utils import align_dtypes_to_reference, needs_conversion
 
 
 class Step21CollapseBalanceArticlesStep(CollapseStepBase):
@@ -331,6 +331,7 @@ class Step21CollapseBalanceArticlesStep(CollapseStepBase):
                 if col not in new_rows.columns:
                     new_rows[col] = pd.NA
             new_rows = new_rows[output_cols + [self.ACCOUNT_COL]]
+            new_rows = align_dtypes_to_reference(new_rows, result_df)
             result_df = pd.concat([result_df, new_rows], ignore_index=True)
             result_df = result_df.set_index(self.ACCOUNT_COL)
 

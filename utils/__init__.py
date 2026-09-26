@@ -1,6 +1,7 @@
 ﻿# utils/__init__.py
 from .dataframe_utils import (
     cast_columns_to_types,
+    align_dtypes_to_reference,
     set_header_from_row,
     get_required_columns_df,
 )
@@ -34,6 +35,7 @@ from .file_utils import (
 __all__ = [
     # dataframe_utils
     'cast_columns_to_types',
+    'align_dtypes_to_reference',
     'set_header_from_row',
     'get_required_columns_df',
     # column_utils
