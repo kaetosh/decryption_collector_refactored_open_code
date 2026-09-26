@@ -21,6 +21,9 @@ _FILE_ONLY_KEY = "file_only"
 # на титульном листе отчёта, а не искать глазами среди сотен строк лога.
 _collected_warnings: Counter = Counter()
 
+# Накопление строк текущего предупреждения (группировка по префиксу "[!]").
+_current_warning_group: list[str] = []
+
 
 def _route_warnings_to_log_file() -> None:
     """
@@ -63,9 +66,28 @@ def _collect_warning_sink(message) -> None:
     Сообщение схлопывается в одну строку: часть предупреждений
     формируется многострочными f-строками (списки файлов, позиций),
     и в сводке каждое из них должно занимать ровно одну строку.
+    
+    Группировка: строки, начинающиеся с "[!]" — новое сгруппированное предупреждение.
+    Последующие строки без "[!]" — продолжение ТОГО ЖЕ сгруппированного предупреждения.
+    Предупреждения БЕЗ "[!]" — учитываются по отдельности (старое поведение).
     """
     text = ' '.join(str(message).split())
-    if text:
+    if not text:
+        return
+    
+    global _current_warning_group
+    
+    if text.startswith("[!]"):
+        # Новое сгруппированное предупреждение — сбрасываем предыдущую группу
+        if _current_warning_group:
+            key = _current_warning_group[0]
+            _collected_warnings[key] += 1
+        _current_warning_group = [text]
+    elif _current_warning_group:
+        # Продолжение текущего сгруппированного предупреждения
+        _current_warning_group.append(text)
+    else:
+        # Обычное предупреждение без группировки — сразу в счётчик
         _collected_warnings[text] += 1
 
 
@@ -76,12 +98,19 @@ def get_collected_warnings() -> list[tuple[str, int]]:
     Сортировка — по убыванию частоты, затем по алфавиту: сначала то,
     что повторялось и важнее проверить, порядок запуска не важен.
     """
+    global _current_warning_group
+    if _current_warning_group:
+        key = _current_warning_group[0]
+        _collected_warnings[key] += 1
+        _current_warning_group = []
     return sorted(_collected_warnings.items(), key=lambda item: (-item[1], item[0]))
 
 
 def reset_collected_warnings() -> None:
     """Очищает сводку — вызывается при настройке логирования (старт запуска)."""
     _collected_warnings.clear()
+    global _current_warning_group
+    _current_warning_group = []
 
 
 def format_warnings_summary(limit: int = None, max_length: int = 200) -> list[str]:
