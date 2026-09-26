@@ -50,12 +50,12 @@ class DataLoader:
         
         Raises:
             FileNotFoundError: Если файл не существует
-            ValueError: Если файл не .xlsx
+            InputDataError: Если файл не .xlsx
         """
         if not path.is_file():
             raise FileNotFoundError(f"Файл {path.name} не существует")
         if path.suffix.lower() != '.xlsx':
-            raise ValueError(f"Файл {path.name} не является .xlsx")
+            raise InputDataError(f"Файл {path.name} не является .xlsx")
     
     @staticmethod
     def _validate_directory(path: Path, pattern: str = "*.xlsx") -> List[Path]:
@@ -109,7 +109,7 @@ class DataLoader:
             
         Raises:
             FileNotFoundError: Если файл не существует
-            ValueError: Если файл не .xlsx или не читается
+            InputDataError: Если файл не .xlsx или не читается
         """
         DataLoader._validate_file(path)
         
@@ -121,7 +121,7 @@ class DataLoader:
             else:
                 return pd.read_excel(fixed_stream, header=None)
         except Exception as e:
-            raise ValueError(f"Ошибка чтения файла {path.name}: {e}") from e
+            raise InputDataError(f"Ошибка чтения файла {path.name}: {e}") from e
     
     @staticmethod
     def _process_with_handler(
@@ -145,7 +145,7 @@ class DataLoader:
         )
         
         if type_register not in result:
-            raise ValueError(f"FileHandler не вернул результат для '{type_register}'")
+            raise InputDataError(f"FileHandler не вернул результат для '{type_register}'")
         
         df, check_df = result[type_register]
         
@@ -238,7 +238,7 @@ class DataLoader:
         df, check_df = DataLoader._process_with_handler(path, 'accountosv')
         
         if df.empty:
-            raise ValueError(f"ОСВ по 60 ИнвестДоговоры {path.name} не содержит данных")
+            raise InputDataError(f"ОСВ по 60 ИнвестДоговоры {path.name} не содержит данных")
         
         logger.debug("Загружен ОСВ по 60 ИнвестДоговоры: {} строк", len(df))
         return df, check_df
@@ -260,7 +260,7 @@ class DataLoader:
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
-            raise ValueError(f"Спецотчет {path.name} не содержит данных")
+            raise InputDataError(f"Спецотчет {path.name} не содержит данных")
         
         logger.debug("Загружена Ведомость амортизации: {} строк", len(df))
         return df
@@ -282,7 +282,7 @@ class DataLoader:
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
-            raise ValueError(f"Спецотчет {path.name} не содержит данных")
+            raise InputDataError(f"Спецотчет {path.name} не содержит данных")
         
         logger.debug("Загружена расшифровка 1450/1550/1230: {} строк", len(df))
         return df
@@ -303,7 +303,7 @@ class DataLoader:
         df = DataLoader._load_raw_excel(path)
         
         if df.empty:
-            raise ValueError(f"Спецотчет {path.name} не содержит данных")
+            raise InputDataError(f"Спецотчет {path.name} не содержит данных")
         
         logger.debug("Загружен спецотчет долг/кор по 97: {} строк", len(df))
         return df
@@ -327,7 +327,7 @@ class DataLoader:
         df, check_df = DataLoader._process_with_handler(path, 'analisys')
         
         if df.empty:
-            raise ValueError(f"Анализ 84 {path.name} не содержит данных")
+            raise InputDataError(f"Анализ 84 {path.name} не содержит данных")
         
         logger.debug("Загружен Анализ 84: {} строк", len(df))
         return df, check_df
@@ -355,7 +355,7 @@ class DataLoader:
         df, check_df = DataLoader._process_with_handler(ACCOUNTS_OSV_LEASE_DIR, 'accountosv')
         
         if df.empty:
-            raise ValueError(
+            raise InputDataError(
                 f"ОСВ 76 Аренда ({ACCOUNTS_OSV_LEASE_DIR.name}) "
                 f"не содержит данных после обработки {len(files)} файл(ов)"
             )
@@ -389,7 +389,7 @@ class DataLoader:
         df, _ = DataLoader._process_with_handler(ACCOUNT_CARDS_DIR, 'posting')
         
         if df.empty:
-            raise ValueError("Сводный Отчет по проводкам не содержит данных")
+            raise InputDataError("Сводный Отчет по проводкам не содержит данных")
         
         logger.debug("Загружен сводный Отчет по проводкам: {} строк, {} столбцов", len(df), len(df.columns))
         return df
@@ -420,7 +420,7 @@ class DataLoader:
         df, _ = DataLoader._process_with_handler(ACCOUNTS_OSV_DIR, 'accountosv')
         
         if df.empty:
-            raise ValueError("Сводная ОСВ не содержит данных")
+            raise InputDataError("Сводная ОСВ не содержит данных")
         
         logger.debug("Загружена сводная ОСВ: {} строк, {} столбцов", len(df), len(df.columns))
         return df
@@ -448,7 +448,7 @@ class DataLoader:
         df, _ = DataLoader._process_with_handler(file_path, 'generalosv')
         
         if df.empty:
-            raise ValueError(f"Общая ОСВ {file_path.name} не содержит данных")
+            raise InputDataError(f"Общая ОСВ {file_path.name} не содержит данных")
         
         logger.debug("Загружена общая ОСВ: {} ({} строк)", file_path.name, len(df))
         return df, file_path.name
@@ -517,7 +517,7 @@ class DataLoader:
             if isinstance(e, FileNotFoundError):
                 raise
     
-            raise ValueError(f"Ошибка загрузки справочника '{sheet_name}': {e}") from e
+            raise InputDataError(f"Ошибка загрузки справочника '{sheet_name}': {e}") from e
 
 class DataSaver:
     """Класс для сохранения результатов обработки."""

@@ -1,0 +1,119 @@
+# -*- coding: utf-8 -*-
+"""
+Смоук: типы ошибок на границе загрузки входных данных (INC-5a).
+
+Что фиксирует:
+  Загрузчики (io_module/data_io.py) бросали builtin ValueError. Шаг
+  оборачивал их в ProcessingStepError, и cli/main.py классифицировал
+  первопричину «не PipelineError» как CRITICAL [!!] Неожиданная ошибка —
+  хотя битый .xlsx или пустая выгрузка это штатная проблема данных.
+  Теперь это InputDataError (подкласс PipelineError) с сохранённой
+  первопричиной в __cause__, поэтому остановка помечается [STOP].
+
+  Смоук проверяет контракт, а не тексты сообщений:
+  - все ошибки загрузки — InputDataError, а не ValueError;
+  - InputDataError остаётся PipelineError (иначе [STOP] не сработает);
+  - __cause__ не теряется (первопричину видно в логе без --traceback);
+  - required=False по-прежнему возвращает пустой DataFrame, а не падает;
+  - FileNotFoundError для отсутствующего файла НЕ перехватывается
+    (его отдельно и более понятно обрабатывает cli/main.py).
+
+Запуск: python _smoke_input_data_errors.py
+"""
+import sys
+import tempfile
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from io_module import data_io
+from io_module.data_io import DataLoader
+from pipeline.errors import InputDataError, PipelineError
+
+TMP = Path(tempfile.mkdtemp(prefix='smoke_input_data_'))
+
+
+def _expect_input_data_error(func, *args, **kwargs) -> InputDataError:
+    """Вызывает func и требует InputDataError с сохранённой первопричиной."""
+    try:
+        func(*args, **kwargs)
+    except InputDataError as exc:
+        assert isinstance(exc, PipelineError), 'InputDataError должен быть PipelineError'
+        assert not isinstance(exc, ValueError), (
+            'InputDataError не должен быть ValueError: иначе старые '
+            'обработчики except ValueError продолжат ловить его'
+        )
+        return exc
+    raise AssertionError(f'{func} не выбросил InputDataError')
+
+
+def test_wrong_extension() -> None:
+    """Файл не .xlsx — входные данные, а не программная ошибка."""
+    path = TMP / 'выгрузка.txt'
+    path.write_text('не Excel', encoding='utf-8')
+    exc = _expect_input_data_error(DataLoader._validate_file, path)
+    assert 'выгрузка.txt' in str(exc), exc
+
+
+def test_missing_file_stays_file_not_found() -> None:
+    """Отсутствующий файл — FileNotFoundError, у него своя ветка в cli/main."""
+    missing = TMP / 'нет_такого.xlsx'
+    try:
+        DataLoader._validate_file(missing)
+    except FileNotFoundError:
+        return
+    except InputDataError as exc:
+        raise AssertionError('отсутствие файла не должно давать InputDataError') from exc
+    raise AssertionError('Ожидался FileNotFoundError')
+
+
+def test_corrupt_xlsx_keeps_cause() -> None:
+    """Битый .xlsx: первопричина pandas должна остаться в __cause__."""
+    path = TMP / 'битый.xlsx'
+    path.write_bytes(b'PK\x03\x04' + b'\x00' * 64)
+    exc = _expect_input_data_error(DataLoader._load_raw_excel, path)
+    assert exc.__cause__ is not None, 'первопричина потеряна — в логе будет только обёртка'
+    assert 'битый.xlsx' in str(exc), exc
+
+
+def test_reference_sheet_error_keeps_cause() -> None:
+    """Ошибка чтения справочника: required=True -> stop с первопричиной."""
+    ref = TMP / 'Справочники.xlsx'
+    with pd.ExcelWriter(ref, engine='openpyxl') as writer:
+        pd.DataFrame({'Код': ['1']}).to_excel(writer, sheet_name='Параметры', index=False)
+
+    saved = data_io.REFERENCE_DATA_FILE
+    data_io.REFERENCE_DATA_FILE = ref
+    try:
+        exc = _expect_input_data_error(DataLoader.load_reference_data, 'НетТакогоЛиста')
+        assert exc.__cause__ is not None, 'первопричина pandas потеряна'
+        assert 'НетТакогоЛиста' in str(exc), exc
+
+        df = DataLoader.load_reference_data('НетТакогоЛиста', required=False)
+        assert df.empty, 'required=False должен вернуть пустой DataFrame'
+    finally:
+        data_io.REFERENCE_DATA_FILE = saved
+
+
+def test_empty_frame_branches_are_input_data_errors() -> None:
+    """Пустая выгрузка: файл валиден, но данных нет -> InputDataError."""
+    path = TMP / 'пустая_выгрузка.xlsx'
+    pd.DataFrame().to_excel(path, index=False)
+    exc = _expect_input_data_error(DataLoader.process_depreciation_statement_decoding, path)
+    assert 'пустая_выгрузка.xlsx' in str(exc), exc
+    assert not isinstance(exc, FileNotFoundError), exc
+
+
+def main() -> None:
+    test_wrong_extension()
+    test_missing_file_stays_file_not_found()
+    test_corrupt_xlsx_keeps_cause()
+    test_reference_sheet_error_keeps_cause()
+    test_empty_frame_branches_are_input_data_errors()
+    print('SMOKE_OK 5 scenarios: InputDataError на границе загрузки (INC-5a)')
+
+
+if __name__ == '__main__':
+    main()

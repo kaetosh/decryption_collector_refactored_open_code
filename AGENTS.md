@@ -71,6 +71,8 @@
 | `STRICT_ASSET_SALE_DISTRIBUTION_CHECK` (`config/settings.py`) | при невозможности распределить расход 91.02 (нет совместимой выручки 91.01 или нарушен инвариант суммы) исходная строка сохраняется, а диагностика всегда уходит в `mismatches/`; `True` останавливает шаг через `ReferenceMismatchError`, `False` продолжает обработку. Неизвестный контрагент не заменяется |
 | `MissingFilesError` / `MissingCardError` | сохранение списка файлов, `ProcessingStepError` |
 | `TooManyFilesError` | сохранение списка избыточных файлов в Excel (mismatches/), `ProcessingStepError`. Возникает, когда в папке найдено более одного файла по паттерну (например, два файла общей ОСВ) |
+| `InputDataError` (граница загрузки, `io_module/data_io.py`) | проблема в самих входных данных: не `.xlsx`, файл не читается, выгрузка/справочник без данных. `__cause__` всегда сохранён (`from e`), поэтому первопричина видна в логе без `-t`. Так как это подкласс `PipelineError`, `cli/main.py` печатает `[STOP] Обработка остановлена`, а не `[!!] Неожиданная ошибка` |
+| `FileNotFoundError` | **не** оборачивается в `InputDataError`: у него отдельная, более понятная ветка в `cli/main.py` |
 | `Exception` | обёртка в `ProcessingStepError` (`from e`) |
 
 `STRICT_CONTRACTOR_CHECK = False` (`config/settings.py:48`) — мягкий режим. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:652`).
