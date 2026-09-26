@@ -5,6 +5,7 @@ from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.classifiers import ReceivableClassifier
+from pipeline.errors import ReferenceMismatchError
 
 
 class Step5AddReceivableSubtypeStep(Step):
@@ -23,7 +24,10 @@ class Step5AddReceivableSubtypeStep(Step):
         mapping_df = context.references["меппинг_баланс"]
         
         if mapping_df is None:
-            raise ValueError("Меппинг отсутствует в контексте")
+            raise ReferenceMismatchError(
+                "Меппинг отсутствует в контексте",
+                reference_name='Меппинг_бб',
+            )
         
         # Используем методы из ReceivableClassifier
         subtype_mapping = ReceivableClassifier.get_subtype_mapping(mapping_df)

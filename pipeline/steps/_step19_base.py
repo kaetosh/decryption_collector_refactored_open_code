@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Final, Sequence
 
 from pipeline.base import Step
+from pipeline.errors import ReferenceMismatchError
 from pipeline.step_config import OpuReportConstants
 
 
@@ -87,4 +88,7 @@ class Step19BaseMixin(Step):
         try:
             return context.references[name]
         except KeyError as exc:
-            raise ValueError(f"В context.references отсутствует справочник '{name}'.") from exc
+            raise ReferenceMismatchError(
+                f"В context.references отсутствует справочник '{name}'.",
+                reference_name=name,
+            ) from exc

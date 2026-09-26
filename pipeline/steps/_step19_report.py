@@ -12,6 +12,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import ProcessingContext
+from pipeline.errors import ReferenceMismatchError
 from utils import needs_conversion
 
 
@@ -89,8 +90,12 @@ class Step19ReportMixin:
 
         duplicated_accounts = int(opu_template[self.ACCOUNT_COL].duplicated().sum())
         if duplicated_accounts:
-            raise ValueError(
-                f"В плане счетов найдено дублей по столбцу '{self.ACCOUNT_COL}': {duplicated_accounts}."
+            raise ReferenceMismatchError(
+                f"В плане счетов найдено дублей по столбцу '{self.ACCOUNT_COL}': {duplicated_accounts}.",
+                problem_data=opu_template.loc[
+                    opu_template[self.ACCOUNT_COL].duplicated(keep=False)
+                ],
+                reference_name='ПланСчетов',
             )
 
         opu_template = opu_template.set_index(self.ACCOUNT_COL)

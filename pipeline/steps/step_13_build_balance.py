@@ -11,7 +11,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import MissingMappingError
+from pipeline.errors import MissingMappingError, ReferenceMismatchError
 from utils import needs_conversion
 
 
@@ -58,6 +58,17 @@ class Step13BuildBalanceBreakdownStep(Step):
     # МАППИНГ СЧЕТОВ НА СЧЕТ ФО
     # =========================================================================
     
+    @staticmethod
+    def _reference_columns_snapshot(reference_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Список реально имеющихся столбцов справочника — идёт в problem_data.
+
+        Нужен, когда в справочнике отсутствует обязательный столбец: в
+        mismatches/ попадает то, что в справочнике ЕСТЬ, и бухгалтер сам
+        решает, чего не хватает, вместо догадок по названиям.
+        """
+        return pd.DataFrame({'столбец_в_справочнике': list(reference_df.columns)})
+
     def _build_mapping_dict(self, mapping_df: pd.DataFrame) -> dict:
         """
         Строит словарь маппинга из справочника Меппинг.
@@ -74,10 +85,18 @@ class Step13BuildBalanceBreakdownStep(Step):
         # Валидация наличия всех ключевых столбцов
         missing_cols = [col for col in self.MAPPING_KEYS if col not in mapping_df.columns]
         if missing_cols:
-            raise ValueError(f"В справочнике Меппинг отсутствуют столбцы: {missing_cols}")
-        
+            raise ReferenceMismatchError(
+                f"В справочнике Меппинг отсутствуют столбцы: {missing_cols}",
+                problem_data=self._reference_columns_snapshot(mapping_df),
+                reference_name='Меппинг_бб',
+            )
+
         if 'счет_фо' not in mapping_df.columns:
-            raise ValueError("В справочнике Меппинг отсутствует столбец 'счет_фо'")
+            raise ReferenceMismatchError(
+                "В справочнике Меппинг отсутствует столбец 'счет_фо'",
+                problem_data=self._reference_columns_snapshot(mapping_df),
+                reference_name='Меппинг_бб',
+            )
         
         # Создаём MultiIndex из ключевых столбцов
         mapping_keys = pd.MultiIndex.from_frame(mapping_df[self.MAPPING_KEYS])
@@ -185,7 +204,11 @@ class Step13BuildBalanceBreakdownStep(Step):
         
         # 3. Валидация структуры
         if 'Итоговый номер счета' not in balance_transcripts.columns:
-            raise ValueError("В ПланСчетов отсутствует столбец 'Итоговый номер счета'")
+            raise ReferenceMismatchError(
+                "В ПланСчетов отсутствует столбец 'Итоговый номер счета'",
+                problem_data=chart_accounts_df.head(30),
+                reference_name='ПланСчетов',
+            )
         
         # 4. Устанавливаем индекс
         balance_transcripts = balance_transcripts.set_index('Итоговый номер счета')
@@ -302,7 +325,10 @@ class Step13BuildBalanceBreakdownStep(Step):
         mapping_df = context.references["меппинг_баланс"]
         
         if mapping_df is None:
-            raise ValueError("Справочник Меппинг отсутствует в контексте")
+            raise ReferenceMismatchError(
+                "Справочник Меппинг отсутствует в контексте",
+                reference_name='Меппинг_бб',
+            )
         
         # 1. Построение словаря маппинга
         logger.debug("Этап 1: Построение словаря меппинга")

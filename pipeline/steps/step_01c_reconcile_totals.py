@@ -9,7 +9,7 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from io_module import DataLoader
 from utils import find_target_column, normalize_account
-from pipeline.errors import ConvergenceError, MissingMappingError
+from pipeline.errors import ConvergenceError, MissingMappingError, ReferenceMismatchError
 from pipeline.step_config import ReconciliationConstants
 
 
@@ -76,7 +76,10 @@ class Step1cReconcileTotalsStep(Step):
         osv_df = context.common_osv_df.copy()
         chart_accounts = context.references.get('план_счетов_бу', None)
         if chart_accounts is None:
-            raise ValueError('Не загружен справочник: план счетов БУ.')
+            raise ReferenceMismatchError(
+                'Не загружен справочник: план счетов БУ.',
+                reference_name='ПланСчетовБУ',
+            )
             
         unique_chart_accounts = set(normalize_account(chart_accounts['код']))
         
