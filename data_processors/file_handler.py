@@ -12,6 +12,7 @@ from data_processors.osv_account import AccountOSV_UPPFileProcessor, AccountOSV_
 from data_processors.osv_general import GeneralOSV_UPPFileProcessor, GeneralOSV_NonUPPFileProcessor
 from data_processors.analisys_account import Analisys_UPPFileProcessor, Analisys_NonUPPFileProcessor
 from data_processors.transaction_report import Posting_UPPFileProcessor, Posting_NonUPPFileProcessor
+from pipeline.errors import InputDataError
 from utils import detect_txt_encoding
 
 
@@ -56,12 +57,12 @@ class FileHandler:
         if input_path.is_file():
             # Валидация расширения одиночного файла
             if type_register == 'posting' and input_path.suffix.lower() != '.txt':
-                raise ValueError(
+                raise InputDataError(
                     f"Для type_register='posting' ожидается файл .txt, "
                     f"но получен '{input_path.name}'"
                 )
             if type_register != 'posting' and input_path.suffix.lower() not in ('.xlsx'):
-                raise ValueError(
+                raise InputDataError(
                     f"Для type_register='{type_register}' ожидается файл .xlsx, "
                     f"но получен '{input_path.name}'"
                 )
@@ -172,7 +173,7 @@ class FileHandler:
         # 3. КОНСОЛИДАЦИЯ РЕЗУЛЬТАТОВ
         # =========================================================================
         if processor_class is None:
-            raise ValueError(
+            raise InputDataError(
                 f"Не удалось определить процессор для файлов в {input_path}. "
                 f"Проверьте структуру выгрузок."
             )
@@ -198,10 +199,10 @@ class FileHandler:
             Класс процессора
             
         Raises:
-            ValueError: Если не удалось определить процессор
+            InputDataError: Если не удалось определить процессор
         """
         if type_register != 'posting':
-            raise ValueError(
+            raise InputDataError(
                 f"_detect_processor_from_txt поддерживает только type_register='posting', "
                 f"получен '{type_register}'"
             )
@@ -212,7 +213,7 @@ class FileHandler:
             first_lines_text = ''.join(f.readline() for _ in range(20)).lower()
         
         if not first_lines_text:
-            raise ValueError(
+            raise InputDataError(
                 f"TXT-файл {file_path.name} пуст: не удалось прочитать "
                 f"его первые строки в кодировке {encoding}"
             )
@@ -239,7 +240,7 @@ class FileHandler:
                 )
                 return processor
         
-        raise ValueError(
+        raise InputDataError(
             f"Не удалось определить процессор для TXT-файла {file_path.name}. "
             f"Проверьте, что файл содержит ожидаемые заголовки."
         )
@@ -279,7 +280,7 @@ class FileHandler:
                 f"Файл '{file_path.name}' заблокирован другой программой. Закройте его и повторите попытку."
             ) from e
         except zipfile.BadZipFile:
-            raise ValueError(f"Файл '{file_path.name}' поврежден или не является корректным Excel-файлом.")
+            raise InputDataError(f"Файл '{file_path.name}' поврежден или не является корректным Excel-файлом.") from e
         except Exception as e:
             raise RuntimeError(f"Непредвиденная ошибка при обработке '{file_path.name}': {e}") from e
     
@@ -296,14 +297,14 @@ class FileHandler:
                         header_values.add(cell.strip().lower())
             wb.close()
         except Exception as e:
-            raise ValueError(f"Не удалось прочитать заголовки из {file_name}: {e}")
+            raise InputDataError(f"Не удалось прочитать заголовки из {file_name}: {e}") from e
 
         configs = self.PROCESSORS_CONFIG.get(type_register, [])
         for keywords, processor_cls in configs:
             if keywords.issubset(header_values):
                 return processor_cls
 
-        raise ValueError(f"Не удалось определить тип регистра в файле {file_name}")
+        raise InputDataError(f"Не удалось определить тип регистра в файле {file_name}")
 
     def _get_excel_files(self, dir_path: Path) -> List[Path]:
         files = list(dir_path.glob("*.xlsx"))

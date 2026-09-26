@@ -26,6 +26,7 @@ from data_processors.file_processor_config import (
     EXCLUDE_VALUES,
     DESIRED_ORDER,
 )
+from pipeline.errors import InputDataError
 
 
 class FileProcessor(ABC):
@@ -220,7 +221,7 @@ class FileProcessor(ABC):
         mask = first_col.str.contains('дата', na=False)
 
         if not mask.any():
-            raise ValueError('Файл не является регистром 1С (не найдена строка с "Дата")')
+            raise InputDataError('Файл не является регистром 1С (не найдена строка с "Дата")')
 
         date_row_idx = mask.values.argmax()  # ← Безопасно: всегда позиция
 
@@ -251,7 +252,7 @@ class FileProcessor(ABC):
         required_cols = ['Дата', 'Документ']
         missing = [col for col in required_cols if col not in df.columns]
         if missing:
-            raise ValueError(
+            raise InputDataError(
                 f"В выгрузке отсутствуют обязательные столбцы: {missing}. "
                 f"Доступные столбцы: {list(df.columns)}"
             )

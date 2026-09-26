@@ -20,6 +20,7 @@ from utils import cast_columns_to_types, detect_txt_encoding, normalize_ragged_t
 from utils.dataframe_utils import find_header_index
 
 from data_processors.file_processor import FileProcessor
+from pipeline.errors import InputDataError
 
 # Заглушка для пустых субконто — значения из 1С; совпадает с Values.UNSPECIFIED
 # в pipeline/constants.py (не импортируем pipeline из низкоуровневого пакета)
@@ -67,7 +68,7 @@ class PostingTXTFileProcessor(FileProcessor):
                     )
                     return physical_line_idx
 
-        raise ValueError(
+        raise InputDataError(
             f"Строка с '{keyword}' не найдена в первых {max_lines_to_read} строках файла"
         )
 
@@ -277,7 +278,7 @@ class Posting_UPPFileProcessor(PostingTXTFileProcessor):
         logger.debug('# 1. Загрузка')
         
         if df.empty:
-            raise ValueError(f"Файл {file_path.name} пустой после загрузки")
+            raise InputDataError(f"Файл {file_path.name} пустой после загрузки")
         
         df = self._process_dataframe_optimized(df)
         logger.debug('# 2. Базовая обработка')
@@ -330,7 +331,7 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
                     )
                     return physical_line_idx
 
-        raise ValueError(
+        raise InputDataError(
             f"Строка с '{keyword}' не найдена в первых {max_lines_to_read} строках файла"
         )
 
@@ -448,7 +449,7 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
     def _process_dataframe_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
         """Нормализация не-УПП отчёта по проводкам."""
         if 'Период' not in df.columns:
-            raise ValueError('Не найден заголовок "Период" в шапке таблицы')
+            raise InputDataError('Не найден заголовок "Период" в шапке таблицы')
 
         # Приводим «безымянные» столбцы pd.read_csv (Unnamed: N) к NA,
         # как в исходных выгрузках (иначе секции Кол./Вал. не распознаются)
@@ -514,7 +515,7 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
         df.dropna(axis=1, how='all', inplace=True)
 
         if df.empty:
-            raise ValueError('Отчет по проводкам 1с пустой, обработка невозможна.')
+            raise InputDataError('Отчет по проводкам 1с пустой, обработка невозможна.')
 
         df.insert(0, 'Имя_файла', file_path.name)
 
@@ -532,7 +533,7 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
         logger.debug('# 1. Загрузка')
 
         if df.empty:
-            raise ValueError(f"Файл {file_path.name} пустой после загрузки")
+            raise InputDataError(f"Файл {file_path.name} пустой после загрузки")
 
         df = self._process_dataframe_optimized(df)
         logger.debug('# 2. Базовая обработка')

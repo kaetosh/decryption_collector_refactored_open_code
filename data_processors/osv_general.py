@@ -19,6 +19,7 @@ from io import BytesIO
 from loguru import logger
 
 from data_processors.file_processor import FileProcessor
+from pipeline.errors import InputDataError
 from utils.dataframe_utils import find_header_index
 
 def pivot_hierarchy_to_columns(df, separator='_'):
@@ -178,12 +179,12 @@ class GeneralOSV_UPPFileProcessor(BaseOSVFileProcessor):
                 account_col_idx = col_idx
                 break
         if account_col_idx is None:
-            raise ValueError('Не найден столбец с "Счет" в первых 30 строках.')
+            raise InputDataError('Не найден столбец с "Счет" в первых 30 строках.')
 
         first_col = df.iloc[:, account_col_idx].astype(str)
         mask = first_col == 'Счет'
         if not mask.any():
-            raise ValueError('Файл не является ОСВ 1с.')
+            raise InputDataError('Файл не является ОСВ 1с.')
 
         date_row_idx = mask.idxmax()
         df.columns = df.iloc[date_row_idx]
@@ -196,7 +197,7 @@ class GeneralOSV_UPPFileProcessor(BaseOSVFileProcessor):
         mask_name = first_row == 'Наименование'
         cols_name_acc = np.where(mask_name)[0]
         if cols_name_acc.size == 0:
-            raise ValueError('ОСВ выгружена без наименований счета')
+            raise InputDataError('ОСВ выгружена без наименований счета')
         col_index_name_acc = cols_name_acc[0]
 
         required_cols = [
@@ -206,7 +207,7 @@ class GeneralOSV_UPPFileProcessor(BaseOSVFileProcessor):
         ]
         for col in required_cols:
             if col not in df.columns:
-                raise ValueError(f'Отсутствует обязательный столбец: {col}')
+                raise InputDataError(f'Отсутствует обязательный столбец: {col}')
         
         cols = df.columns.tolist()
         target_idx_a = df.columns.get_loc('Сальдо на начало периода')
@@ -270,10 +271,10 @@ class GeneralOSV_UPPFileProcessor(BaseOSVFileProcessor):
         df = df.iloc[1:]  # удаляем строку "Дебет Кредит ..."
 
         if df['Уровень'].max() == 0:
-            raise ValueError('ОСВ пустая.')
+            raise InputDataError('ОСВ пустая.')
 
         if df['Уровень'].isnull().any() or df['Курсив'].isnull().any():
-            raise ValueError('Найдены пустые значения в столбцах Уровень или Курсив.')
+            raise InputDataError('Найдены пустые значения в столбцах Уровень или Курсив.')
 
         df.drop(columns=['Курсив'], errors='ignore', inplace=True)
         return df
@@ -296,12 +297,12 @@ class GeneralOSV_NonUPPFileProcessor(BaseOSVFileProcessor):
                 account_col_idx = col_idx
                 break
         if account_col_idx is None:
-            raise ValueError('Не найден столбец с "Счет" в первых 30 строках.')
+            raise InputDataError('Не найден столбец с "Счет" в первых 30 строках.')
 
         first_col = df.iloc[:, account_col_idx].astype(str)
         mask = first_col == 'Счет'
         if not mask.any():
-            raise ValueError('Файл не является ОСВ 1с.')
+            raise InputDataError('Файл не является ОСВ 1с.')
 
         date_row_idx = mask.idxmax()
         df.columns = df.iloc[date_row_idx]
@@ -317,7 +318,7 @@ class GeneralOSV_NonUPPFileProcessor(BaseOSVFileProcessor):
         def find_column(name: str) -> int:
             position = find_header_index(df.columns, name)
             if position is None:
-                raise ValueError(
+                raise InputDataError(
                     f'Отсутствует обязательный столбец: {name}. '
                     f'Доступные столбцы: '
                     f'{[c for c in df.columns.astype(str) if c and c.lower() != "<na>"]}'
@@ -386,10 +387,10 @@ class GeneralOSV_NonUPPFileProcessor(BaseOSVFileProcessor):
         df = df.iloc[1:]  # удаляем строку с "Дебет Кредит ..."
 
         if df['Уровень'].max() == 0:
-            raise ValueError('ОСВ пустая.')
+            raise InputDataError('ОСВ пустая.')
 
         if df['Уровень'].isnull().any() or df['Курсив'].isnull().any():
-            raise ValueError('Найдены пустые значения в столбцах Уровень или Курсив.')
+            raise InputDataError('Найдены пустые значения в столбцах Уровень или Курсив.')
 
         df.drop(columns=['Курсив'], errors='ignore', inplace=True)
         return df

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Смоук: типы ошибок на границе загрузки входных данных (INC-5a).
+Смоук: типы ошибок на границе загрузки входных данных (INC-5a, INC-5b).
 
 Что фиксирует:
-  Загрузчики (io_module/data_io.py) бросали builtin ValueError. Шаг
-  оборачивал их в ProcessingStepError, и cli/main.py классифицировал
+  Загрузчики (io_module/data_io.py) и парсеры выгрузок 1С
+  (data_processors/*) бросали builtin ValueError. Шаг оборачивал их в
+  ProcessingStepError, и cli/main.py классифицировал
   первопричину «не PipelineError» как CRITICAL [!!] Неожиданная ошибка —
   хотя битый .xlsx или пустая выгрузка это штатная проблема данных.
   Теперь это InputDataError (подкласс PipelineError) с сохранённой
@@ -16,7 +17,9 @@
   - __cause__ не теряется (первопричину видно в логе без --traceback);
   - required=False по-прежнему возвращает пустой DataFrame, а не падает;
   - FileNotFoundError для отсутствующего файла НЕ перехватывается
-    (его отдельно и более понятно обрабатывает cli/main.py).
+    (его отдельно и более понятно обрабатывает cli/main.py);
+  - в парсерах не осталось builtin ValueError, а InputDataError внутри
+    except всегда с `from e` (инвариант, а не разовый снимок).
 
 Запуск: python _smoke_input_data_errors.py
 """
@@ -106,13 +109,67 @@ def test_empty_frame_branches_are_input_data_errors() -> None:
     assert not isinstance(exc, FileNotFoundError), exc
 
 
+def test_parser_layer_raises_input_data_error() -> None:
+    """Парсеры выгрузок 1С (data_processors) — тоже входные данные."""
+    from data_processors.transaction_report import Posting_UPPFileProcessor
+
+    path = TMP / 'проводки_без_шапки.txt'
+    path.write_bytes('колонки\tсумма\n1\t2\n'.encode('cp1251'))
+    exc = _expect_input_data_error(Posting_UPPFileProcessor._find_header_row, path, 'период')
+    assert 'период' in str(exc), exc
+
+
+def test_parsers_keep_no_stray_valueerror() -> None:
+    """Инвариант INC-5b: в парсерах нет builtin ValueError, `from e` не забыт."""
+    import ast
+
+    from data_processors import (
+        analisys_account,
+        file_handler,
+        file_processor,
+        osv_account,
+        osv_general,
+        transaction_report,
+    )
+
+    modules = (
+        analisys_account,
+        file_handler,
+        file_processor,
+        osv_account,
+        osv_general,
+        transaction_report,
+    )
+    for module in modules:
+        source = Path(module.__file__).read_bytes().decode('utf-8-sig')
+        tree = ast.parse(source)
+        in_except = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler):
+                for stmt in node.body:
+                    in_except.update(n for n in ast.walk(stmt) if isinstance(n, ast.Raise))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            called = getattr(node.exc, 'func', None)
+            name = getattr(called, 'id', None) or getattr(called, 'attr', None)
+            assert name != 'ValueError', f'{module.__name__}:{node.lineno} — остался builtin ValueError'
+            if name == 'InputDataError' and node in in_except:
+                assert node.cause is not None, (
+                    f'{module.__name__}:{node.lineno} — InputDataError внутри except '
+                    'без `from e`: в логе пропадёт первопричина'
+                )
+
+
 def main() -> None:
     test_wrong_extension()
     test_missing_file_stays_file_not_found()
     test_corrupt_xlsx_keeps_cause()
     test_reference_sheet_error_keeps_cause()
     test_empty_frame_branches_are_input_data_errors()
-    print('SMOKE_OK 5 scenarios: InputDataError на границе загрузки (INC-5a)')
+    test_parser_layer_raises_input_data_error()
+    test_parsers_keep_no_stray_valueerror()
+    print('SMOKE_OK 7 scenarios: InputDataError на границе загрузки (INC-5a/5b)')
 
 
 if __name__ == '__main__':

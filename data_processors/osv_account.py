@@ -11,6 +11,7 @@ from loguru import logger
 from io import BytesIO
 
 from data_processors.file_processor import FileProcessor, exclude_values
+from pipeline.errors import InputDataError
 from utils.dataframe_utils import find_header_index
 
 def find_account_from_text(df: pd.DataFrame, search_text: str = "Оборотно-сальдовая ведомость по счету ") -> Optional[str]:
@@ -154,14 +155,14 @@ class BaseAccountOSVProcessor(FileProcessor):
             check_columns = [col for col in check_columns if col in df.columns]
             
             if df[check_columns].sum().sum() == 0:
-                raise ValueError('ОСВ счета вероятно пустая.')
+                raise InputDataError('ОСВ счета вероятно пустая.')
             else:
                 df.loc[:, 'Уровень'] = 1
     
     def _validate_level_columns(self, df: pd.DataFrame) -> None:
         """Проверка наличия пустых значений в столбцах Уровень и Курсив"""
         if df['Уровень'].isnull().any() or df['Курсив'].isnull().any():
-            raise ValueError('Найдены пустые значения в столбцах Уровень или Курсив.')
+            raise InputDataError('Найдены пустые значения в столбцах Уровень или Курсив.')
     
     def _process_missing_values(self, df: pd.DataFrame, account_col: str) -> pd.DataFrame:
         """Обработка пропущенных значений"""
@@ -266,11 +267,11 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
         col_idx, header_row_idx = self._find_header_column(df, 'субконто')
         
         if col_idx is None or header_row_idx is None:
-            raise ValueError('Не найден столбец с "Субконто" в первых 30 строках.')
+            raise InputDataError('Не найден столбец с "Субконто" в первых 30 строках.')
         
         first_col = df.iloc[:, col_idx].astype(str)
         if not (first_col == 'Субконто').any():
-            raise ValueError('Файл не является ОСВ счета 1с.')
+            raise InputDataError('Файл не является ОСВ счета 1с.')
         
         df = self._process_header(df, header_row_idx, rename_columns=True)
 
@@ -280,7 +281,7 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
             for i, col in enumerate(cols):
                 if col is not pd.NA and col == target:
                     return i
-            raise ValueError(f"Колонка '{target}' не найдена")
+            raise InputDataError(f"Колонка '{target}' не найдена")
 
         target_idx_a = safe_find_column(cols, 'Сальдо на начало периода')
         target_idx_b = safe_find_column(cols, 'Оборот за период')
@@ -343,7 +344,7 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
         if total_rows.empty:
              # Если явной строки Итого нет, пробуем взять последнюю строку или выбрасываем ошибку
              # В УПП обычно есть Итого
-             raise ValueError('Нет значений по строке Итого')
+             raise InputDataError('Нет значений по строке Итого')
              
         df_for_check = total_rows[['Субконто'] + desired_order_not_with_suff].copy().tail(1)
         df_for_check[desired_order_not_with_suff] = df_for_check[desired_order_not_with_suff].astype(float).fillna(0)
@@ -453,11 +454,11 @@ class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
         col_idx, header_row_idx = self._find_header_column(df, 'счет')
         
         if col_idx is None or header_row_idx is None:
-            raise ValueError('Не найден столбец с "Счет" в первых 30 строках.')
+            raise InputDataError('Не найден столбец с "Счет" в первых 30 строках.')
         
         first_col = df.iloc[:, col_idx].astype(str)
         if not (first_col == 'Счет').any():
-            raise ValueError('Файл не является ОСВ счета 1с.')
+            raise InputDataError('Файл не является ОСВ счета 1с.')
         
         df = self._process_header(df, header_row_idx, rename_columns=True)
 
@@ -474,7 +475,7 @@ class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
             # поэтому ищем через find_header_index.
             position = find_header_index(df.columns, name)
             if position is None:
-                raise ValueError(
+                raise InputDataError(
                     f'Отсутствует обязательный столбец: {name}. '
                     f'Доступные столбцы: {list(df.columns.astype(str))}'
                 )
@@ -507,7 +508,7 @@ class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
         # Создание контрольной таблицы
         total_rows = df[df['Счет'] == 'Итого']
         if total_rows.empty:
-            raise ValueError('Нет значений по строке Итого')
+            raise InputDataError('Нет значений по строке Итого')
             
         df_for_check = total_rows[['Счет'] + desired_order_not_with_suff].copy().tail(1)
         df_for_check[desired_order_not_with_suff] = df_for_check[desired_order_not_with_suff].astype(float).fillna(0)

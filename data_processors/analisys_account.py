@@ -11,6 +11,7 @@ from io import BytesIO
 from loguru import logger
 
 from data_processors.file_processor import FileProcessor, exclude_values
+from pipeline.errors import InputDataError
 
 
 accounts_without_subaccount = ['50', '51', '52', '55', '57']
@@ -61,7 +62,7 @@ class BaseAnalysisProcessor(FileProcessor):
         df = df.dropna(axis=1, how='all').dropna(axis=0, how='all')
         
         if df.empty:
-            raise ValueError('Файл пуст после первоначальной очистки.')
+            raise InputDataError('Файл пуст после первоначальной очистки.')
         
         max_rows_to_check = min(MAX_HEADER_ROWS, df.shape[0])
         account_col_idx = None
@@ -74,7 +75,7 @@ class BaseAnalysisProcessor(FileProcessor):
                 break
         
         if account_col_idx is None:
-            raise ValueError('Не найден столбец с "Счет" в первых 30 строках.')
+            raise InputDataError('Не найден столбец с "Счет" в первых 30 строках.')
         
         # Ищем строку заголовка
         first_col = df.iloc[:, account_col_idx].astype('string')
@@ -84,7 +85,7 @@ class BaseAnalysisProcessor(FileProcessor):
             mask = first_col.str.contains('Счет', na=False)
         
         if not mask.any():
-            raise ValueError('Файл не является корректным Анализом счета 1С.')
+            raise InputDataError('Файл не является корректным Анализом счета 1С.')
         
         date_row_idx = mask.idxmax()
         
@@ -104,7 +105,7 @@ class BaseAnalysisProcessor(FileProcessor):
         df.columns = df.columns.astype('string')
         
         if 'Уровень' not in df.columns or df['Уровень'].isnull().all():
-            raise ValueError('Отсутствует или пуст столбец "Уровень".')
+            raise InputDataError('Отсутствует или пуст столбец "Уровень".')
         
         if df['Уровень'].isnull().any():
             df['Уровень'] = df['Уровень'].ffill().fillna(0)
