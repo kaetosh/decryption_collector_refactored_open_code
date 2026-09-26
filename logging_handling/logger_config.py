@@ -4,8 +4,39 @@
 Настраивает loguru для всего приложения.
 """
 import sys
+import warnings
 from loguru import logger
 from config.settings import LOG_LEVEL, LOG_FILE
+
+# Ключ в record["extra"]: запись помечена как «только в файл» и не
+# показывается в консоли. Служебные предупреждения библиотек (pandas,
+# openpyxl) несут технический текст, не понятный пользователю, поэтому
+# в консоль не попадают, но остаются в app.log для разбора.
+_FILE_ONLY_KEY = "file_only"
+
+
+def _route_warnings_to_log_file() -> None:
+    """
+    Перенаправляет warnings в loguru вместо прямой печати в stderr.
+
+    По умолчанию warnings.showwarning пишет в sys.stderr, минуя loguru:
+    сообщения не попадают в app.log и засоряют консоль. Здесь каждое
+    предупреждение становится записью уровня WARNING с меткой
+    file_only=True, которую фильтр консольного sink отбрасывает,
+    а файловый sink (уровень DEBUG, без фильтра) сохраняет.
+    """
+
+    def _showwarning(message, category, filename, lineno, file=None, line=None):
+        logger.bind(**{_FILE_ONLY_KEY: True}).warning(
+            "[{category}] {filename}:{lineno}: {message}",
+            category=category.__name__,
+            filename=filename,
+            lineno=lineno,
+            message=message,
+        )
+
+    warnings.showwarning = _showwarning
+
 
 def _truncate_text(text: str, max_length: int = 35) -> str:
     """
@@ -60,7 +91,15 @@ def setup_logger(console_level: str = LOG_LEVEL) -> None:
         "{message}"
     )
     
-    logger.add(sys.stderr, format=console_format, level=console_level)
+    # Консольный sink пропускает записи, помеченные как file_only
+    # (см. _route_warnings_to_log_file). Чтобы вернуть предупреждения
+    # в консоль, достаточно убрать filter=.
+    logger.add(
+        sys.stderr,
+        format=console_format,
+        level=console_level,
+        filter=lambda record: not record["extra"].get(_FILE_ONLY_KEY, False),
+    )
     
     # Лог-файл перезаписывается при каждом запуске
     logger.add(
@@ -72,5 +111,9 @@ def setup_logger(console_level: str = LOG_LEVEL) -> None:
         enqueue=True,
         encoding="utf-8"
     )
-    
+
+    # Предупреждения библиотек — только в файл (вызывается последним,
+    # чтобы записи гарантированно попали в оба sink-а)
+    _route_warnings_to_log_file()
+
     return logger
