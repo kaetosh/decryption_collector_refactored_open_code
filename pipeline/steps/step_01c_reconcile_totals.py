@@ -9,7 +9,7 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from io_module import DataLoader
 from utils import find_target_column, normalize_account
-from pipeline.errors import ConvergenceError, MissingMappingError, ReferenceMismatchError
+from pipeline.errors import ConvergenceError, MissingMappingError, ReferenceMismatchError, InputDataError
 from pipeline.step_config import ReconciliationConstants
 
 
@@ -169,7 +169,7 @@ class Step1cReconcileTotalsStep(Step):
             osv_for_recon, column_prefix='Level_', search_direction='rightmost', account_type='all_accounts', shift=0
         )
         if not name_col_with_all_account:
-            raise ValueError("В сводной ОСВ по счетам не найден столбец Level_, содержащий только бухгалтерские счета")
+            raise InputDataError("В сводной ОСВ по счетам не найден столбец Level_, содержащий только бухгалтерские счета")
             
         osv_for_recon['синтетический_счет'] = osv_for_recon[name_col_with_all_account].astype(str).str[:2]
         

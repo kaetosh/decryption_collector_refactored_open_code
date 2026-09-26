@@ -8,7 +8,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import ConvergenceError
+from pipeline.errors import ConvergenceError, InputDataError
 from io_module import DataLoader, DataSaver
 from utils import find_register_file, cast_columns_to_types, get_required_columns_df, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR
@@ -176,7 +176,7 @@ class Step10ClassifyLeaseSourceStep(Step):
         # 2. Поиск строки-шапки
         header_row_idx = self._find_header_row(df_raw)
         if header_row_idx is None:
-            raise ValueError(
+            raise InputDataError(
                 f"Не удалось найти строку-шапку в файле {input_path.name}. "
                 f"Ожидается строка со значением 'Основное средство'."
             )

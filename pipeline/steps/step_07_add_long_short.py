@@ -10,7 +10,7 @@ from loguru import logger
 from time import time
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import ReferenceMismatchError
+from pipeline.errors import InputDataError, ReferenceMismatchError
 from io_module import DataLoader
 from utils import find_register_file, set_header_from_row, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR
@@ -222,7 +222,7 @@ class Step7AddLongShortTermColumnStep(Step):
         # Валидация структуры
         missing_cols = [col for col in LEASE_REPORT_COLUMNS if col not in df.columns]
         if missing_cols:
-            raise ValueError(f"Отсутствуют столбцы: {missing_cols}")
+            raise InputDataError(f"Отсутствуют столбцы: {missing_cols}")
         
         # Переименование
         df = df.rename(columns=LEASE_REPORT_COLUMNS)

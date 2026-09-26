@@ -9,6 +9,7 @@ from pipeline.base import Step, ProcessingContext
 from pipeline.errors import (
     MissingOSGroupError,
     ConvergenceError,
+    InputDataError,
 )
 from io_module import DataLoader
 from utils import find_register_file, find_target_column, refresh_rub_equivalent
@@ -92,7 +93,7 @@ class Step6AddOSGroupColumnStep(Step):
         }
         missing = [name for name, col in missing_cols.items() if col is None]
         if missing:
-            raise ValueError(
+            raise InputDataError(
                 f"Не удалось найти необходимые столбцы в ОСВ 76.07: {missing}. "
                 f"Проверьте структуру выгрузки из 1С."
             )
@@ -143,7 +144,7 @@ class Step6AddOSGroupColumnStep(Step):
         missing_detail = [col for col in required_cols_detail if col not in osv_76_lease_df.columns]
         
         if missing_main or missing_detail:
-            raise ValueError(
+            raise InputDataError(
                 f"Отсутствуют необходимые столбцы:\n"
                 f"  В основной ОСВ: {missing_main}\n"
                 f"  В детализации 76.07: {missing_detail}"
@@ -223,7 +224,7 @@ class Step6AddOSGroupColumnStep(Step):
                 problem_data.head().to_string(index=False),
             )
             
-            raise ValueError(
+            raise InputDataError(
                 f"Ни один договор из ОСВ по ОСВ 76.07/76.05.3 не включён в сводную ОСВ. "
                 f"Возможные причины:\n"
                 f"  1. Неверная иерархия в ОСВ ОСВ 76.07/76.05.3 "

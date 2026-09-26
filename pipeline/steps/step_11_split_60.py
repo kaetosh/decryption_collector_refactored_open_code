@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.classifiers import ReceivableClassifier
-from pipeline.errors import ConvergenceError
+from pipeline.errors import ConvergenceError, InputDataError
 from io_module import DataLoader
 from utils import find_register_file, find_target_column, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR, STRICT_CONTRACTOR_CHECK
@@ -184,7 +184,7 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
             ] if col is None
         }
         if missing:
-            raise ValueError(
+            raise InputDataError(
                 f"Не найдены столбцы в ОСВ 60 Инвест: {list(missing.keys())}. "
                 f"Проверьте структуру выгрузки."
             )

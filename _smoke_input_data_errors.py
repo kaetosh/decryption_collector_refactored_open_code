@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Смоук: типы ошибок на границе загрузки входных данных (INC-5a, INC-5b).
+Смоук: типы ошибок на границе загрузки входных данных (INC-5a, INC-5b, INC-6b).
 
 Что фиксирует:
-  Загрузчики (io_module/data_io.py) и парсеры выгрузок 1С
-  (data_processors/*) бросали builtin ValueError. Шаг оборачивал их в
+  Загрузчики (io_module/data_io.py), парсеры выгрузок 1С
+  (data_processors/*) и проверки структуры данных в шагах
+  (pipeline/steps/*) бросали builtin ValueError. Шаг оборачивал их в
   ProcessingStepError, и cli/main.py классифицировал
   первопричину «не PipelineError» как CRITICAL [!!] Неожиданная ошибка —
-  хотя битый .xlsx или пустая выгрузка это штатная проблема данных.
+  хотя битый .xlsx, пустая выгрузка или сводная ОСВ без Level_-столбцов
+  это штатная проблема данных.
   Теперь это InputDataError (подкласс PipelineError) с сохранённой
   первопричиной в __cause__, поэтому остановка помечается [STOP].
 
@@ -19,7 +21,9 @@
   - FileNotFoundError для отсутствующего файла НЕ перехватывается
     (его отдельно и более понятно обрабатывает cli/main.py);
   - в парсерах не осталось builtin ValueError, а InputDataError внутри
-    except всегда с `from e` (инвариант, а не разовый снимок).
+    except всегда с `from e` (инвариант, а не разовый снимок);
+  - в шаге конвейера ошибка структуры данных даёт ProcessingStepError
+    с PipelineError-причиной — именно это отличает [STOP] от CRITICAL.
 
 Запуск: python _smoke_input_data_errors.py
 """
@@ -161,6 +165,29 @@ def test_parsers_keep_no_stray_valueerror() -> None:
                 )
 
 
+def test_step_boundary_is_input_data_error() -> None:
+    """Ошибка структуры данных в шаге конвейера — тоже [STOP], а не CRITICAL."""
+    from pipeline.base import ProcessingContext, Step
+    from pipeline.errors import ProcessingStepError
+    from pipeline.steps.step_03_add_account import Step3AddAccountColumnStep
+
+    context = ProcessingContext(
+        company='Тест', segment='Собственность', period='202608', type_period='8 мес'
+    )
+    context.summary_osv_df = pd.DataFrame({'Счет': ['60.01'], 'Сальдо': [1.0]})
+
+    try:
+        Step3AddAccountColumnStep().execute(context)
+    except ProcessingStepError as exc:
+        assert isinstance(exc.__cause__, InputDataError), exc.__cause__
+        assert isinstance(exc.__cause__, PipelineError), (
+            'причина должна быть PipelineError — иначе cli/main.py напечатает '
+            'CRITICAL [!!] Неожиданная ошибка'
+        )
+    else:
+        raise AssertionError('Ожидался ProcessingStepError')
+
+
 def main() -> None:
     test_wrong_extension()
     test_missing_file_stays_file_not_found()
@@ -169,7 +196,8 @@ def main() -> None:
     test_empty_frame_branches_are_input_data_errors()
     test_parser_layer_raises_input_data_error()
     test_parsers_keep_no_stray_valueerror()
-    print('SMOKE_OK 7 scenarios: InputDataError на границе загрузки (INC-5a/5b)')
+    test_step_boundary_is_input_data_error()
+    print('SMOKE_OK 8 scenarios: InputDataError на границе загрузки (INC-5a/5b/6b)')
 
 
 if __name__ == '__main__':

@@ -7,6 +7,7 @@
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
+from pipeline.errors import InputDataError
 from utils import find_target_column
 
 class Step3AddAccountColumnStep(Step):
@@ -38,7 +39,7 @@ class Step3AddAccountColumnStep(Step):
         )
         
         if not name_col_with_all_account:
-            raise ValueError(
+            raise InputDataError(
                 "В сводной ОСВ по счетам не найден столбец Level_ содержащий только бухгалтерские счета"
             )
         

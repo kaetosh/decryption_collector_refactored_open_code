@@ -12,7 +12,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import ConvergenceError
+from pipeline.errors import ConvergenceError, InputDataError
 from io_module import DataLoader
 from utils import find_register_file, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR
@@ -185,10 +185,10 @@ class Step12Split84AccountBalanceStep(Step):
         
         # Валидация
         if df_84.empty:
-            raise ValueError(f"Счёт {self.ACCOUNT_84} не найден в сводной ОСВ")
+            raise InputDataError(f"Счёт {self.ACCOUNT_84} не найден в сводной ОСВ")
         
         if len(df_84) > 1:
-            raise ValueError(
+            raise InputDataError(
                 f"Найдено несколько строк со счётом {self.ACCOUNT_84}: {len(df_84)}"
             )
         

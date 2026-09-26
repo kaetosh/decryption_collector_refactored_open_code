@@ -15,7 +15,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import ProcessingContext
-from pipeline.errors import ConvergenceError
+from pipeline.errors import ConvergenceError, InputDataError
 from pipeline.step_config import OpuReportConstants
 from config.settings import EXPORT_REPORT_ON_MISMATCH
 
@@ -164,7 +164,7 @@ class Step19ValidationMixin:
         Пустые/нечисловые значения заменяются на 0.
         """
         if self.AMOUNT_COL not in df.columns:
-            raise ValueError(f"В журнале ОПУ отсутствует столбец '{self.AMOUNT_COL}'.")
+            raise InputDataError(f"В журнале ОПУ отсутствует столбец '{self.AMOUNT_COL}'.")
 
         converted = pd.to_numeric(df[self.AMOUNT_COL], errors="coerce")
         bad_count = int(converted.isna().sum())
@@ -313,7 +313,7 @@ class Step19ValidationMixin:
         по коду 240010200 из расшифровки баланса.
         """
         if self.VALUE_COL not in balance_df.columns:
-            raise ValueError(f"В расшифровке баланса отсутствует столбец '{self.VALUE_COL}'.")
+            raise InputDataError(f"В расшифровке баланса отсутствует столбец '{self.VALUE_COL}'.")
 
         try:
             raw_value = balance_df.loc[self.RETAINED_EARNINGS_CODE, self.VALUE_COL]

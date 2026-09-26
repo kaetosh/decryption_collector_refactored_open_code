@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Final, Sequence
 
 from pipeline.base import Step
-from pipeline.errors import ReferenceMismatchError
+from pipeline.errors import InputDataError, ReferenceMismatchError
 from pipeline.step_config import OpuReportConstants
 
 
@@ -73,10 +73,16 @@ class Step19BaseMixin(Step):
     def _validate_columns(df, columns: Sequence[str], entity_name: str) -> None:
         """
         Проверяет наличие обязательных столбцов в DataFrame.
+
+        Вызывается и для данных, собранных предыдущими шагами (журнал ОПУ),
+        и для справочников (меппинг ОПУ, план счетов ФО), поэтому поднимается
+        InputDataError — «нет обязательных столбцов». Для справочных случаев
+        точнее был бы ReferenceMismatchError с problem_data; это отдельная
+        правка, здесь сохраняем единый тип ради одного места raise.
         """
         missing_columns = [col for col in columns if col not in df.columns]
         if missing_columns:
-            raise ValueError(
+            raise InputDataError(
                 f"В {entity_name} отсутствуют обязательные столбцы: {', '.join(missing_columns)}."
             )
 
