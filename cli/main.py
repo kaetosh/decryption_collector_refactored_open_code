@@ -166,13 +166,10 @@ def main(
         # ФАЗА 2
         logger.info("ФАЗА 2: Основная обработка данных")
 
-        lines = ["Применённые допуски сходимости:"]
-
+        logger.info("Применённые допуски сходимости:")
         for key, value in context.tolerance_params.items():
             description = TOLERANCE_DESCRIPTIONS.get(key, key)
-            lines.append(f"  • {description}: {format_tolerance_value(key, value)}")
-
-        logger.info("\n".join(lines))
+            logger.info(f"  • {description}: {format_tolerance_value(key, value)}")
         main_pipeline = create_main_pipeline()
         context = main_pipeline.run(context)
 
