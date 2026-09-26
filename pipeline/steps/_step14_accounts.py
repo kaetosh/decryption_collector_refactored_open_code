@@ -18,7 +18,7 @@ from loguru import logger
 
 from io_module import DataSaver
 from config.defaults import DEFAULTS
-from pipeline.errors import MissingMappingError, ReferenceMismatchError
+from pipeline.errors import ConvergenceError, MissingMappingError, ReferenceMismatchError
 from utils import align_dtypes_to_reference
 
 
@@ -261,10 +261,18 @@ class Step14AccountsMixin:
         difference = abs(revenue_without_vat - revenue_from_df9001)
 
         if difference > context.tolerance_params['tolerance_reconciliation']:
-            raise ValueError(
+            raise ConvergenceError(
                 f"Выручка из отчёта по проводкам ({revenue_from_df9001:,.2f} тыс.ед.) "
                 f"отличается от общей ОСВ ({revenue_without_vat:,.2f} тыс.ед.) "
-                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})"
+                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})",
+                problem_data=pd.DataFrame([{
+                    'проверка': 'выручка_против_ОСВ',
+                    'из_проводок, тыс.ед.': round(revenue_from_df9001, 2),
+                    'из_ОСВ, тыс.ед.': round(revenue_without_vat, 2),
+                    'разница, тыс.ед.': round(difference, 2),
+                    'допуск, тыс.ед.': context.tolerance_params['tolerance_reconciliation'],
+                }]),
+                reference_name='выручка_против_ОСВ',
             )
 
         logger.debug(
@@ -410,10 +418,18 @@ class Step14AccountsMixin:
         difference = abs(cost_price_osv_9002 - cost_price_from_df9002)
 
         if difference > context.tolerance_params['tolerance_reconciliation']:
-            raise ValueError(
+            raise ConvergenceError(
                 f"Себестоимость из отчёта по проводкам ({cost_price_from_df9002:,.2f} тыс.ед.) "
                 f"отличается от общей ОСВ ({cost_price_osv_9002:,.2f} тыс.ед.) "
-                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})"
+                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})",
+                problem_data=pd.DataFrame([{
+                    'проверка': 'себестоимость_против_ОСВ',
+                    'из_проводок, тыс.ед.': round(cost_price_from_df9002, 2),
+                    'из_ОСВ, тыс.ед.': round(cost_price_osv_9002, 2),
+                    'разница, тыс.ед.': round(difference, 2),
+                    'допуск, тыс.ед.': context.tolerance_params['tolerance_reconciliation'],
+                }]),
+                reference_name='себестоимость_против_ОСВ',
             )
 
         logger.debug(

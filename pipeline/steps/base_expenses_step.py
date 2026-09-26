@@ -27,7 +27,7 @@ from typing import Optional
 import pandas as pd
 from loguru import logger
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import ReferenceMismatchError
+from pipeline.errors import ConvergenceError, ReferenceMismatchError
 
 
 class StepAddExpensesToOpuBase(Step):
@@ -483,10 +483,18 @@ class StepAddExpensesToOpuBase(Step):
         difference = abs(expenses_osv - expenses_from_result)
         
         if difference > context.tolerance_params['tolerance_reconciliation']:
-            raise ValueError(
+            raise ConvergenceError(
                 f"{self.OPU_LINE_NAME} из отчёта по проводкам ({expenses_from_result:,.2f} тыс.ед.) "
                 f"отличаются от общей ОСВ ({expenses_osv:,.2f} тыс.ед.) "
-                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})"
+                f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})",
+                problem_data=pd.DataFrame([{
+                    'проверка': f'{self.OPU_LINE_NAME}_против_ОСВ',
+                    'из_проводок, тыс.ед.': round(expenses_from_result, 2),
+                    'из_ОСВ, тыс.ед.': round(expenses_osv, 2),
+                    'разница, тыс.ед.': round(difference, 2),
+                    'допуск, тыс.ед.': context.tolerance_params['tolerance_reconciliation'],
+                }]),
+                reference_name=f'{self.OPU_LINE_NAME}_против_ОСВ',
             )
         
         logger.debug(

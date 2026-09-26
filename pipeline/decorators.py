@@ -17,6 +17,7 @@ from loguru import logger
 from config.settings import STRICT_CONTRACTOR_CHECK
 from pipeline.errors import (
     ReferenceMismatchError,
+    ConvergenceError,
     MissingFilesError,
     MissingContractorError,
     MissingOSGroupError,
@@ -143,6 +144,24 @@ def handle_pipeline_errors(func):
             self._save_reference_mismatch_report(e)
             logger.error(
                 "[STOP] Обработка остановлена: не найдены группы ОС на этапе '{}': {}",
+                step_name, e,
+            )
+            raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
+
+        except ConvergenceError as e:
+            # Сходимость проводок с ОСВ сверх допуска. Диагностика
+            # (значение из проводок, из ОСВ, разница, допуск) уходит в
+            # mismatches/. Остановка жёсткая в обоих режимах
+            # EXPORT_REPORT_ON_MISMATCH: этот флаг управляет только
+            # мягкой веткой увязки ЧП = НРП в шаге 19, а проверки
+            # выручки/себестоимости/расходов против ОСВ (шаги 14-16)
+            # всегда останавливали конвейер — просто раньше из-за
+            # ValueError это выглядело как CRITICAL [!!].
+            _record(context, "error", str(e))
+            e.step_name = step_name
+            self._save_reference_mismatch_report(e)
+            logger.error(
+                "[STOP] Обработка остановлена: расхождение при сверке на этапе '{}': {}",
                 step_name, e,
             )
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
