@@ -42,15 +42,10 @@ SEPARATOR = "=" * 78
 
 def collect_key_figures(context: Any) -> list[tuple[str, str]]:
     """
-    Всё, что печатается в блоке: цифры отчёта, счётчики строк и статус
-    увязки. Числа приходят готовыми из report_cover.collect_figures.
+    Всё, что печатается в блоке: цифры отчёта и статус увязки.
+    Числа приходят готовыми из report_cover.collect_figures.
     """
     figures = list(collect_figures(context))
-    figures.append((
-        "Строк в расшифровках",
-        f"баланс: {_row_count(getattr(context, 'balance_df', None))}, "
-        f"ОПУ: {_row_count(getattr(context, 'pnl_df', None))}",
-    ))
     figures.append(("Увязка ОПУ и баланса (ЧП = НРП)", pnl_balance_status_text(context)))
     return figures
 

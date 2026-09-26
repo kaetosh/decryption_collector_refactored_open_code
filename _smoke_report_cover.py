@@ -50,7 +50,7 @@ def make_context(**overrides) -> SimpleNamespace:
         balance_date=None,
         name_file_general_osv='РЗК_общаяосв_нд_2025_.xlsx',
         run_id='20260926_171022',
-        balance_df=pd.DataFrame({'сальдо, тыс.ед.': [1.0, 2.0]}),
+        balance_df=pd.DataFrame({'Значение': [1.0, 2.0]}),
         pnl_df=pd.DataFrame({'Значение': [1.0]}),
         data={},
         tolerance_params={
@@ -142,7 +142,8 @@ def main() -> None:
     check(find_row(rows, 'Актив (итог баланса)') == '8 026 162 тыс.ед.', 'актив на титульном листе')
     check(find_row(rows, 'Пассив (итог баланса)').startswith('-8 026 162'), 'пассив со знаком минус')
     check('СВЕДЕНО' in find_row(rows, 'Расхождение актив'), 'вердикт по сходимости баланса')
-    check(find_row(rows, 'Выручка (ОПУ)') == '1 359 246 тыс.ед.', 'выручка по модулю')
+    # Сумма VALUE = -893360.38 -> Чистая прибыль = 893 360 (прибыль, положительная)
+    check(find_row(rows, 'Чистая прибыль (убыток)') == '893 360 тыс.ед.', 'чистая прибыль с переворотом знака')
     status_at = next(i for i, (label, _) in enumerate(rows) if label == 'СОСТОЯНИЕ ОТЧЁТА')
     figures_at = next(i for i, (label, _) in enumerate(rows) if label == 'КЛЮЧЕВЫЕ ЦИФРЫ ОТЧЁТА')
     modes_at = next(i for i, (label, _) in enumerate(rows) if label == 'РЕЖИМЫ СБОРКИ')
@@ -156,7 +157,7 @@ def main() -> None:
         make_context(balance_df=None, pnl_df=pd.DataFrame({'Значение': [1.0]})), warnings=[],
     )
     check('не собрана' in find_row(no_figures, 'Баланс'), 'без расшифровки баланса — не выдумываем цифры')
-    check(find_row(no_figures, 'Выручка (ОПУ)') == '', 'без колонки уровней нет строки выручки')
+    check(find_row(no_figures, 'Чистая прибыль (убыток)') == '-1 тыс.ед.', 'без колонки уровней есть строка убытка (сумма всех строк с переворотом знака)')
     check(
         find_row(no_figures, 'Актив (итог баланса)') == '' and find_row(no_figures, 'Пассив (итог баланса)') == '',
         'при отсутствии баланса строк актива и пассива нет',

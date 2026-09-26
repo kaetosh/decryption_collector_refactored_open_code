@@ -59,6 +59,7 @@ from config.settings import (
 from io_module.auto_sort import EXCEL_TEMP_PREFIX
 from io_module.output_manager import get_run_dir
 from pipeline.step_config import OpuReportConstants, ReconciliationConstants, ReportLayoutConstants
+from utils.currency_utils import needs_conversion
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Имена листов и колонок титульного листа
@@ -269,7 +270,7 @@ def pnl_balance_status_text(context: Any) -> str:
 
 def collect_figures(context: Any) -> list[tuple[str, str]]:
     """
-    Ключевые цифры отчёта: актив, пассив, их расхождение и выручка.
+    Ключевые цифры отчёта: актив, пассив, их расхождение и чистая прибыль.
 
     Единственный источник цифр для двух представлений сразу: титульного
     листа (раздел «КЛЮЧЕВЫЕ ЦИФРЫ ОТЧЁТА») и блока в консоли
@@ -279,13 +280,11 @@ def collect_figures(context: Any) -> list[tuple[str, str]]:
     Ничего не перепроверяется: суммы берутся из уже собранных
     context.balance_df / context.pnl_df — ровно тех строк, что попали
     в книгу. Чего в списке нет и почему:
-    - прибыль: итог листа ОПУ не равен прибыли периода (НРП накопительный),
-      поэтому показывается только статус увязки ЧП = НРП;
     - счётчики строк: на титульном листе они уже есть в «СОСТОЯНИИ ОТЧЁТА».
     """
     figures: list[tuple[str, str]] = []
 
-    active, passive = _balance_sides(getattr(context, "balance_df", None))
+    active, passive = _balance_sides(getattr(context, "balance_df", None), context)
     if active is None or passive is None:
         figures.append(("Баланс", "расшифровка не собрана — см. лог прогона"))
     else:
@@ -302,25 +301,61 @@ def collect_figures(context: Any) -> list[tuple[str, str]]:
             ),
         ])
 
-    revenue = _revenue(getattr(context, "pnl_df", None))
-    if revenue is not None:
-        figures.append(("Выручка (ОПУ)", f"{_amount_text(revenue)} тыс.ед."))
+    net_profit = _net_profit(getattr(context, "pnl_df", None), context)
+    if net_profit is not None:
+        figures.append(("Чистая прибыль (убыток)", f"{_amount_text(net_profit)} тыс.ед."))
 
     return figures
 
 
-def _balance_sides(balance_df: Any) -> tuple[float | None, float | None]:
+def _net_profit(pnl_df: Any, context: Any) -> float | None:
+    """
+    Чистая прибыль (убыток) из финальной расшифровки ОПУ.
+
+    Сумма по столбцу 'Значение' (или 'Значение_руб' для валютных компаний).
+    В отчёте прибыль имеет отрицательный знак, убыток — положительный.
+    Для отображения переворачиваем знак: прибыль = положительное, убыток = отрицательное.
+    """
+    if not _has_columns(pnl_df, ReportLayoutConstants.VALUE_COL):
+        return None
+
+    value_col = (
+        ReportLayoutConstants.RUB_VALUE_COL
+        if needs_conversion(context) and ReportLayoutConstants.RUB_VALUE_COL in pnl_df.columns
+        else ReportLayoutConstants.VALUE_COL
+    )
+
+    values = pd.to_numeric(pnl_df[value_col], errors="coerce")
+    total = float(values.sum())
+
+    if pd.isna(total):
+        return None
+
+    # Flip sign: in report profit is negative, loss is positive
+    # For display: profit = positive, loss = negative
+    return -total
+
+
+def _balance_sides(balance_df: Any, context: Any) -> tuple[float | None, float | None]:
     """
     Итоги актива и пассива по колонке «Актив/Пассив» расшифровки.
 
     Пассив в отчёте со знаком «-», поэтому стороны складываются как есть,
     а расхождение — это их сумма (в сведённом отчёте это 0).
+
+    Для валютных компаний использует колонку 'Значение_руб' вместо 'Значение'.
     """
     needed = (ReportLayoutConstants.VALUE_COL, ReportLayoutConstants.ASSET_LIABILITY_COL)
     if not _has_columns(balance_df, *needed):
         return None, None
 
-    values = pd.to_numeric(balance_df[ReportLayoutConstants.VALUE_COL], errors="coerce")
+    value_col = (
+        ReportLayoutConstants.RUB_VALUE_COL
+        if needs_conversion(context) and ReportLayoutConstants.RUB_VALUE_COL in balance_df.columns
+        else ReportLayoutConstants.VALUE_COL
+    )
+
+    values = pd.to_numeric(balance_df[value_col], errors="coerce")
     sides = balance_df[ReportLayoutConstants.ASSET_LIABILITY_COL].astype("string").str.strip()
     active = float(values[sides == ReportLayoutConstants.ASSET_SIDE].sum())
     passive = float(values[sides == ReportLayoutConstants.PASSIVE_SIDE].sum())
