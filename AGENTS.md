@@ -1,12 +1,12 @@
 # Руководство для ИИ-агента (AGENTS.md)
 
 ## Архитектура и запуск
-* **Паттерн Pipeline:** шаги наследуются от `Step` (`pipeline/base.py:115`), реализуют только `_process(context)`. **НЕ переопределяйте `execute`** — обёрнут декоратором `handle_pipeline_errors` (`pipeline/decorators.py:47`).
-* **Точка входа:** `main.py:1` -> `cli/main.py:38` (`main()` / `entry_point()`). Альтернатива: `python -m cli.main`. Аргументы: `cli/arguments.py:12`.
-* **Фабрики:** `pipeline/factories.py:37` (`create_preparation_pipeline()`) и `:52` (`create_main_pipeline()`). Не хардкодьте шаги.
+* **Паттерн Pipeline:** шаги наследуются от `Step` (`pipeline/base.py:125`), реализуют только `_process(context)`. **НЕ переопределяйте `execute`** — обёрнут декоратором `handle_pipeline_errors` (`pipeline/decorators.py:50`).
+* **Точка входа:** `main.py:1` -> `cli/main.py:104` (`main()`, `entry_point()` — `cli/main.py:241`). Альтернатива: `python -m cli.main`. Аргументы: `cli/arguments.py:18`.
+* **Фабрики:** `pipeline/factories.py:40` (`create_preparation_pipeline()`) и `pipeline/factories.py:55` (`create_main_pipeline()`). Не хардкодьте шаги.
 * **Оркестрация:** `pipeline/executors.py` — `initialize_context()`, `REFERENCE_REGISTRY`, паузы, `save_results()`. Сохранение: `io_module/data_io.py:620` (`DataSaver.save_combined_report`) + `io_module/output_manager.py:88`. Титульный лист — `io_module/report_cover.py`.
-* **Контекст:** `ProcessingContext` (`pipeline/base.py:29`). Главные таблицы — `common_osv_df`, `summary_osv_df`, `journal_df`, `balance_df`, `pnl_df`. Промежуточные — в `context.data` (доступ через `Step.get_df_from_context()`). `context.run_id` = `ГГГГММДД_ЧЧММСС`.
-* **Зависание на `input()` (КРИТИЧНО):** запуск без аргументов — интерактивный режим. Для CI/фона передавайте `-t`, `-v`, `--no-interactive`. Логика — `cli/main.py:121`.
+* **Контекст:** `ProcessingContext` (`pipeline/base.py:33`). Главные таблицы — `common_osv_df`, `summary_osv_df`, `journal_df`, `balance_df`, `pnl_df`. Промежуточные — в `context.data` (доступ через `get_df_from_context()`). `context.run_id` = `ГГГГММДД_ЧЧММСС`.
+* **Зависание на `input()` (КРИТИЧНО):** запуск без аргументов — интерактивный режим. Для CI/фона передавайте `-t`, `-v`, `--no-interactive`. Логика — `cli/main.py:247`.
 
 ## Автосортировка выгрузок (00_inbox)
 * Пользователь выгружает файлы из 1С одним движением в `_INPUT_DATA/00_inbox`; раскладку выполняет `io_module/auto_sort.py` из пауз (`pipeline/executors.py`), под флагом `AUTO_SORT_ENABLED` (`config/settings.py`).
@@ -24,7 +24,7 @@
 * **Единый формат чисел:** `config/defaults.py` — `format_amount()` (разряды пробелом: «4 321») и `format_tolerance_value(key, value)` («3 000 тыс.ед.» либо «22%» для долей из `FRACTION_PARAMS`). Используются и в консоли (`cli/main.py`), и на титульном листе — не форматируйте допуски вручную: раньше доли печатались как «0».
 * Титульный лист — справочная информация, а не результат расчёта: обёртка `safe_build_cover_rows()` при любой ошибке логирует WARNING и отдаёт пустой список (отчёт сохраняется без листа).
 * **Сводка предупреждений (блок 3):** `logging_handling/logger_config.py` собирает все `logger.warning(...)` за прогон в счётчик (`_collect_warning_sink`, sink уровня WARNING, фильтр отбрасывает `file_only`-записи библиотек). `format_warnings_summary()` даёт готовые строки («текст (×N)», обрезка до 200 симв.) — их печатает `_log_warnings_summary()` (`cli/main.py`) в конце прогона и передаёт `save_results` в `report_cover`; на листе показываются первые `COVER_WARNINGS_LIMIT = 12` строк, остаток — одной строкой со ссылкой на лог. Тот же текст в консоли и в файле — не форматируйте предупреждения на каждом новом месте.
-* Смоук — `_smoke_report_cover.py` (7 сценариев, `SMOKE_OK`) и `_smoke_warnings_summary.py` (коллектор loguru, `SMOKE_OK`).
+* Смоук — `_smoke_report_cover.py` (48 проверок, `SMOKE_OK`) и `_smoke_warnings_summary.py` (18 проверок, коллектор loguru, `SMOKE_OK`).
 
 ## Ключевые цифры отчёта (консоль и титульный лист)
 * Блок `ИТОГ ПРОГОНА` печатается в конце прогона **до** сводки предупреждений: `log_run_summary(context)` (`io_module/run_summary.py`) вызывается из `cli/main.py` сразу после `save_results()`. Показывает актив, пассив, расхождение `актив - пассив` с вердиктом по `tolerance_balance`, выручку из ОПУ, счётчики строк и статус увязки ЧП = НРП. Те же цифры получатель находит на титульном листе, не открывая табличные листы.
@@ -37,23 +37,23 @@
 * Имена колонок отчётных листов объявлены в `pipeline/step_config.py` (`ReportLayoutConstants`) — им пользуются шаги 20/21 (`collapse_base.py`) и `io_module`. Не дублируйте эти строки в новом коде. Смоуки — `_smoke_run_summary.py` (цифры реального прогона + сверка консоли с листом) и `_smoke_report_cover.py` (раздел `КЛЮЧЕВЫЕ ЦИФРЫ ОТЧЁТА`).
 
 ## Автоматическая постобработка и валидация
-При вызове `Step.execute()` (`base.py:124`) автоматически (не пишите ручной код):
+При вызове `Step.execute()` (`base.py:136`) автоматически (не пишите ручной код):
 1. `_validate_input(context)` — валидация входа
 2. `_process(context)` — бизнес-логика (единственное место для кода шага)
-3. `_clean_whitespace(context)` (`base.py:395`) — очистка пробелов в `summary_osv_df`/`journal_df`
-4. `_move_and_sort_level_columns(context)` (`base.py:405`) — `Level_*` в конец по возрастанию
-5. `_validate_output(context)` (`base.py:210`) — запрет `object`-колонок (иначе `TypeError`). Приводите через `cast_columns_to_types()` (`utils/dataframe_utils.py:13`)
-6. Контроль сходимости баланса: если есть `сальдо, тыс.ед.`, сумма проверяется на `0` с допуском `tolerance_balance` (дефолт `config/defaults.py:12`). Пропуск — через `self._skip_balance_validation = True` в `__init__` шага (`base.py:131`). Применяется в Step 2 и Step 2а, где данные неполные до добавления синтетических счетов. Для ОПУ-расходов — `_validate_against_osv()` в `base_expenses_step.py:451`.
+3. `_clean_whitespace(context)` (`base.py:491`) — очистка пробелов в `summary_osv_df`/`journal_df`
+4. `_move_and_sort_level_columns(context)` (`base.py:501`) — `Level_*` в конец по возрастанию
+5. `_validate_output(context)` (`base.py:293`) — запрет `object`-колонок (иначе `TypeError`). Приводите через `cast_columns_to_types()` (`utils/dataframe_utils.py:13`)
+6. Контроль сходимости баланса: если есть `сальдо, тыс.ед.`, сумма проверяется на `0` с допуском `tolerance_balance` (дефолт `config/defaults.py:13`). Пропуск — через `self._skip_balance_validation = True` в `__init__` шага (`base.py:133`). Применяется в Step 2 и Step 2а, где данные неполные до добавления синтетических счетов, а также в шагах 20/21 (свёртка не меняет сходимость баланса). Для ОПУ-расходов — `_validate_against_osv()` в `base_expenses_step.py:471`.
 
-Декоратор `handle_pipeline_errors` (`decorators.py:47`) пишет метрики в `context.step_metrics` и логирует сводку (`base.py:749`, DEBUG).
+Декоратор `handle_pipeline_errors` (`decorators.py:50`) пишет метрики в `context.step_metrics` и логирует сводку (`base.py:1058`, DEBUG).
 
 ## Константы
 * Общие — `pipeline/constants.py:10` (`ColumnNames`, `DataTypes`, `Prefixes`, `Values`). Импортируйте, не дублируйте.
 * Бизнес-константы шагов — `pipeline/step_config.py:12` (`StepConstants`, `DebtTypeConstants`, `LeaseConstants`, `AccountConstants`, `OpuReportConstants`, `BalanceReportConstants`).
 
 ## Работа со справочниками и обработка ошибок
-* **Справочники:** единая точка — `REFERENCE_REGISTRY` (`pipeline/executors.py:83`, `ReferenceSpec`). Загрузка -> `DataLoader.load_reference_data()` (`io_module/data_io.py:427`). Ключевые: `ПланСчетов`, `ПланСчетовБУ`, `Меппинг_бб`, `Меппинг_опу`, `КомпанииГруппы`, `Выгрузки`, `СправочникУФР`, `ВидСвязиКА`, `ППА`, `КредитОбслуж`, `ПрочиеДоходыНДС`, `ВидыРБП_АрендаЛизинг`, `Параметры`.
-* **Допуски сходимости:** лист «Параметры» -> `load_params(context)` (`config/loader.py:14`) -> `context.tolerance_params`. Валидация по `SCHEMA` (`config/defaults.py:20`), fallback — `DEFAULTS`. Ключевые: `tolerance_balance` (5000), `tolerance_reconciliation` (1050), `tolerance_leased_os` (3000), `tolerance_pnl_balance` (1050), `tolerance_rate_deviation` (0.3), `nds_missing_values` (0.20 — ставка НДС для проводок с пропущенным субконто ставки; конкретная книга задаёт своё значение, например 0.22).
+* **Справочники:** единая точка — `REFERENCE_REGISTRY` (`pipeline/executors.py:121`, `ReferenceSpec`). Загрузка -> `DataLoader.load_reference_data()` (`io_module/data_io.py:459`). Ключевые: `ПланСчетов`, `ПланСчетовБУ`, `Меппинг_бб`, `Меппинг_опу`, `КомпанииГруппы`, `Выгрузки`, `СправочникУФР`, `ВидСвязиКА`, `ППА`, `КредитОбслуж`, `ПрочиеДоходыНДС`, `ВидыРБП_АрендаЛизинг`, `Параметры`.
+* **Допуски сходимости:** лист «Параметры» -> `load_params(context)` (`config/loader.py:14`) -> `context.tolerance_params`. Валидация по `SCHEMA` (`config/defaults.py:29`), fallback — `DEFAULTS`. Ключевые: `tolerance_balance` (5000), `tolerance_reconciliation` (1050), `tolerance_leased_os` (3000), `tolerance_pnl_balance` (1050), `tolerance_rate_deviation` (0.3), `nds_missing_values` (0.20 — ставка НДС для проводок с пропущенным субконто ставки; конкретная книга задаёт своё значение, например 0.22).
 
 | Исключение | Поведение |
 |---|---|
@@ -76,9 +76,9 @@
 | `FileNotFoundError` | **не** оборачивается в `InputDataError`: у него отдельная, более понятная ветка в `cli/main.py` |
 | `Exception` | обёртка в `ProcessingStepError` (`from e`) |
 
-`STRICT_CONTRACTOR_CHECK = False` (`config/settings.py:48`) — мягкий режим. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:652`).
-`STRICT_CREDIT_CONTRACTOR_CHECK = True` (`config/settings.py:58`) — режим для справочника КредитОбслуж (шаг 17, `_process_credit_lines`). `True` (по умолчанию): при отсутствии РБП в справочнике — отчёт в Excel (mismatches/) + `ProcessingStepError`; `False`: отчёт в Excel + замена контрагента на `3 лица`, шаг продолжается. Исключение — `MissingCreditContractorError`.
-`STRICT_OS_GROUP_CHECK = True` (`config/settings.py:54`) — строгий режим по умолчанию для групп ОС аренды/лизинга (шаг 6, справочник ППА). Проверяются: договоры/РБП, отсутствующие в ППА, и значения групп вне допустимого списка — выбрасывается `MissingOSGroupError`, проблемные строки сохраняются в Excel (mismatches/). При `False` (мягкий режим) — WARNING, замена на `не_указано` внутри шага (реализация — `_validate_mapping` и этапы 5/7 в `pipeline/steps/step_06_add_os_group.py`). Актуализация справочника ППА под новый период — штатная часть работы с отчётностью.
+`STRICT_CONTRACTOR_CHECK = False` (`config/settings.py:61`) — мягкий режим. Реализация — `Step._apply_soft_contractor_handling()` (`base.py:961`).
+`STRICT_CREDIT_CONTRACTOR_CHECK = True` (`config/settings.py:71`) — режим для справочника КредитОбслуж (шаг 17, `_process_credit_lines`). `True` (по умолчанию): при отсутствии РБП в справочнике — отчёт в Excel (mismatches/) + `ProcessingStepError`; `False`: отчёт в Excel + замена контрагента на `3 лица`, шаг продолжается. Исключение — `MissingCreditContractorError`.
+`STRICT_OS_GROUP_CHECK = True` (`config/settings.py:67`) — строгий режим по умолчанию для групп ОС аренды/лизинга (шаг 6, справочник ППА). Проверяются: договоры/РБП, отсутствующие в ППА, и значения групп вне допустимого списка — выбрасывается `MissingOSGroupError`, проблемные строки сохраняются в Excel (mismatches/). При `False` (мягкий режим) — WARNING, замена на `не_указано` внутри шага (реализация — `_validate_mapping` и этапы 5/7 в `pipeline/steps/step_06_add_os_group.py`). Актуализация справочника ППА под новый период — штатная часть работы с отчётностью.
 
 - **Группа ОС аренды/лизинга (шаг 6):** служебная заглушка `не_указано` из листа ППА не является бизнес-ключом. `_create_mapping` исключает её (и пустые строки) из словарей `договор_аренды -> группа_ос`, `рбп -> группа_ос`, `рбп -> договор_аренды`, а `_map_os_groups_by_rbp` не переносит группу по заглушке из `допсубконто`. Иначе синтетические счета из общей ОСВ (05, 07, 09, 25, 50, 51, 69-73, 77, 80, 83, 84, 96, 99) и строки с пустым «Субконто» (обработчик ОСВ `data_processors/osv_account.py` пишет `не_указано`) получали группу из строки-заглушки справочника, и шаг 13 «меппинг баланса» падал: в `Меппинг_бб` для этих счетов есть только комбинация с `не_указано`. Смоук — `_smoke_06_os_group_placeholder.py`.
 
@@ -88,7 +88,7 @@
 
 `EXPORT_REPORT_ON_MISMATCH = True` (`config/settings.py`) — режим увязки ЧП (ОПУ) = НРП (баланс) в шаге 19 (`_check_profit_vs_balance`, `_step19_validation.py`). `True` (по умолчанию, мягкий): при расхождении сверх `tolerance_pnl_balance` — ERROR в лог, диагностика (НРП, ЧП, разница, порог) в `context.data[OpuReportConstants.MISMATCH_DIAGNOSTICS_KEY]`, шаг продолжается, отчёт собирается и выгружается «как есть» (несведённый, для анализа); `save_results()` дополнительно предупреждает о несведённом отчёте. `False` (строгий): `ConvergenceError` с однострочным `problem_data` -> декоратор сохраняет его в mismatches/, конвейер останавливается, отчёт не выгружается. Структурные ошибки (`_get_retained_earnings`: нет строки НРП `240010200` / значение NaN) жёсткие в обоих режимах. Смоук — `_smoke_pnl_mismatch.py` (флаг патчится как атрибут модуля `pipeline.steps._step19_validation`).
 
-`SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR = True` (`config/settings.py`) — мягкий режим для необязательных спецотчётов `_арендареклассдолгкорт_7697_`, `_лизингреклассдолгкорт_7697_`, `_осв_60инвест_`, `_реклассдолгкорт_97_` (шаги 7 и 11). При ошибке обработки найденного файла (пустой/неполный файл, нет ожидаемых столбцов, несходимость) — единый хелпер `Step._run_optional_special_report()` (`base.py:204`): WARNING «проверьте файл на полноту и формат», шаг продолжается, как будто файла не было (расшифровка собирается без этой детализации). Для `ReferenceMismatchError`/`ConvergenceError` `problem_data` дополнительно сохраняется в mismatches/. Отсутствие файла — не ошибка (прежние WARNING). `False` — прежнее жёсткое поведение (ошибка останавливает конвейер). `_apply_97_reclass` (шаг 7) под защиту не заводится: мутирует `osv_all_df` in-place — ошибка там означает баг кода. Смоук — `_smoke_optional_special_reports.py`.
+`SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR = True` (`config/settings.py`) — мягкий режим для необязательных спецотчётов `_арендареклассдолгкорт_7697_`, `_лизингреклассдолгкорт_7697_`, `_осв_60инвест_`, `_реклассдолгкорт_97_` (шаги 7 и 11). При ошибке обработки найденного файла (пустой/неполный файл, нет ожидаемых столбцов, несходимость) — единый хелпер `Step._run_optional_special_report()` (`base.py:205`): WARNING «проверьте файл на полноту и формат», шаг продолжается, как будто файла не было (расшифровка собирается без этой детализации). Для `ReferenceMismatchError`/`ConvergenceError` `problem_data` дополнительно сохраняется в mismatches/. Отсутствие файла — не ошибка (прежние WARNING). `False` — прежнее жёсткое поведение (ошибка останавливает конвейер). `_apply_97_reclass` (шаг 7) под защиту не заводится: мутирует `osv_all_df` in-place — ошибка там означает баг кода. Смоук — `_smoke_optional_special_reports.py`.
 
 ### Единый стандарт для справочников, подтягиваемых по имени компании
 
@@ -105,20 +105,20 @@
 * `ProcessingStepError` с первопричиной НЕ из `PipelineError` и общий `except Exception` — непредвиденные сбои: `CRITICAL [!!] Неожиданная ошибка`.
 * `FileNotFoundError` — `ERROR [STOP] Обработка остановлена: не найден файл...`.
 
-Теги сообщений: `[STOP]` — штатная остановка конвейера (нужна актуализация справочников/входных данных), `[!!]` + CRITICAL — действительно непредвиденное падение. Сообщение о сохранении проблемных данных (`[FOLDER] Проблемные данные сохранены...`, `base.py:518`) — уровень INFO.
+Теги сообщений: `[STOP]` — штатная остановка конвейера (нужна актуализация справочников/входных данных), `[!!]` + CRITICAL — действительно непредвиденное падение. Сообщение о сохранении проблемных данных (`[FOLDER] Проблемные данные сохранены...`, `base.py:579`) — уровень INFO.
 
 ## Встроенные хелперы и утилиты
 * Чтение Excel: `engine=\'openpyxl\''
 * Заголовки из 1С: `utils.dataframe_utils.set_header_from_row(df, search_text)`
 * Приведение типов: `utils.dataframe_utils.cast_columns_to_types(df, type_mapping)` (`utils/dataframe_utils.py:13`)
-* Доступ к `context.data`: `Step.get_df_from_context(context, key, hint=\'\')` (`base.py:161`) — единственный корректный способ
+* Доступ к `context.data`: `self.get_df_from_context(context, key, hint='')` (`base.py:172`, метод экземпляра шага) — единственный корректный способ
 * Нормализация счетов: `utils.column_utils.process_account(acc)` / `normalize_account(series)`
 * Fuzzy Matching: `utils.text_utils.find_similar_companies(series_a, series_b)` (rapidfuzz)
-* Логирование: `from loguru import logger` (`logging_handling/logger_config.py:40`). Консоль — INFO, `app.log` — DEBUG (перезаписывается).
+* Логирование: `from loguru import logger` (`logging_handling/logger_config.py:9`). Консоль — INFO, `app.log` — DEBUG (перезаписывается).
 * Пути вывода: только `io_module/output_manager.py:88` `get_output_dir(subfolder)` + `get_run_id()`. Не используйте `OUTPUT_DATA_DIR` напрямую.
 
 ## Структура пайплайна (Фаза 2)
-Состав — `pipeline/factories.py:52`. Шаги 1b-19, 6 этапов:
+Состав — `pipeline/factories.py:55`. Шаги 1b-19, 6 этапов:
 
 | Этап | Шаги | Назначение |
 |---|---|---|
@@ -140,7 +140,7 @@
 - **21** (`step_21_collapse_balance.py`) — свёртывание статей расшифровки баланса по справочнику `СтатьиБаланс_свернуто` (неттинг актив/пассив, например ОНА/ОНО): матчинг по паре `1 уровень` + `2 уровень (точка плана)`, стороны группы определяются по колонке `Актив/Пассив` данных (`А` — позитивная, `П` — негативная, без захардкоженных названий); сверка на **всю группу без группировки по 3/4 уровню** (у сторон эти атрибуты могут различаться — Собственность vs 3 лица); итог > 0 → строка активной стороны, < 0 → пассивной, ≈ 0 → обе строки удаляются; параллельная свёртка `Значение_руб` для валютных компаний; отчёт в `mismatches/step21_collapse_balance_*`. Смоук — `_smoke_21_collapse_balance.py`
 
 ## ProcessingContext — структура данных
-`ProcessingContext` (`pipeline/base.py:29`, `__repr__` — `base.py:90`):
+`ProcessingContext` (`pipeline/base.py:33`, `__repr__` — `base.py:100`):
 
 | Поле | Тип | Описание |
 |---|---|---|
@@ -154,15 +154,15 @@
 | `pnl_df` | DataFrame | Расшифровка ОПУ (Step 19) |
 | `references` | `dict[str, DataFrame]` | Справочники из `Справочники.xlsx` |
 | `tolerance_params` | `dict[str, float]` | Допуски (`load_params()`) |
-| `step_metrics` | `list[dict]` | Метрики шагов (`decorators.py:85`) |
+| `step_metrics` | `list[dict]` | Метрики шагов (`decorators.py:91`) |
 | `data` | `dict[str, Any]` | Вспомогательное (читайте через `get_df_from_context()`) |
 
 ## Логирование и отладка
 * Консоль — INFO, `app.log` — DEBUG (перезаписывается при старте)
-* Сводка шагов — `Pipeline._log_step_summary()` (`base.py:749`, DEBUG): `Шаг 11 … ok 9.26 сек | строк: journal_df=12500`
+* Сводка шагов — `Pipeline._log_step_summary()` (`base.py:1058`, DEBUG): `Шаг 11 … ok 9.26 сек | строк: journal_df=12500`
 * Проблемные данные — автоматически в `mismatches/` внутри папки запуска
 * Сводка предупреждений — в конце прогона: `_log_warnings_summary()` (`cli/main.py`) печатает всё, что собрал коллектор `logging_handling/logger_config.py` (`get_collected_warnings()` / `format_warnings_summary()`); те же строки идут на титульный лист отчёта. Ничего не останавливает — сводка только показывает
-* Трассировка — флаг `-t` или интерактивный `y` (`cli/arguments.py:19`). `__cause__` — первопричина (`cli/main.py:106`)
+* Трассировка — флаг `-t` (`cli/arguments.py:26`) или интерактивный `y` (`cli/arguments.py:90`). `__cause__` — первопричина (`cli/main.py:214`)
 
 ## Архитектура шагов: миксины
 Крупные шаги (14, 17, 19) разбиты на логические миксины. Каждый миксин — законченный блок логики, легко находимый по имени файла.
@@ -193,7 +193,7 @@
 
 **Debug-точки:**
 - `DEBUG_DUMP_DFS = False` (`config/settings.py`) — включить для сохранения DataFrame на каждом шаге
-- `Step._dump_df_for_debug(df, label)` (`base.py:203`) — сохраняет parquet в `_OUTPUT_DATA/_debug/`
+- `Step._dump_df_for_debug(df, label)` (`base.py:263`) — сохраняет parquet в `_OUTPUT_DATA/_debug/`
 - Включить: `set DEBUG_DUMP_DFS=True` перед запуском
 
 ## Замечания для ИИ-агента
@@ -202,6 +202,7 @@
 * Для чтения `context.data` — только `get_df_from_context()`
 * Для новой ошибки: класс в `pipeline/errors.py` + ветка в `pipeline/decorators.py`
 * Проверяйте `py_compile` после правок — структура CLI/пайплайна хрупка к циклическим импортам
+* **Смоуки, которых нет в репозитории:** `_smoke_auto_sort.py`, `_smoke_01a_match.py`, `_smoke_06_os_group_placeholder.py`, `_smoke_17_ppa_mapping.py`, `_smoke_21_collapse_balance.py`, `_smoke_step18_normalization.py`, `_smoke_pnl_mismatch.py`, `_smoke_optional_special_reports.py` — они упомянуты в разделах выше, но в git не попадали (создавались в прошлых сессиях и не коммитились). Не ищите файлы: актуальный состав — `git ls-files "_smoke_*"`, описание покрытия этих восьми логик — в `TASKS.md`.
 
 ## Запланировано
 Текущие и завершённые задачи — в `TASKS.md`. Активных задач нет.
