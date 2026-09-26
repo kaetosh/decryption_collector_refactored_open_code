@@ -102,7 +102,9 @@ class Step17AddOtherIncomeExpensesToOpuStep(
         )
 
         df_9101, df_9102 = self._process_asset_sales(
-            df_9101, df_9102, asset_sale_types=refs['asset_sale_types']
+            df_9101, df_9102,
+            asset_sale_types=refs['asset_sale_types'],
+            context=context,
         )
 
         df_9101 = self._process_credit_lines(

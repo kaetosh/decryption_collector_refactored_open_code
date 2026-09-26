@@ -20,9 +20,17 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import ProcessingContext
-from pipeline.errors import MissingCreditContractorError, MissingMappingError
+from pipeline.errors import (
+    MissingCreditContractorError,
+    MissingMappingError,
+    ReferenceMismatchError,
+)
 from pipeline.step_config import StepConstants
-from config.settings import STRICT_CREDIT_CONTRACTOR_CHECK, STRICT_PPA_MAPPING_CHECK
+from config.settings import (
+    STRICT_ASSET_SALE_DISTRIBUTION_CHECK,
+    STRICT_CREDIT_CONTRACTOR_CHECK,
+    STRICT_PPA_MAPPING_CHECK,
+)
 
 
 class Step17ProcessingMixin:
@@ -41,18 +49,11 @@ class Step17ProcessingMixin:
         df_9101 = df_9101.copy()
         df_9102 = df_9102.copy()
 
-        PPA_INCOME_TYPE_9101 = (
-            "Доходы от выбытия прав пользования активами, "
-            "изменения условий договоров аренды"
-        )
+        PPA_INCOME_TYPE = StepConstants.PPA_INCOME_TYPE
+        PPA_EXPENSE_TYPE = StepConstants.PPA_EXPENSE_TYPE
 
-        PPA_INCOME_TYPE_9102 = (
-            "Расходы от выбытия прав пользования активами, "
-            "изменений условий договоров аренды"
-        )
-
-        mask_ppa_income_9101 = df_9101['вид_дохода_расхода'] == PPA_INCOME_TYPE_9101
-        mask_ppa_income_9102 = df_9102['вид_дохода_расхода'] == PPA_INCOME_TYPE_9102
+        mask_ppa_income_9101 = df_9101['вид_дохода_расхода'] == PPA_INCOME_TYPE
+        mask_ppa_income_9102 = df_9102['вид_дохода_расхода'] == PPA_EXPENSE_TYPE
 
         if not mask_ppa_income_9101.any() and not mask_ppa_income_9102.any():
             return df_9101, df_9102
@@ -404,7 +405,8 @@ class Step17ProcessingMixin:
         self,
         df_9101: pd.DataFrame,
         df_9102: pd.DataFrame,
-        asset_sale_types: list
+        asset_sale_types: list,
+        context=None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Обрабатывает продажу активов: НДС, контрагенты, распределение."""
         logger.debug("Обработка продажи активов")
@@ -437,7 +439,7 @@ class Step17ProcessingMixin:
         )
 
         df_9102 = self._distribute_orphan_expenses(
-            df_9101, df_9102, asset_sale_types
+            df_9101, df_9102, asset_sale_types, context=context
         )
 
         return df_9101, df_9102
@@ -658,11 +660,63 @@ class Step17ProcessingMixin:
 
         return df_9102
 
+    def _build_orphan_expense_report(
+        self,
+        df_9102: pd.DataFrame,
+        context,
+        reason: str,
+    ) -> pd.DataFrame:
+        """Собирает исходные проводки нераспределённого остатка 91.02."""
+        rows = []
+        for _, row in df_9102.iterrows():
+            rows.append({
+                'компания': getattr(context, 'company', None) if context else None,
+                'период': getattr(context, 'period', None) if context else None,
+                'дата': row.get('Дата'),
+                'документ': row.get('Документ'),
+                'счет': row.get('счет'),
+                'корр.счет': row.get('Корр.счет'),
+                'доход_расход': row.get('доход_расход'),
+                'вид_дохода_расхода': row.get('вид_дохода_расхода'),
+                'контрагент': row.get('контрагент'),
+                'объект': row.get('Субконто Кт_1'),
+                'сумма': row.get('Сумма'),
+                'сумма_руб': row.get('Сумма_руб'),
+                'оборот, тыс.ед.': row.get('оборот, тыс.ед.'),
+                'оборот, тыс.руб.': row.get('оборот, тыс.руб.'),
+                'причина': reason,
+            })
+        return pd.DataFrame(rows)
+
+    def _report_orphan_expenses(
+        self,
+        df_9102: pd.DataFrame,
+        context,
+        reason: str,
+    ) -> None:
+        """Сохраняет диагностику остатка по действующей политике режима."""
+        error = ReferenceMismatchError(
+            message=(
+                f"Не удалось распределить {len(df_9102)} строк расходов 91.02: "
+                f"{reason}. Исходные строки сохранены без изменения суммы."
+            ),
+            problem_data=self._build_orphan_expense_report(df_9102, context, reason),
+            reference_name="Распределение расходов 91.02",
+        )
+        if STRICT_ASSET_SALE_DISTRIBUTION_CHECK:
+            raise error
+        logger.warning(
+            "[!] Нераспределённый остаток 91.02 сохранён в исходных строках; "
+            "диагностика сохранена в mismatches/ (мягкий режим)."
+        )
+        self._save_reference_mismatch_report(error)
+
     def _distribute_orphan_expenses(
         self,
         df_9101: pd.DataFrame,
         df_9102: pd.DataFrame,
-        asset_sale_types: list
+        asset_sale_types: list,
+        context=None,
     ) -> pd.DataFrame:
         """Распределяет осиротевшие расходы пропорционально выручке."""
         logger.debug("Распределение осиротевших расходов")
@@ -691,50 +745,59 @@ class Step17ProcessingMixin:
         df_9101_assets = df_9101.loc[mask_9101_assets].copy()
 
         if df_9101_assets.empty:
-            logger.warning(
-                "[!] Не удалось распределить осиротевшие расходы: "
-                "нет строк выручки по продаже активов"
+            self._report_orphan_expenses(
+                df_9102_orphan,
+                context,
+                "нет строк выручки по продаже активов",
             )
             return df_9102
 
+        known_revenue = df_9101_assets.loc[
+            df_9101_assets['контрагент'].notna()
+            & df_9101_assets['контрагент'].astype(str).ne(StepConstants.UNSPECIFIED)
+        ].copy()
         revenue_by_type = (
-            df_9101_assets
+            known_revenue
             .groupby('вид_дохода_расхода')['оборот, тыс.ед.']
             .transform('sum')
         )
-
-        df_9101_assets['доля_контрагента'] = np.where(
-            revenue_by_type != 0,
-            df_9101_assets['оборот, тыс.ед.'] / revenue_by_type,
-            0
+        known_revenue = known_revenue.loc[revenue_by_type.ne(0)].copy()
+        known_revenue['доля_контрагента'] = (
+            known_revenue['оборот, тыс.ед.']
+            / known_revenue.groupby('вид_дохода_расхода')['оборот, тыс.ед.']
+            .transform('sum')
         )
-
         contractor_share = (
-            df_9101_assets
+            known_revenue
             .groupby(['вид_дохода_расхода', 'контрагент'], as_index=False)
             ['доля_контрагента']
             .sum()
+            .rename(columns={'контрагент': '_контрагент_выручки'})
         )
 
         contractor_to_connection = None
-        if 'вид_связи' in df_9101_assets.columns:
+        if 'вид_связи' in known_revenue.columns:
             contractor_to_connection = (
-                df_9101_assets[['контрагент', 'вид_связи']]
+                known_revenue[['контрагент', 'вид_связи']]
                 .drop_duplicates(subset='контрагент', keep='first')
                 .set_index('контрагент')['вид_связи']
             )
 
-        df_9102_orphan_clean = df_9102_orphan.drop(
-            columns=['контрагент'], errors='ignore'
-        )
-
-        df_9102_orphan_dist = df_9102_orphan_clean.merge(
-            contractor_share, on='вид_дохода_расхода', how='inner'
+        distributable_types = set(contractor_share['вид_дохода_расхода'])
+        distributable_mask = df_9102_orphan['вид_дохода_расхода'].isin(distributable_types)
+        unmatched = df_9102_orphan.loc[~distributable_mask].copy()
+        df_9102_orphan_dist = (
+            df_9102_orphan.loc[distributable_mask]
+            .drop(columns=['контрагент'], errors='ignore')
+            .merge(contractor_share, on='вид_дохода_расхода', how='inner')
+            .rename(columns={'_контрагент_выручки': 'контрагент'})
         )
 
         if df_9102_orphan_dist.empty:
-            logger.warning(
-                "[!] Не удалось распределить осиротевшие расходы (нет выручки)"
+            self._report_orphan_expenses(
+                df_9102_orphan,
+                context,
+                "нет совместимой выручки 91.01 для распределения",
             )
             return df_9102
 
@@ -758,18 +821,40 @@ class Step17ProcessingMixin:
                 .astype('string')
             )
 
-        df_9102_result = pd.concat(
-            [df_9102_attached, df_9102_orphan_dist], ignore_index=True
+        amount_columns = [
+            column for column in ('оборот, тыс.ед.', 'оборот, тыс.руб.')
+            if column in df_9102_orphan.columns
+        ]
+        preserved_orphan = pd.concat(
+            [df_9102_orphan_dist, unmatched], ignore_index=True
         )
+        for column in amount_columns:
+            sum_before = pd.to_numeric(
+                df_9102_orphan[column], errors='coerce'
+            ).sum()
+            sum_after = pd.to_numeric(
+                preserved_orphan[column], errors='coerce'
+            ).sum()
+            if abs(sum_before - sum_after) > StepConstants.ORPHAN_DISTRIBUTION_TOLERANCE:
+                self._report_orphan_expenses(
+                    df_9102_orphan,
+                    context,
+                    f"нарушен инвариант суммы по «{column}»: "
+                    f"было {sum_before}, стало {sum_after}",
+                )
+                return df_9102
 
-        sum_before = df_9102_orphan['оборот, тыс.ед.'].sum()
-        sum_after = df_9102_orphan_dist['оборот, тыс.ед.'].sum()
-
-        if abs(sum_before - sum_after) > 0.01:
-            logger.warning(
-                "[!] Расхождение при распределении: было {:,.2f}, стало {:,.2f}",
-                sum_before, sum_after,
+        if not unmatched.empty:
+            self._report_orphan_expenses(
+                unmatched,
+                context,
+                "для части расходов нет выручки 91.01",
             )
+
+        df_9102_result = pd.concat(
+            [df_9102_attached, preserved_orphan],
+            ignore_index=True,
+        )
 
         logger.debug(
             "Распределено {} осиротевших строк на {} строк",

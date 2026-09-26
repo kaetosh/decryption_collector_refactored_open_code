@@ -14,6 +14,7 @@ from loguru import logger
 
 from pipeline.base import ProcessingContext
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
+from pipeline.step_config import AccountConstants, StepConstants
 
 
 class Step17DataMixin:
@@ -185,6 +186,78 @@ class Step17DataMixin:
 
         return df_9101, df_9102
 
+    def _resolve_income_expense_mapping(
+        self,
+        df: pd.DataFrame,
+        reference_df: pd.DataFrame,
+        account_label: str,
+    ) -> pd.Series:
+        """Разрешает тип ОПУ по ключу, не выбирая произвольную строку."""
+        reference = reference_df.copy()
+        reference['_key'] = (
+            reference['счет'].astype(str).str[:5] + '_' +
+            reference['доход_расход'].astype(str)
+        )
+        candidates = {
+            key: frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
+            for key, frame in reference.groupby('_key', sort=False)
+        }
+
+        corr = df['Корр.счет'].astype(str)
+        ppa_account_mask = corr.str.startswith(AccountConstants.PPA_ACCOUNTS, na=False)
+        object_cols = (
+            ['Субконто Кт_1', 'Субконто Кт_2']
+            if account_label == self.ACCOUNT_OTHER_EXPENSE
+            else ['Субконто Дт_1', 'Субконто Дт_2']
+        )
+        ppa_object_mask = pd.Series(False, index=df.index)
+        for column in object_cols:
+            if column in df.columns:
+                ppa_object_mask |= df[column].astype(str).str.strip().str.casefold().str.startswith(
+                    StepConstants.PPA_OBJECT_MARKER.casefold()
+                )
+        ppa_mask = ppa_account_mask & ppa_object_mask
+
+        resolved = pd.Series(pd.NA, index=df.index, dtype='string')
+        ambiguous_mask = pd.Series(False, index=df.index)
+        for key, key_candidates in candidates.items():
+            key_mask = df['_key'].eq(key)
+            if len(key_candidates) == 1:
+                resolved.loc[key_mask] = key_candidates[0]
+                continue
+
+            expected_type = (
+                StepConstants.PPA_EXPENSE_TYPE
+                if account_label == self.ACCOUNT_OTHER_EXPENSE
+                else StepConstants.PPA_INCOME_TYPE
+            )
+            ppa_rows = key_mask & ppa_mask
+            if ppa_rows.any() and expected_type in key_candidates:
+                resolved.loc[ppa_rows] = expected_type
+            ambiguous_mask.loc[key_mask & resolved.isna()] = True
+
+        df['вид_дохода_расхода'] = resolved
+        if ambiguous_mask.any():
+            problem_data = self.build_unmapped_problem_data(
+                df.loc[ambiguous_mask],
+                group_cols=['_key', 'счет', 'Корр.счет', 'доход_расход'],
+                rename_map={'_key': 'ключ_поиска'},
+            )
+            problem_data['допустимые_типы'] = problem_data['ключ_поиска'].map(
+                lambda key: ' | '.join(candidates.get(key, []))
+            )
+            raise ReferenceMismatchError(
+                message=(
+                    f"В справочнике Меппинг_опу для {int(ambiguous_mask.sum())} строк "
+                    f"по счёту {account_label} найдено несколько бизнес-типов. "
+                    "Строки с подтверждённым объектом ППА разрешены; остальные "
+                    "требуют уточнения справочника."
+                ),
+                problem_data=problem_data,
+                reference_name="Меппинг_опу",
+            )
+        return resolved
+
     def _add_income_expense_type(
         self,
         df: pd.DataFrame,
@@ -211,22 +284,15 @@ class Step17DataMixin:
         reference_df = reference_df.copy()
 
         reference_df['_key'] = (
-            reference_df['счет'].astype(str) + '_' +
+            reference_df['счет'].astype(str).str[:5] + '_' +
             reference_df['доход_расход'].astype(str)
         )
-
         df['_key'] = (
             df['счет'].astype(str).str[:5] + '_' +
             df['доход_расход'].astype(str)
         )
 
-        mapping = (
-            reference_df
-            .drop_duplicates(subset='_key')
-            .set_index('_key')['вид_дохода_расхода']
-        )
-
-        df['вид_дохода_расхода'] = df['_key'].map(mapping).astype('string')
+        self._resolve_income_expense_mapping(df, reference_df, account_label)
 
         unmapped_mask = df['вид_дохода_расхода'].isna()
 
