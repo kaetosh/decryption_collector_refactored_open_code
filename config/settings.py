@@ -134,6 +134,15 @@ REFERENCE_CONFIGS = {
 LOG_LEVEL = "INFO"
 LOG_FILE = BASE_DIR / "app.log"
 
+# Имя и версия приложения — для заставки при запуске (cli/splash.py)
+# и заголовка argparse. Версию поднимать при заметных изменениях вывода.
+APP_NAME = "Собиратель расшифровок"
+APP_VERSION = "1.0.0"
+
+# Заставка при запуске (псевдографика, cli/splash.py).
+# False — приложение стартует «тихо», без рамки; то же даёт CLI-флаг --no-splash
+SHOW_SPLASH = True
+
 # Параметры вывода
 OUTPUT_FORMAT = "xlsx"  # Формат выходных файлов (xlsx, csv)
 SAVE_INTERMEDIATE = True  # Сохранять ли промежуточные результаты

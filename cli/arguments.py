@@ -41,6 +41,12 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        '--no-splash',
+        action='store_true',
+        help='Не показывать заставку при запуске'
+    )
+
+    parser.add_argument(
         '--balance-date',
         type=str,
         default=None,

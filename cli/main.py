@@ -39,6 +39,8 @@ from pipeline.executors import (
 )
 from pipeline.errors import PipelineError, ProcessingStepError
 from cli.arguments import parse_arguments, ask_user_about_traceback
+from cli.splash import show_splash
+from config.settings import SHOW_SPLASH
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
 from io_module.run_summary import log_run_summary
 
@@ -106,6 +108,7 @@ def main(
     verbose: bool = False,
     balance_date: str | None = None,
     no_interactive: bool = False,
+    no_splash: bool = False,
     unknown_args: list | None = None,
     suggestions: dict | None = None,
 ) -> int:
@@ -119,6 +122,13 @@ def main(
     # Аргументы разбираются до логирования (entry_point), поэтому
     # предупреждение об опечатках печатаем здесь, когда логирование готово.
     _warn_about_unknown_args(unknown_args, suggestions)
+
+    # Заставка — до loguru-шапки: блок идёт в stdout, записи логгера в
+    # stderr/app.log, порядок в консоли не зависит от их слияния.
+    # show_splash не бросает исключений — декоративный блок не остановит
+    # конвейер даже при сбое (логируется в DEBUG).
+    if SHOW_SPLASH and not no_splash:
+        show_splash(show_traceback=show_traceback, verbose=verbose)
 
     logger.info("=" * 80)
     logger.info("Запуск приложения --СОБИРАТЕЛЬ РАСШИФРОВОК--")
@@ -257,6 +267,7 @@ def entry_point() -> int:
         verbose=verbose,
         balance_date=args.balance_date,
         no_interactive=args.no_interactive,
+        no_splash=args.no_splash,
         unknown_args=getattr(args, 'unknown_args', None),
         suggestions=getattr(args, 'suggestions', None),
     )
