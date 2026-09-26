@@ -11,6 +11,7 @@ from loguru import logger
 from io import BytesIO
 
 from data_processors.file_processor import FileProcessor, exclude_values
+from utils.dataframe_utils import find_header_index
 
 def find_account_from_text(df: pd.DataFrame, search_text: str = "Оборотно-сальдовая ведомость по счету ") -> Optional[str]:
     """
@@ -261,7 +262,7 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
     
     def _process_dataframe_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
         """Поиск шапки таблицы, переименование заголовков, очистка"""
-        df = BaseAccountOSVProcessor._clean_dataframe(df)
+        df = self._clean_dataframe(df)
         col_idx, header_row_idx = self._find_header_column(df, 'субконто')
         
         if col_idx is None or header_row_idx is None:
@@ -447,7 +448,7 @@ class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
     
     def _process_dataframe_optimized(self, df: pd.DataFrame) -> pd.DataFrame:
         """Поиск шапки таблицы, переименование заголовков, очистка"""
-        df = BaseAccountOSVProcessor._clean_dataframe(df)
+        df = self._clean_dataframe(df)
         
         col_idx, header_row_idx = self._find_header_column(df, 'счет')
         
@@ -459,18 +460,27 @@ class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
             raise ValueError('Файл не является ОСВ счета 1с.')
         
         df = self._process_header(df, header_row_idx, rename_columns=True)
-        
+
         cols = df.columns.tolist()
         # В Non-УПП структура обычно проще: Сальдо на начало (Дебет, Кредит) идут подряд
-        try:
-            target_indices = [
-                (cols.index('Сальдо на начало периода'), ['Дебет_начало', 'Кредит_начало']),
-                (cols.index('Обороты за период'), ['Дебет_оборот', 'Кредит_оборот']),
-                (cols.index('Сальдо на конец периода'), ['Дебет_конец', 'Кредит_конец'])
-            ]
-            df = self._rename_balance_columns(df, cols, target_indices)
-        except ValueError as e:
-            raise ValueError(f"Ошибка структуры столбцов: {e}")
+        target_indices = []
+        for name, new_names in (
+            ('Сальдо на начало периода', ['Дебет_начало', 'Кредит_начало']),
+            ('Обороты за период', ['Дебет_оборот', 'Кредит_оборот']),
+            ('Сальдо на конец периода', ['Дебет_конец', 'Кредит_конец']),
+        ):
+            # Имена колонок после установки шапки могут содержать pd.NA —
+            # list.index() на них падает ('boolean value of NA is ambiguous'),
+            # поэтому ищем через find_header_index.
+            position = find_header_index(df.columns, name)
+            if position is None:
+                raise ValueError(
+                    f'Отсутствует обязательный столбец: {name}. '
+                    f'Доступные столбцы: {list(df.columns.astype(str))}'
+                )
+            target_indices.append((position, new_names))
+
+        df = self._rename_balance_columns(df, cols, target_indices)
             
         df = self._clean_after_header(df)
         self._validate_empty_osv(df)

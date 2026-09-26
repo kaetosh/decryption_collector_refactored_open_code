@@ -12,6 +12,8 @@ Mixin с загрузкой и фильтрацией данных для Шаг
 import pandas as pd
 from loguru import logger
 
+from utils import build_composite_key
+
 from pipeline.base import ProcessingContext
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
 from pipeline.step_config import AccountConstants, StepConstants
@@ -192,12 +194,14 @@ class Step17DataMixin:
         reference_df: pd.DataFrame,
         account_label: str,
     ) -> pd.Series:
-        """Разрешает тип ОПУ по ключу, не выбирая произвольную строку."""
-        reference = reference_df.copy()
-        reference['_key'] = (
-            reference['счет'].astype(str).str[:5] + '_' +
-            reference['доход_расход'].astype(str)
-        )
+        """
+        Разрешает тип ОПУ по ключу, не выбирая произвольную строку.
+
+        Ключ '_key' должен быть уже построен в df и reference_df (см.
+        build_composite_key) — строить его здесь дублирует логику и
+        рисует расхождение, если в разных местах срезы differ.
+        """
+        reference = reference_df
         candidates = {
             key: frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
             for key, frame in reference.groupby('_key', sort=False)
@@ -283,14 +287,10 @@ class Step17DataMixin:
 
         reference_df = reference_df.copy()
 
-        reference_df['_key'] = (
-            reference_df['счет'].astype(str).str[:5] + '_' +
-            reference_df['доход_расход'].astype(str)
+        reference_df['_key'] = build_composite_key(
+            reference_df, 'счет', 'доход_расход', truncate_a=5
         )
-        df['_key'] = (
-            df['счет'].astype(str).str[:5] + '_' +
-            df['доход_расход'].astype(str)
-        )
+        df['_key'] = build_composite_key(df, 'счет', 'доход_расход', truncate_a=5)
 
         self._resolve_income_expense_mapping(df, reference_df, account_label)
 

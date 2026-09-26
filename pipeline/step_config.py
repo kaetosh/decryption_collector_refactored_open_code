@@ -20,7 +20,6 @@ class StepConstants:
     PPA_INCOME_TYPE = "Доходы от выбытия прав пользования активами, изменения условий договоров аренды"
     PPA_EXPENSE_TYPE = "Расходы от выбытия прав пользования активами, изменений условий договоров аренды"
     PPA_OBJECT_MARKER = "ППА"
-    ORPHAN_DISTRIBUTION_TOLERANCE = 0.01
 
 
 class DebtTypeConstants:

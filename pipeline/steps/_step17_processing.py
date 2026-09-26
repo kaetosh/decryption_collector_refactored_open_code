@@ -13,7 +13,9 @@ Mixin с бизнес-обработкой для Шага 17.
     _distribute_orphan_expenses: распределение осиротевших расходов
     _process_credit_lines: обработка кредитных линий (РБП)
     _enrich_with_connection_info: обогащение группа_ка, сегмент_ка, вид_связи
-    _calculate_connection_type: расчёт вид_связи
+
+Расчёт вид_связи — Step._calculate_connection_type (pipeline/base.py),
+вызывается с segment_reference = сегмент компании.
 """
 import numpy as np
 import pandas as pd
@@ -26,6 +28,7 @@ from pipeline.errors import (
     ReferenceMismatchError,
 )
 from pipeline.step_config import StepConstants
+from config.defaults import DEFAULTS
 from config.settings import (
     STRICT_ASSET_SALE_DISTRIBUTION_CHECK,
     STRICT_CREDIT_CONTRACTOR_CHECK,
@@ -688,6 +691,51 @@ class Step17ProcessingMixin:
             })
         return pd.DataFrame(rows)
 
+    def _get_orphan_tolerance(self, context) -> float:
+        """
+        Допуск на потерю суммы при распределении расходов 91.02.
+
+        Берётся из context.tolerance_params (лист «Параметры»), иначе
+        дефолт из config/defaults.py. Устойчив к контекстам без параметров.
+        """
+        tolerance_params = getattr(context, 'tolerance_params', None)
+        if not isinstance(tolerance_params, dict):
+            tolerance_params = {}
+        return float(
+            tolerance_params.get(
+                self.TOLERANCE_ORPHAN_DISTRIBUTION,
+                DEFAULTS.get(self.TOLERANCE_ORPHAN_DISTRIBUTION, 0.01),
+            )
+        )
+
+    def _build_orphan_remainder(
+        self,
+        df_9102_orphan: pd.DataFrame,
+        deltas: dict[str, float],
+    ) -> pd.DataFrame:
+        """
+        Строки-остатки для сумм, потерянных при распределении.
+
+        По одной строке на каждый остаток; остальные суммовые колонки в ней
+        обнулены, поэтому сумма строк равна потере и инвариант
+        «до распределения == после» восстанавливается. Строка наследует
+        дату/документ первой исходной проводки, поэтому остаётся
+        прослеживаемой до операции-источника.
+        """
+        template = df_9102_orphan.head(1)
+        rows = []
+        for column, delta in deltas.items():
+            row = template.copy()
+            for amount_column in self.ORPHAN_AMOUNT_COLS:
+                if amount_column in row.columns:
+                    row[amount_column] = 0.0
+            row[column] = delta
+            if 'контрагент' in row.columns:
+                row['контрагент'] = StepConstants.UNSPECIFIED
+            rows.append(row)
+
+        return pd.concat(rows, ignore_index=True)
+
     def _report_orphan_expenses(
         self,
         df_9102: pd.DataFrame,
@@ -775,14 +823,6 @@ class Step17ProcessingMixin:
             .rename(columns={'контрагент': '_контрагент_выручки'})
         )
 
-        contractor_to_connection = None
-        if 'вид_связи' in known_revenue.columns:
-            contractor_to_connection = (
-                known_revenue[['контрагент', 'вид_связи']]
-                .drop_duplicates(subset='контрагент', keep='first')
-                .set_index('контрагент')['вид_связи']
-            )
-
         distributable_types = set(contractor_share['вид_дохода_расхода'])
         distributable_mask = df_9102_orphan['вид_дохода_расхода'].isin(distributable_types)
         unmatched = df_9102_orphan.loc[~distributable_mask].copy()
@@ -813,21 +853,23 @@ class Step17ProcessingMixin:
 
         df_9102_orphan_dist = df_9102_orphan_dist.drop(columns=['доля_контрагента'])
 
-        if contractor_to_connection is not None:
-            df_9102_orphan_dist['вид_связи'] = (
-                df_9102_orphan_dist['контрагент']
-                .map(contractor_to_connection)
-                .fillna('не_указано')
-                .astype('string')
-            )
+        # вид_связи здесь не считаем: его перезаписывает
+        # _enrich_with_connection_info по группа_ка/сегмент_ка из справочника
+        # ВидСвязиКА — источник истины один на весь шаг.
 
         amount_columns = [
-            column for column in ('оборот, тыс.ед.', 'оборот, тыс.руб.')
+            column for column in self.ORPHAN_AMOUNT_COLS
             if column in df_9102_orphan.columns
         ]
         preserved_orphan = pd.concat(
             [df_9102_orphan_dist, unmatched], ignore_index=True
         )
+
+        # Инвариант суммы: доля контрагента суммируется к 1 в пределах типа
+        # выручки, поэтому расхождение — только накопленная погрешность
+        # деления. Не откатываем всё распределение: дописываем потерянную
+        # сумму строкой-остатком и уходим дальше с корректными данными.
+        deltas: dict[str, float] = {}
         for column in amount_columns:
             sum_before = pd.to_numeric(
                 df_9102_orphan[column], errors='coerce'
@@ -835,16 +877,22 @@ class Step17ProcessingMixin:
             sum_after = pd.to_numeric(
                 preserved_orphan[column], errors='coerce'
             ).sum()
-            if abs(sum_before - sum_after) > StepConstants.ORPHAN_DISTRIBUTION_TOLERANCE:
-                self._report_orphan_expenses(
-                    df_9102_orphan,
-                    context,
-                    f"нарушен инвариант суммы по «{column}»: "
-                    f"было {sum_before}, стало {sum_after}",
-                )
-                return df_9102
+            delta = sum_before - sum_after
+            if abs(delta) > self._get_orphan_tolerance(context):
+                deltas[column] = delta
 
-        if not unmatched.empty:
+        if deltas:
+            preserved_orphan = pd.concat(
+                [preserved_orphan, self._build_orphan_remainder(df_9102_orphan, deltas)],
+                ignore_index=True,
+            )
+            self._report_orphan_expenses(
+                df_9102_orphan,
+                context,
+                'нераспределённый остаток по '
+                + ', '.join(f'«{column}»: {delta:,.2f}' for column, delta in deltas.items()),
+            )
+        elif not unmatched.empty:
             self._report_orphan_expenses(
                 unmatched,
                 context,
@@ -1030,32 +1078,3 @@ class Step17ProcessingMixin:
 
         return df
 
-    def _calculate_connection_type(
-        self,
-        df: pd.DataFrame,
-        segment_company: str
-    ) -> pd.Series:
-        """
-        Рассчитывает вид_связи на основе группа_ка и сегмент_ка.
-
-        Для 91 счета сегмент компании единый (segment_company),
-        поэтому сравниваем сегмент_ка именно с ним.
-        """
-        conditions = [
-            df['группа_ка'] == 'не_указано',
-            df['группа_ка'] == '3 лица',
-            df['группа_ка'] == 'Прочие ГАП',
-            (df['группа_ка'] == 'ГСК') & (df['сегмент_ка'] == segment_company),
-            (df['группа_ка'] == 'ГСК') & (df['сегмент_ка'] != segment_company),
-        ]
-
-        choices = [
-            'не_указано',
-            '3 лица',
-            'Прочие ГАП',
-            'ГСК внутрисегмент.',
-            'ГСК межсегмент.',
-        ]
-
-        result = np.select(conditions, choices, default='не_указано')
-        return pd.Series(result, index=df.index, dtype='string')

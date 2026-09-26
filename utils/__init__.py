@@ -2,8 +2,10 @@
 from .dataframe_utils import (
     cast_columns_to_types,
     align_dtypes_to_reference,
+    find_header_index,
     set_header_from_row,
     get_required_columns_df,
+    build_composite_key,
 )
 from .column_utils import (
     find_target_column,
@@ -36,6 +38,7 @@ __all__ = [
     # dataframe_utils
     'cast_columns_to_types',
     'align_dtypes_to_reference',
+    'find_header_index',
     'set_header_from_row',
     'get_required_columns_df',
     # column_utils

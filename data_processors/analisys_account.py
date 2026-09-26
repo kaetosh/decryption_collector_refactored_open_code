@@ -672,7 +672,12 @@ class Analisys_NonUPPFileProcessor(BaseAnalysisProcessor):
         
         # 5. Обработка пустых счетов
         korr_col = self._resolve_korr_col(df)
-        kor_schet = df[korr_col].astype('string')
+        if korr_col:
+            kor_schet = df[korr_col].astype('string')
+        else:
+            # Корреспондирующего счёта в выгрузке нет — подставляем пустую
+            # колонку, маска ниже останется полностью False.
+            kor_schet = pd.Series(pd.NA, index=df.index, dtype='string')
         is_valid_account = self._is_accounting_code_vectorized(kor_schet)
         
         mask = (

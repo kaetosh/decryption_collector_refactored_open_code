@@ -16,7 +16,10 @@ import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod
 from io import BytesIO
+from loguru import logger
+
 from data_processors.file_processor import FileProcessor
+from utils.dataframe_utils import find_header_index
 
 def pivot_hierarchy_to_columns(df, separator='_'):
     """
@@ -309,17 +312,17 @@ class GeneralOSV_NonUPPFileProcessor(BaseOSVFileProcessor):
         cols = df.columns.tolist()
         # Имена колонок после установки шапки могут содержать pd.NA:
         # list.index() в pandas 2.x падает на них ('boolean value of NA is ambiguous').
-        # Нормализуем имена в строки для безопасного поиска.
-        normalized_cols = df.columns.astype(str).str.strip().tolist()
+        # Поиск идёт через find_header_index.
 
         def find_column(name: str) -> int:
-            if name in normalized_cols:
-                return normalized_cols.index(name)
-            raise ValueError(
-                f'Отсутствует обязательный столбец: {name}. '
-                f'Доступные столбцы: '
-                f'{[c for c in normalized_cols if c and c.lower() != "<na>"]}'
-            )
+            position = find_header_index(df.columns, name)
+            if position is None:
+                raise ValueError(
+                    f'Отсутствует обязательный столбец: {name}. '
+                    f'Доступные столбцы: '
+                    f'{[c for c in df.columns.astype(str) if c and c.lower() != "<na>"]}'
+                )
+            return position
 
         target_idx_0 = find_column('Наименование счета')
         target_idx_a = find_column('Сальдо на начало периода')
@@ -332,18 +335,36 @@ class GeneralOSV_NonUPPFileProcessor(BaseOSVFileProcessor):
         # позиции Дебета/Кредита ищем по под-строке, а не по смежности с
         # заголовком блока. Фоллбэк — смежные колонки (стандартный формат).
         sub_header = df.iloc[0].astype(str).str.strip().str.lower().tolist()
+        # Границы блоков: искать Дебет/Кредит можно только до подзаголовка
+        # следующего блока, иначе при пустой под-строке поиск уедет в чужой
+        # блок и привяжет его Дебет/Кредит к текущему.
+        block_bounds = sorted([target_idx_a, target_idx_b, target_idx_c])
 
-        def find_debit_credit(start: int) -> tuple:
-            debit = start
-            for i in range(start, min(start + 25, len(sub_header))):
+        def find_debit_credit(block_start: int) -> tuple:
+            end = next(
+                (bound for bound in block_bounds if bound > block_start),
+                len(sub_header),
+            )
+            debit = block_start
+            for i in range(block_start, min(end, len(sub_header))):
                 if sub_header[i] == 'дебет':
                     debit = i
                     break
+            else:
+                logger.debug(
+                    'Под-строка шапки: Дебет не найден после блока на позиции {} — '
+                    'используется смежная колонка', block_start,
+                )
             credit = debit + 1
-            for i in range(debit + 1, min(debit + 25, len(sub_header))):
+            for i in range(debit + 1, min(end, len(sub_header))):
                 if sub_header[i] == 'кредит':
                     credit = i
                     break
+            else:
+                logger.debug(
+                    'Под-строка шапки: Кредит не найден после Дебета на позиции {} — '
+                    'используется смежная колонка', debit,
+                )
             return debit, credit
 
         debit_a, credit_a = find_debit_credit(target_idx_a)

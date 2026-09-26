@@ -47,3 +47,9 @@ class Step17BaseMixin(Step):
     FX_ABS_FLOOR = OpuReportConstants.FX_ABS_FLOOR
 
     FX_ZERO_AMOUNT_EPSILON = 1e-9
+
+    # Суммовые колонки проводок ОПУ — по ним проверяется инвариант
+    # распределения расходов 91.02 по выручке 91.01.
+    ORPHAN_AMOUNT_COLS = ('оборот, тыс.ед.', 'оборот, тыс.руб.')
+
+    TOLERANCE_ORPHAN_DISTRIBUTION = 'tolerance_orphan_distribution'

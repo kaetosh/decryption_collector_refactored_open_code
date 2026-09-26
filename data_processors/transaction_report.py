@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Tuple
 from loguru import logger
 from utils import cast_columns_to_types, detect_txt_encoding, normalize_ragged_tab_rows
+from utils.dataframe_utils import find_header_index
 
 from data_processors.file_processor import FileProcessor
 
@@ -380,7 +381,13 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
     def _extract_quantity_currency_sections(
         self, df: pd.DataFrame
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Вычленяет подтаблицы количества (Кол.) и валюты (Вал.) из раздела 'Показ...'."""
+        """
+        Вычленяет подтаблицы количества (Кол.) и валюты (Вал.) из раздела 'Показ...'.
+
+        Требует колонок 'Дебет'/'Кредит', которые проставляет
+        _rename_columns_after_pokaz: до его вызова после 'Показ...' идут
+        безымянные столбцы (np.nan) и get_loc этих имён падает.
+        """
         df_with_col = pd.DataFrame()
         df_with_currency = pd.DataFrame()
 
@@ -390,52 +397,51 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
 
         col_name = pokaz_cols[0]
 
-        if (df[col_name] == 'Кол.').any():
-            section = df[df[col_name] == 'Кол.'].copy()
-            if not section.empty:
-                try:
-                    dt_idx = section.columns.get_loc('Дебет')
-                    section['Дебет_количество'] = pd.to_numeric(
-                        section.iloc[:, dt_idx + 1], errors='coerce'
-                    ).fillna(0)
-                except (KeyError, IndexError):
-                    pass
-                try:
-                    kt_idx = section.columns.get_loc('Кредит')
-                    section['Кредит_количество'] = pd.to_numeric(
-                        section.iloc[:, kt_idx + 1], errors='coerce'
-                    ).fillna(0)
-                except (KeyError, IndexError):
-                    pass
-                cols = ['Дебет_количество', 'Кредит_количество']
-                df_with_col = section[[c for c in cols if c in section.columns]].copy()
-                df_with_col = df_with_col.iloc[:-1]  # удаление последней строки
-
-        if (df[col_name] == 'Вал.').any():
-            section = df[df[col_name] == 'Вал.'].copy()
-            if not section.empty:
-                try:
-                    dt_idx = section.columns.get_loc('Дебет')
-                    section['Дебет_валюта'] = section.iloc[:, dt_idx + 1]
-                    section['Дебет_валютное_количество'] = pd.to_numeric(
-                        section.iloc[:, dt_idx + 2], errors='coerce'
-                    ).fillna(0)
-                except (KeyError, IndexError):
-                    pass
-                try:
-                    kt_idx = section.columns.get_loc('Кредит')
-                    section['Кредит_валюта'] = section.iloc[:, kt_idx + 1]
-                    section['Кредит_валютное_количество'] = pd.to_numeric(
-                        section.iloc[:, kt_idx + 2], errors='coerce'
-                    ).fillna(0)
-                except (KeyError, IndexError):
-                    pass
-                cols = [
+        for section_name, amount_cols in (
+            ('Кол.', ['Дебет_количество', 'Кредит_количество']),
+            (
+                'Вал.',
+                [
                     'Дебет_валюта', 'Дебет_валютное_количество',
                     'Кредит_валюта', 'Кредит_валютное_количество',
-                ]
-                df_with_currency = section[[c for c in cols if c in section.columns]].copy()
-                df_with_currency = df_with_currency.iloc[:-1]
+                ],
+            ),
+        ):
+            if not (df[col_name] == section_name).any():
+                continue
+
+            section = df[df[col_name] == section_name].copy()
+            if section.empty:
+                continue
+
+            dt_idx = find_header_index(section.columns, 'Дебет')
+            kt_idx = find_header_index(section.columns, 'Кредит')
+            if dt_idx is None or kt_idx is None:
+                logger.warning(
+                    "[!] Секция '{}' не извлечена: нет колонок Дебет/Кредит "
+                    "(выполните _rename_columns_after_pokaz до извлечения секций)",
+                    section_name,
+                )
+                continue
+
+            has_currency = section_name == 'Вал.'
+            for side, idx in (('Дебет', dt_idx), ('Кредит', kt_idx)):
+                if has_currency:
+                    # Валюта лежит в соседней колонке, количество — через одну.
+                    section[f'{side}_валюта'] = section.iloc[:, idx + 1]
+                    section[f'{side}_валютное_количество'] = pd.to_numeric(
+                        section.iloc[:, idx + 2], errors='coerce'
+                    ).fillna(0)
+                else:
+                    section[f'{side}_количество'] = pd.to_numeric(
+                        section.iloc[:, idx + 1], errors='coerce'
+                    ).fillna(0)
+
+            section_result = section[amount_cols].iloc[:-1]  # без строки «Итоги»
+            if has_currency:
+                df_with_currency = section_result
+            else:
+                df_with_col = section_result
 
         return df_with_col, df_with_currency
 
@@ -452,20 +458,29 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
             for col in df.columns
         ])
 
-        # 1. Обработка специальных разделов (Кол./Вал.)
+        # 1. Переименование столбцов после «Показ...» — обязательно до
+        # извлечения секций Кол./Вал.: только здесь безымянные столбцы
+        # получают имена 'Дебет'/'Кредит', по которым их и находят.
+        df = self._rename_columns_after_pokaz(df)
+
+        # 2. Обработка специальных разделов (Кол./Вал.)
         df_with_col, df_with_currency = self._extract_quantity_currency_sections(df)
 
-        # 2. Фильтрация по дате
+        # 3. Фильтрация по дате
         df['Период'] = pd.to_datetime(df['Период'], format='%d.%m.%Y', errors='coerce')
         df = df[df['Период'].notna()].copy().reset_index(drop=True)
 
-        # 3. Добавление специальных разделов
-        for section_df in [df_with_col, df_with_currency]:
-            if not section_df.empty and len(section_df) == len(df):
-                df = pd.concat([df, section_df.reset_index(drop=True)], axis=1)
-
-        # 4. Дополнительная обработка (переименование столбцов после «Показ...»)
-        df = self._rename_columns_after_pokaz(df)
+        # 4. Добавление специальных разделов
+        for section_df in (df_with_col, df_with_currency):
+            if section_df.empty:
+                continue
+            if len(section_df) != len(df):
+                logger.warning(
+                    "[!] Секция не добавлена: {} строк в секции против {} в отчёте",
+                    len(section_df), len(df),
+                )
+                continue
+            df = pd.concat([df, section_df.reset_index(drop=True)], axis=1)
 
         # 5. Разбиение многострочных столбцов
         # 5a. pd.read_csv выводит числовой dtype для колонок, где есть цифры

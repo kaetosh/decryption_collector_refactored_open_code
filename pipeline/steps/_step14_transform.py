@@ -6,14 +6,15 @@ Mixin с преобразованием формата для Шага 14.
     _enrich_with_mappings: обогащение данными из справочников (УФР, ВидСвязиКА)
     _validate_mapping_completeness: проверка полноты маппинга
     _validate_group_ka_values: проверка допустимых значений группа_ка
-    _calculate_connection_type: расчёт вид_связи
     _merge_with_reassessment: объединение основного результата с переоценкой
+
+Расчёт вид_связи — Step._calculate_connection_type (pipeline/base.py).
 """
-import numpy as np
+from pipeline.errors import MissingMappingError
 import pandas as pd
 from loguru import logger
 
-from pipeline.errors import MissingMappingError
+from utils import build_composite_key
 
 
 class Step14TransformMixin:
@@ -83,14 +84,10 @@ class Step14TransformMixin:
         df_result['доход_расход'] = df_result['счет'].map(mapping_account).astype('string')
 
         directory_ufr_df = directory_ufr_df.copy()
-        directory_ufr_df.loc[:,'_key'] = (
-            directory_ufr_df.loc[:, 'счет'].astype(str) + '_' +
-            directory_ufr_df.loc[:, 'ном_группа_1с'].astype(str)
+        directory_ufr_df['_key'] = build_composite_key(
+            directory_ufr_df, 'счет', 'ном_группа_1с'
         )
-        df_result.loc[:, '_key'] = (
-            df_result.loc[:, 'счет'].astype(str) + '_' +
-            df_result.loc[:, 'ном_группа'].astype(str)
-        )
+        df_result['_key'] = build_composite_key(df_result, 'счет', 'ном_группа')
 
         mapping_revenue = (
             directory_ufr_df
@@ -188,23 +185,6 @@ class Step14TransformMixin:
                 unexpected_groups,
                 expected_groups,
             )
-
-    def _calculate_connection_type(self, df_result: pd.DataFrame) -> pd.Series:
-        """Рассчитывает вид_связи на основе группа_ка и сегмент_ка."""
-        conditions = [
-            df_result['группа_ка'] == '3 лица',
-            df_result['группа_ка'] == 'Прочие ГАП',
-            (df_result['группа_ка'] == 'ГСК') & (df_result['сегмент_ка'] == df_result['сегмент']),
-            (df_result['группа_ка'] == 'ГСК') & (df_result['сегмент_ка'] != df_result['сегмент']),
-        ]
-        choices = [
-            '3 лица',
-            'Прочие ГАП',
-            'ГСК внутрисегмент.',
-            'ГСК межсегмент.',
-        ]
-        result = np.select(conditions, choices, default='не_указано')
-        return pd.Series(result, index=df_result.index, dtype='string')
 
     def _merge_with_reassessment(
         self,

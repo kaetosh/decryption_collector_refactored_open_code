@@ -7,6 +7,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import numpy as np
 import pandas as pd
 from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
@@ -768,7 +769,55 @@ class Step(ABC):
     # =========================================================================
     # HELPER-МЕТОДЫ ДЛЯ ШАГОВ
     # =========================================================================
-    
+
+    def _calculate_connection_type(
+        self,
+        df: pd.DataFrame,
+        segment_reference: Any = None,
+    ) -> pd.Series:
+        """
+        Единый расчёт «вид_связи» по паре группа_ка / сегмент_ка.
+
+        Правило одно для всех шагов ОПУ (14, 15, 16, 17):
+            группа_ка == 'не_указано'          -> 'не_указано'
+            группа_ка == '3 лица'              -> '3 лица'
+            группа_ка == 'Прочие ГАП'          -> 'Прочие ГАП'
+            группа_ка == 'ГСК', внутри сегмента-> 'ГСК внутрисегмент.'
+            группа_ка == 'ГСК', между сегментами-> 'ГСК межсегмент.'
+            всё остальное                       -> 'не_указано'
+
+        Args:
+            df: DataFrame с колонками 'группа_ка' и 'сегмент_ка'.
+            segment_reference: с чем сравнивать 'сегмент_ка'. По умолчанию
+                берётся колонка 'сегмент' самой строки. Для счетов 91 сегмент
+                компании единый, поэтому шаг 17 передаёт скалярное
+                значение сегмента компании явно.
+
+        Returns:
+            Series 'string' с сохранением индекса df — иначе np.select
+            вернул бы RangeIndex и значения разъехались бы по строкам.
+        """
+        if segment_reference is None:
+            segment_reference = df['сегмент']
+
+        conditions = [
+            df['группа_ка'] == 'не_указано',
+            df['группа_ка'] == '3 лица',
+            df['группа_ка'] == 'Прочие ГАП',
+            (df['группа_ка'] == 'ГСК') & (df['сегмент_ка'] == segment_reference),
+            (df['группа_ка'] == 'ГСК') & (df['сегмент_ка'] != segment_reference),
+        ]
+        choices = [
+            'не_указано',
+            '3 лица',
+            'Прочие ГАП',
+            'ГСК внутрисегмент.',
+            'ГСК межсегмент.',
+        ]
+
+        result = np.select(conditions, choices, default='не_указано')
+        return pd.Series(result, index=df.index, dtype='string')
+
     def _raise_reference_mismatch(
         self,
         error_class: type,

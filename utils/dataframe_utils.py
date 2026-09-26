@@ -169,6 +169,34 @@ def _clean_numeric_series(series: pd.Series) -> pd.Series:
     
     return series.map(clean_value)
 
+def find_header_index(columns, name: str) -> Optional[int]:
+    """
+    Возвращает позицию колонки по имени, устойчиво к pd.NA/пустым именам.
+
+    Выгрузки 1С (особенно TXT не-УПП) содержат безымянные столбцы, поэтому
+    list.index()/Index.get_loc() непригодны: сравнение с pd.NA даёт
+    pd.NA, а bool(pd.NA) роняет поиск с TypeError. Сопоставление идёт
+    по нормализованной строке (str + strip + casefold).
+
+    Args:
+        columns: pd.Index (или любой список) имён колонок.
+        name: искомое имя колонки.
+
+    Returns:
+        int — позиция колонки, либо None если колонки нет или она
+        продублирована (оба случая требуют решения на стороне вызывающего).
+    """
+    target = str(name).strip().casefold()
+    matches = [
+        position
+        for position, column in enumerate(columns)
+        if pd.notna(column) and str(column).strip().casefold() == target
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
 def set_header_from_row(df, search_text='Строка баланса', offset=0):
     """
     Находит строку с указанным текстом и устанавливает её как заголовок.
@@ -230,6 +258,44 @@ def set_header_from_row(df, search_text='Строка баланса', offset=0)
     df = df.dropna(axis=1, how='all')
     
     return df
+
+def build_composite_key(
+    df: pd.DataFrame,
+    col_a: str,
+    col_b: str,
+    sep: str = '_',
+    truncate_a: Optional[int] = None,
+    truncate_b: Optional[int] = None,
+) -> pd.Series:
+    """
+    Строит составной ключ из двух колонок DataFrame.
+
+    Позволяет обобщить паттерн: колонка_a[срез] + sep + колонка_b[срез]
+    Используется для создания ключей сопоставления в справочниках.
+
+    Args:
+        df: Исходный DataFrame
+        col_a: Название первой колонки (например, 'счет')
+        col_b: Название второй колонки (например, 'ном_группа' или 'доход_расход')
+        sep: Разделитель между частями (по умолчанию '_')
+        truncate_a: Если не None, берется срез [:truncate_a] от col_a
+        truncate_b: Если не None, берется срез [:truncate_b] от col_b
+
+    Returns:
+        Series со строковыми ключами
+    """
+    # Обрабатываем первую колонку
+    part_a = df[col_a].astype(str)
+    if truncate_a is not None:
+        part_a = part_a.str[:truncate_a]
+
+    # Обрабатываем вторую колонку
+    part_b = df[col_b].astype(str)
+    if truncate_b is not None:
+        part_b = part_b.str[:truncate_b]
+
+    return part_a + sep + part_b
+
 
 def get_required_columns_df(df: pd.DataFrame, required_columns: List[str]) -> pd.DataFrame:
     """

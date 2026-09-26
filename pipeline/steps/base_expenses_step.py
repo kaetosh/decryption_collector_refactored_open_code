@@ -24,7 +24,6 @@ Created on Wed Jul  8 15:52:05 2026
 """
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 from pipeline.base import Step, ProcessingContext
@@ -429,23 +428,6 @@ class StepAddExpensesToOpuBase(Step):
         )
         
         return df_result
-    
-    def _calculate_connection_type(self, df: pd.DataFrame) -> pd.Series:
-        """Рассчитывает вид_связи на основе группа_ка и сегмент_ка."""
-        conditions = [
-            df['группа_ка'] == '3 лица',
-            df['группа_ка'] == 'Прочие ГАП',
-            (df['группа_ка'] == 'ГСК') & (df['сегмент_ка'] == df['сегмент']),
-            (df['группа_ка'] == 'ГСК') & (df['сегмент_ка'] != df['сегмент']),
-        ]
-        choices = [
-            '3 лица',
-            'Прочие ГАП',
-            'ГСК внутрисегмент.',
-            'ГСК межсегмент.',
-        ]
-        result = np.select(conditions, choices, default='не_указано')
-        return pd.Series(result, dtype='string')
     
     def _create_remainder_rows(
         self,
