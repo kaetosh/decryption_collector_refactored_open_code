@@ -157,7 +157,7 @@ class Step8AddBioactiveSegmentColumnStep(Step):
         if bioactive_count > 0:
             logger.info("[OK] Определены биоактивы: {} позиций (тип: {})", bioactive_count, bioact_type)
         else:
-            logger.info("[OK] Биоактивы не обнаружены")
+            logger.info("В справочнике по {} биоактивы не указаны", name_company)
         
         return context
 

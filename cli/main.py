@@ -13,6 +13,7 @@
 
 import sys
 from pathlib import Path
+from time import perf_counter
 
 # Добавляем корневую директорию в путь для импортов
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -113,6 +114,7 @@ def main(
     suggestions: dict | None = None,
 ) -> int:
     """Главная функция приложения."""
+    start_time = perf_counter()
     # Настраиваем логирование
     if verbose:
         setup_logger(console_level='DEBUG')
@@ -182,8 +184,16 @@ def main(
 
         _log_warnings_summary()
 
+        elapsed = perf_counter() - start_time
+        if elapsed >= 60:
+            mins = int(elapsed // 60)
+            secs = int(elapsed % 60)
+            duration_str = f"{mins} мин {secs} сек"
+        else:
+            duration_str = f"{int(elapsed)} сек"
+
         logger.info("=" * 80)
-        logger.info("Приложение успешно завершено")
+        logger.info("Приложение успешно завершено за {}", duration_str)
         logger.info("=" * 80)
         return 0
 
