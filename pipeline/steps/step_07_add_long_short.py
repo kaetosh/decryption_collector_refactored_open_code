@@ -13,7 +13,7 @@ from pipeline.base import Step, ProcessingContext
 from pipeline.errors import InputDataError, ReferenceMismatchError
 from io_module import DataLoader
 from utils import find_register_file, set_header_from_row, refresh_rub_equivalent
-from config.settings import SPECIAL_REPORTS_DIR
+from config.settings import SPECIAL_REPORTS_DIR, to_relative
 from io_module.output_manager import get_output_dir, get_run_id
 
 
@@ -96,10 +96,9 @@ class Step7AddLongShortTermColumnStep(Step):
             
             logger.error(
                 "[!] Расхождения сумм после разбивки: {} строк. "
-                "Все данные сохранены в {}/{}",
+                "Все данные сохранены в {}",
                 len(mismatches),
-                output_path.parent.name,
-                output_path.name,
+                to_relative(output_path),
             )
             return False
         
@@ -146,10 +145,9 @@ class Step7AddLongShortTermColumnStep(Step):
             
             logger.warning(
                 "[!] Расхождения сумм после замены: {} комбинаций. "
-                "Все данные сохранены в {}/{}",
+                "Все данные сохранены в {}",
                 len(mismatches),
-                output_path.parent.name,
-                output_path.name,
+                to_relative(output_path),
             )
             return False
         

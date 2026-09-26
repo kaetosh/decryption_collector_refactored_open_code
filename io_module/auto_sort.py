@@ -58,6 +58,7 @@ from config.settings import (
     BASE_DIR,
     INBOX_DIR,
     OSV_GENERAL_DIR,
+    to_relative,
 )
 
 # Признак имени файла общей ОСВ — согласован с шаблоном поиска
@@ -581,7 +582,7 @@ def _log_and_save(actions: list, label: str, sheet_name: str) -> None:
     summary = ", ".join(f"{name}: {count}" for name, count in counts.items())
     logger.info("[SORT] {} — {}", label, summary)
     report_path = _save_sort_report(result_df, sheet_name=sheet_name)
-    logger.info("[SORT] Отчёт о раскладке: {} (лист '{}')", report_path, sheet_name)
+    logger.info("[SORT] Отчёт о раскладке: {} (лист '{}')", to_relative(report_path), sheet_name)
 
 
 def _save_sort_report(result_df: pd.DataFrame, sheet_name: str = "Сортировка") -> Path:

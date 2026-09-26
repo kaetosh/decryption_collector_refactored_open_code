@@ -11,10 +11,11 @@ from pathlib import Path
 from loguru import logger
 from typing import List, Optional, Tuple
 from config.settings import (OSV_GENERAL_DIR,
-                             ACCOUNTS_OSV_DIR,
-                             REFERENCE_DATA_FILE,
-                             ACCOUNTS_OSV_LEASE_DIR,
-                             ACCOUNT_CARDS_DIR)
+                              ACCOUNTS_OSV_DIR,
+                              REFERENCE_DATA_FILE,
+                              ACCOUNTS_OSV_LEASE_DIR,
+                              ACCOUNT_CARDS_DIR,
+                              to_relative)
 from io_module.output_manager import get_output_dir
 from io_module.report_cover import (
     SHEET_BALANCE,
@@ -731,7 +732,7 @@ class DataSaver:
                 f"файл открыт в Excel. Закройте файл и перезапустите программу."
             )
     
-        logger.info("Комбинированный отчёт сохранён в {}", output_path.name)
+        logger.info("Комбинированный отчёт сохранён: {}", to_relative(output_path))
         return output_path
 
 

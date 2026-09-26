@@ -18,6 +18,7 @@ from loguru import logger
 from io_module import DataSaver
 from pipeline.base import Step
 from pipeline.step_config import ReportLayoutConstants
+from config.settings import to_relative
 
 
 class CollapseStepBase(Step):
@@ -97,7 +98,7 @@ class CollapseStepBase(Step):
             output_path = DataSaver.save_to_excel(
                 report_df, filename, subfolder="mismatches"
             )
-            logger.info("[FOLDER] Отчёт о сворачивании сохранён: {}", output_path)
+            logger.info("[FOLDER] Отчёт о сворачивании сохранён: {}", to_relative(output_path))
         except PermissionError:
             logger.warning(
                 "[!] Не удалось сохранить отчёт о сворачивании: "

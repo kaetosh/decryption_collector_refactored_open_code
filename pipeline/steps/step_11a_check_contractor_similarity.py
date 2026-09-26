@@ -20,6 +20,7 @@ from config.settings import (
     CONTRACTOR_ACCOUNTS_PREFIXES,
     CONTRACTOR_SIMILARITY_THRESHOLD,
     CONTRACTOR_SIMILARITY_LIMIT,
+    to_relative,
 )
 
 
@@ -382,10 +383,9 @@ class Step11aCheckContractorSimilarityStep(Step):
             
             logger.warning(
                 "Найдено {} потенциальных совпадений контрагентов со своими компаниями. "
-                "Подробности см. в {}/{}",
+                "Подробности см. в {}",
                 len(similarity_df),
-                output_path.parent.name,
-                output_path.name,
+                to_relative(output_path),
             )
             
         except PermissionError as e:

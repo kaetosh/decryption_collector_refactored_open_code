@@ -15,7 +15,7 @@ from pipeline.classifiers import ReceivableClassifier
 from pipeline.errors import ConvergenceError, InputDataError
 from io_module import DataLoader
 from utils import find_register_file, find_target_column, refresh_rub_equivalent
-from config.settings import SPECIAL_REPORTS_DIR, STRICT_CONTRACTOR_CHECK
+from config.settings import SPECIAL_REPORTS_DIR, STRICT_CONTRACTOR_CHECK, to_relative
 from io_module.output_manager import get_output_dir, get_run_id
 
 class Step11Split60AccountDebtByOSStatusStep(Step):
@@ -299,21 +299,19 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
             # Строгий режим: сохраняем файл и выбрасываем ошибку
             output_path = self._save_unknown_contractors(unknown_df)
             logger.error(
-                "{}. Список сохранён в {}/{}",
+                "{}. Список сохранён в {}",
                 error_msg,
-                output_path.parent.name,
-                output_path.name,
+                to_relative(output_path),
             )
             raise ValueError(error_msg)
         
         # Мягкий режим: сохраняем файл и заменяем на '3 лица'
         output_path = self._save_unknown_contractors(unknown_df)
         logger.warning(
-            "{}. Заменяем на '{}'. Список сохранён в {}/{}",
+            "{}. Заменяем на '{}'. Список сохранён в {}",
             error_msg,
             self.THIRD_PARTY,
-            output_path.parent.name,
-            output_path.name,
+            to_relative(output_path),
         )
         
         # Работаем со string типом, а не category

@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Аргументы командной строки и утилиты интерфейса.
+Аргументы командной строки.
 
-Содержит функции для разбора аргументов командной строки
-и интерактивных вопросов пользователю (например, о traceback).
+Содержит функции для разбора аргументов командной строки.
 """
 
 import argparse
@@ -91,26 +90,3 @@ def _suggest_known_options(
         if candidates:
             suggestions[arg] = candidates[0]
     return suggestions
-
-
-def ask_user_about_traceback() -> bool:
-    """
-    Интерактивно спрашивает пользователя, нужен ли traceback.
-
-    Используется в IDE (Spyder), когда аргументы не переданы через командную строку.
-    """
-    try:
-        print("\n" + "=" * 80)
-        print("[DIAG] Режим диагностики")
-        print("=" * 80)
-        print("Хотите выводить полную трассировку стека при ошибках?")
-        print("  [enter] - нет (по умолчанию, чистый вывод)")
-        print("  [y]   - да (полный traceback для отладки)")
-        print("=" * 80)
-
-        POSITIVE_RESPONSES = {'y', 'yes', 'д', 'да'}
-        response = input("Ваш выбор: ").strip().lower()
-        return response in POSITIVE_RESPONSES
-    except (EOFError, KeyboardInterrupt):
-        # Если stdin недоступен (например, при запуске из cron)
-        return False

@@ -9,6 +9,15 @@ from pathlib import Path
 # Основные пути
 BASE_DIR = Path(__file__).parent.parent
 
+
+def to_relative(path: Path) -> str:
+    """Возвращает путь относительно BASE_DIR (например: _OUTPUT_DATA/run_20260926_234842)."""
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)  # fallback если путь вне BASE_DIR
+
+
 # Основные директории
 INPUT_DATA_DIR = BASE_DIR / "_INPUT_DATA"
 OUTPUT_DATA_DIR = BASE_DIR / "_OUTPUT_DATA"

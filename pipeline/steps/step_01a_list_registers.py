@@ -13,7 +13,7 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
 from utils import process_account, format_filename_vectorized
-from config.settings import OPU_ACCOUNTS_PREFIXES
+from config.settings import OPU_ACCOUNTS_PREFIXES, to_relative
 from io_module.output_manager import get_output_dir
 
 
@@ -506,9 +506,8 @@ class Step1aListExpectedRegistersStep(Step):
             len(context.data.get('expected_card_filenames', [])),
         )
         logger.info(
-            "  Список сохранен в: {}/{}",
-            output_path.parent.name,
-            output_path.name,
+            "Список сохранен в: {}",
+            to_relative(output_path),
         )
         
         return context

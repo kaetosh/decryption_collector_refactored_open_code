@@ -38,9 +38,9 @@ from pipeline.executors import (
     save_results,
 )
 from pipeline.errors import PipelineError, ProcessingStepError
-from cli.arguments import parse_arguments, ask_user_about_traceback
+from cli.arguments import parse_arguments
 from cli.splash import show_splash
-from config.settings import SHOW_SPLASH
+from config.settings import SHOW_SPLASH, BASE_DIR, to_relative
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
 from io_module.run_summary import log_run_summary
 
@@ -130,11 +130,7 @@ def main(
     if SHOW_SPLASH and not no_splash:
         show_splash(show_traceback=show_traceback, verbose=verbose)
 
-    logger.info("=" * 80)
-    logger.info("Запуск приложения --СОБИРАТЕЛЬ РАСШИФРОВОК--")
-    if show_traceback:
-        logger.info("Режим: с полной трассировкой стека")
-    logger.info("=" * 80)
+    logger.info("[FOLDER] Базовая папка проекта: {}", BASE_DIR)
 
     try:
         # Инициализация вывода: все результаты запуска пишутся
@@ -142,7 +138,7 @@ def main(
         # запусков сверх KEEP_LAST_RUNS удаляются
         configure_run()
         cleanup_old_runs()
-        logger.info("[FOLDER] Результаты запуска сохраняются в: {}", get_run_dir())
+        logger.info("[FOLDER] Результаты запуска сохраняются в: {}", to_relative(get_run_dir()))
 
         # ФАЗА 0
         logger.info("ФАЗА 0: Ожидаем общую ОСВ в INPUT DATA")
@@ -252,19 +248,9 @@ def entry_point() -> int:
     """Разбирает аргументы командной строки и запускает приложение."""
     args = parse_arguments()
 
-    # Определяем режим работы
-    # Если передан --no-interactive или любые другие аргументы - не спрашиваем
-    if args.no_interactive or len(sys.argv) > 1:
-        show_traceback = args.traceback
-        verbose = args.verbose
-    else:
-        # Запуск без аргументов (например, через F5 в IDE) - спрашиваем
-        show_traceback = ask_user_about_traceback()
-        verbose = False
-
     return main(
-        show_traceback=show_traceback,
-        verbose=verbose,
+        show_traceback=args.traceback,
+        verbose=args.verbose,
         balance_date=args.balance_date,
         no_interactive=args.no_interactive,
         no_splash=args.no_splash,

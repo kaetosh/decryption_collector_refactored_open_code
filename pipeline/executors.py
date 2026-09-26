@@ -20,7 +20,7 @@ from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError, PeriodMismatchError, TooManyFilesError
 from pipeline.step_config import OpuReportConstants
-from config.settings import REFERENCE_CONFIGS, AUTO_SORT_ENABLED, INBOX_DIR
+from config.settings import REFERENCE_CONFIGS, AUTO_SORT_ENABLED, INBOX_DIR, REFERENCE_DIR, to_relative
 from io_module import (
     DataLoader,
     DataSaver,
@@ -53,12 +53,12 @@ def pause_for_osv_general_export(interactive: bool = True) -> None:
     print("\n" + "=" * 80)
     print()
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
-    print(f"   1. Выгрузите из 1С ВСЕ нужные файлы и положите их в папку {INBOX_DIR}")
+    print(f"   1. Выгрузите из 1С ВСЕ нужные файлы и положите их в папку {to_relative(INBOX_DIR)}")
     print("      (одним движением, без подпапок: Общая ОСВ, ОСВ по счетам, спецотчёты,")
     print("      отчеты по проводкам — скрипт сам разложит их по папкам)")
     print("   2. Убедитесь, что имя файла с Общей ОСВ имеет следующий формат:")
     print("      СокрНаименованиеКомпании_общаяосв_нд_Период_.xlsx, например, РЗК_общаяосв_нд_2025_.xlsx")
-    print("   3. Убедитесь, что наименование компании соответствует данным на листе КомпанииГруппы файла Справочники.xlsx из папки _REFERENCE_DATA")
+    print(f"   3. Убедитесь, что наименование компании соответствует данным на листе КомпанииГруппы файла Справочники.xlsx из папки {to_relative(REFERENCE_DIR)}")
     print()
     print("[i]  После нажатия Enter скрипт перенесет Общую ОСВ из 00_inbox в general_osv;")
     print("[i]  остальные файлы останутся в 00_inbox до следующей паузы")
@@ -85,12 +85,12 @@ def pause_for_1c_export(context: ProcessingContext, interactive: bool = True) ->
     expected_count = len(context.data.get('expected_filenames', []))
     print("\n" + "=" * 80)
     print(f"[LIST] Сформирован список из {expected_count} регистров к выгрузке.")
-    print(f"[FOLDER] Список сохранен в папке: {get_run_dir()}")
+    print(f"[FOLDER] Список сохранен в папке: {to_relative(get_run_dir())}")
     print()
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
-    print(f"   1. Откройте файл 'Выгрузить_*.xlsx' в папке {get_run_dir()}")
+    print(f"   1. Откройте файл 'Выгрузить_*.xlsx' в папке {to_relative(get_run_dir())}")
     print("   2. Выгрузите указанные регистры из 1С")
-    print(f"   3. Положите все файлы в папку {INBOX_DIR} (одним движением, без подпапок);")
+    print(f"   3. Положите все файлы в папку {to_relative(INBOX_DIR)} (одним движением, без подпапок);")
     print("      после нажатия Enter скрипт сам разложит их по папкам согласно списку")
     print()
     print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")
@@ -706,7 +706,7 @@ def save_results(context: ProcessingContext) -> None:
             filename,
             cover_rows=cover_rows,
         )
-        logger.info("Комбинированный отчёт сохранён: {}", output_path)
+        logger.info("Комбинированный отчёт сохранён: {}", to_relative(output_path))
 
     except Exception as e:
         logger.error("Ошибка при сохранении результатов: {}", e)

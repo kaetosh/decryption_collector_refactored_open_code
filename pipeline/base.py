@@ -26,7 +26,7 @@ from pipeline.constants import (
     Values,
 )
 from pipeline.decorators import handle_pipeline_errors
-from config.settings import SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR
+from config.settings import SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR, to_relative
 
 
 @dataclass(slots=True)
@@ -576,7 +576,7 @@ class Step(ABC):
             error.problem_data.to_excel(output_path, index=False)
             
             logger.info(
-                "[FOLDER] Проблемные данные сохранены в: {}/{}", output_path.parent.name, output_path.name
+                "[FOLDER] Проблемные данные сохранены в: {}", to_relative(output_path)
             )
             
         except PermissionError:
@@ -587,7 +587,7 @@ class Step(ABC):
                 "{}.\n"
                 "Проблемные данные ({} строк) НЕ были сохранены.",
                 filename,
-                output_path.parent,
+                to_relative(output_path.parent),
                 len(error.problem_data),
             )
         except Exception as save_error:
@@ -867,9 +867,7 @@ class Step(ABC):
             df.to_excel(output_path, index=False)
             
             logger.error(
-                "[FOLDER] Список отсутствующих файлов сохранён в: {}/{}",
-                output_path.parent.name,
-                output_path.name,
+                "[FOLDER] Список отсутствующих файлов сохранён в: {}", to_relative(output_path)
             )
             
         except PermissionError:
