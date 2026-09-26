@@ -203,13 +203,14 @@ def main(
             logger.exception("Трассировка стека:")
         return 1
 
-    except (PipelineError, ProcessingStepError) as e:
+    except PipelineError as e:
         # Ожидаемые остановки конвейера: предусмотренные ошибки пайплайна
         # (несоответствие справочникам, отсутствующие файлы — включая «сырые»
         # PipelineError вне шагов, например PeriodMismatchError) и обёртки
-        # ProcessingStepError, которые декоратор шагов создаёт с сохранением
-        # первопричины в __cause__. Непредвиденные сбои внутри шагов
-        # (первопричина — не PipelineError) классифицируются как неожиданные.
+        # ProcessingStepError — тоже подкласс PipelineError, декоратор шагов
+        # создаёт их с сохранением первопричины в __cause__. Непредвиденные
+        # сбои внутри шагов (первопричина — не PipelineError)
+        # классифицируются как неожиданные.
         cause = e.__cause__ if e.__cause__ is not None else e
         if isinstance(e, ProcessingStepError) and not isinstance(cause, PipelineError):
             logger.critical("[!!] Неожиданная ошибка: {}", cause)

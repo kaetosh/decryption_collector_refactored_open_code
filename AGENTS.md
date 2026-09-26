@@ -101,7 +101,7 @@
 
 ## Классификация ошибок в логах ([STOP] vs CRITICAL)
 Верхний обработчик `cli/main.py` разделяет штатные остановки и настоящие сбои:
-* `except (PipelineError, ProcessingStepError)` — предусмотренные ошибки пайплайна: `ProcessingStepError` с первопричиной-наследником `PipelineError` в `__cause__` (декоратор шагов сохраняет её) и «сырые» `PipelineError` вне шагов (например, `PeriodMismatchError` из Фазы 0). Лог — `ERROR [STOP] Обработка остановлена: <причина>` + подсказки про актуализацию справочников и mismatches/. CRITICAL не используется.
+* `except PipelineError` — предусмотренные ошибки пайплайна: `ProcessingStepError` с первопричиной-наследником `PipelineError` в `__cause__` (декоратор шагов сохраняет её; сама обёртка — тоже подкласс `PipelineError`, см. `pipeline/errors.py`) и «сырые» `PipelineError` вне шагов (например, `PeriodMismatchError` из Фазы 0). Лог — `ERROR [STOP] Обработка остановлена: <причина>` + подсказки про актуализацию справочников и mismatches/. CRITICAL не используется.
 * `ProcessingStepError` с первопричиной НЕ из `PipelineError` и общий `except Exception` — непредвиденные сбои: `CRITICAL [!!] Неожиданная ошибка`.
 * `FileNotFoundError` — `ERROR [STOP] Обработка остановлена: не найден файл...`.
 

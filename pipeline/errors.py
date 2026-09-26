@@ -4,6 +4,9 @@
 
 Иерархия:
     PipelineError (базовое)
+    ├── ProcessingStepError (обёртка сбоя шага конвейера)
+    ├── InputDataError (граница загрузки входных данных)
+    │   └── MissingFilesError и др.
     └── ReferenceMismatchError (несоответствие справочникам)
         ├── MissingMappingError (нет записи в меппинге)
         ├── MissingContractorError (нет контрагента)
@@ -11,8 +14,9 @@
         ├── MissingOSGroupError (нет группы ОС)
         └── ConvergenceError (расхождение сумм)
 
-Отдельно от иерархии PipelineError:
-    ProcessingStepError — обёртка сбоя шага конвейера
+ProcessingStepError создаёт декоратор handle_pipeline_errors; оригинал
+лежит в __cause__. Классификация [STOP]/CRITICAL в cli/main.py
+определяется типом __cause__, а не типом обёртки.
 """
 import pandas as pd
 from typing import Optional, Any
@@ -22,7 +26,7 @@ class PipelineError(Exception):
     """Базовое исключение для всех ошибок пайплайна."""
     pass
 
-class ProcessingStepError(Exception):
+class ProcessingStepError(PipelineError):
     """
     Ошибка выполнения шага конвейера.
 
@@ -30,6 +34,12 @@ class ProcessingStepError(Exception):
     при перехвате исходного исключения; оригинал доступен через __cause__.
     Ранее класс находился в pipeline.base — перенесён сюда, чтобы разорвать
     циклический импорт base <-> decorators.
+
+    Наследует PipelineError: в cli/main.py решение [STOP]/CRITICAL
+    принимается по типу __cause__, поэтому сама обёртка должна лежать в
+    иерархии — иначе except PipelineError её не поймает, а вложенный
+    ProcessingStepError (обёртка над обёрткой) из-за проверки isinstance
+    ложно классифицировался бы как CRITICAL.
     """
     pass
 

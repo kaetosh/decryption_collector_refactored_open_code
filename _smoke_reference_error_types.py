@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Смоук: ошибки остановки конвейера в шагах — ReferenceMismatchError и
-ConvergenceError вместо ValueError (INC-6a, INC-6c).
+ConvergenceError вместо ValueError (INC-6a, INC-6c); ProcessingStepError
+в иерархии PipelineError (INC-8).
 
 Что фиксирует:
   Проверки справочников в шагах 1c, 5, 13 и 19 бросали builtin
@@ -28,6 +29,9 @@ ConvergenceError вместо ValueError (INC-6a, INC-6c).
   - ConvergenceError идёт по своей ветке декоратора («расхождение при
     сверке»), а не по ветке «несоответствие данных справочникам», и
     проблемные данные доходят до места сохранения в mismatches/.
+  - ProcessingStepError сам наследует PipelineError (INC-8): обёртка
+    ловится единым `except PipelineError`, цепочка __cause__ при этом
+    сохраняется — по ней cli/main.py и различает [STOP] и CRITICAL.
 
 Запуск: python _smoke_reference_error_types.py
 """
@@ -156,12 +160,32 @@ def test_convergence_error_has_own_stop_message() -> None:
     assert len(step.saved_error.problem_data) == 1
 
 
+def test_processing_step_error_is_pipeline_error() -> None:
+    """Обёртка лежит в иерархии PipelineError (INC-8)."""
+    wrapped = ProcessingStepError('Сбой на этапе')
+    assert isinstance(wrapped, PipelineError), (
+        'ProcessingStepError должен быть подклассом PipelineError — '
+        'иначе except PipelineError его не поймает'
+    )
+    try:
+        raise ProcessingStepError('Сбой на этапе') from ReferenceMismatchError(
+            'нет записи', reference_name='Меппинг_бб',
+        )
+    except PipelineError as exc:
+        caught = exc
+    assert isinstance(caught, ProcessingStepError), 'обёртка потерялась при перехвате'
+    assert isinstance(caught.__cause__, ReferenceMismatchError), (
+        'цепочка __cause__ сохраняется — по ней cli/main.py различает [STOP] и CRITICAL'
+    )
+
+
 def main() -> None:
     test_mapping_columns_missing_gives_reference_error()
     test_missing_reference_keeps_cause()
     test_reference_error_stops_pipeline_as_stop_not_critical()
     test_convergence_error_has_own_stop_message()
-    print('SMOKE_OK 4 scenarios: ошибки остановки как [STOP] (INC-6a, INC-6c)')
+    test_processing_step_error_is_pipeline_error()
+    print('SMOKE_OK 5 scenarios: ошибки остановки как [STOP] (INC-6a, INC-6c, INC-8)')
 
 
 if __name__ == '__main__':
