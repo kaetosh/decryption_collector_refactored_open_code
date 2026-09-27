@@ -20,7 +20,18 @@ from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError, PeriodMismatchError, TooManyFilesError
 from pipeline.step_config import OpuReportConstants
-from config.settings import REFERENCE_CONFIGS, AUTO_SORT_ENABLED, INBOX_DIR, REFERENCE_DIR, to_relative
+from config.settings import (
+    ACCOUNT_CARDS_DIR,
+    ACCOUNTS_OSV_DIR,
+    ACCOUNTS_OSV_LEASE_DIR,
+    AUTO_SORT_ENABLED,
+    INBOX_DIR,
+    OSV_GENERAL_DIR,
+    REFERENCE_CONFIGS,
+    REFERENCE_DIR,
+    SPECIAL_REPORTS_DIR,
+    to_relative,
+)
 from io_module import (
     DataLoader,
     DataSaver,
@@ -50,6 +61,24 @@ def pause_for_osv_general_export(interactive: bool = True) -> None:
     файлы общей ОСВ из 00_inbox переносятся в general_osv; остальные
     файлы inbox остаются ждать волну 2 (pause_for_1c_export).
     """
+    # Сканируем целевые папки на наличие файлов перед показом инструкции
+    folders_to_check = {
+        "general_osv": OSV_GENERAL_DIR,
+        "accounts_osv": ACCOUNTS_OSV_DIR,
+        "special_reports": SPECIAL_REPORTS_DIR,
+        "accounts_osv_lease": ACCOUNTS_OSV_LEASE_DIR,
+        "transaction_report": ACCOUNT_CARDS_DIR,
+    }
+
+    found_files: dict[str, list[str]] = {}
+    for label, path in folders_to_check.items():
+        if path.exists():
+            files = [f.name for f in sorted(path.glob("*.xlsx")) if not f.name.startswith("~$")]
+            if files:
+                found_files[label] = files
+
+    has_files = bool(found_files)
+
     print("\n" + "=" * 80)
     print()
     print("[>>] ВАШИ ДЕЙСТВИЯ:")
@@ -60,6 +89,24 @@ def pause_for_osv_general_export(interactive: bool = True) -> None:
     print("      СокрНаименованиеКомпании_общаяосв_нд_Период_.xlsx, например, РЗК_общаяосв_нд_2025_.xlsx")
     print(f"   3. Убедитесь, что наименование компании соответствует данным на листе КомпанииГруппы файла Справочники.xlsx из папки {to_relative(REFERENCE_DIR)}")
     print()
+
+    if has_files:
+        print("[!] ВНИМАНИЕ: В целевых папках уже есть файлы:")
+        for label, files in found_files.items():
+            folder_path = folders_to_check[label]
+            print(f"      {to_relative(folder_path)}:")
+            for f in files:
+                print(f"        - {f}")
+        print()
+        print("      При нажатии Enter:")
+        print("      • Файлы Общей ОСВ из 00_inbox перенесутся в general_osv")
+        print("      • Обнаруженные в других папках Общие ОСВ заархивируются")
+        print("      • Остальные файлы в целевых папках — заархивируются как хвосты прошлых сессий")
+        print("      (ничего не удаляется безвозвратно — всё в _INPUT_DATA/_archive/<run_id>/)")
+        print()
+    else:
+        print("[i]  Целевые папки пусты — чистый старт.")
+
     print("[i]  После нажатия Enter скрипт перенесет Общую ОСВ из 00_inbox в general_osv;")
     print("[i]  остальные файлы останутся в 00_inbox до следующей паузы")
     print("[i]  Для досрочного выхода из программы нажмите Ctrl+C")

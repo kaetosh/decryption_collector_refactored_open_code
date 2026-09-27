@@ -54,10 +54,14 @@ import pandas as pd
 from loguru import logger
 
 from config.settings import (
+    ACCOUNT_CARDS_DIR,
+    ACCOUNTS_OSV_DIR,
+    ACCOUNTS_OSV_LEASE_DIR,
     ARCHIVE_DIR,
     BASE_DIR,
     INBOX_DIR,
     OSV_GENERAL_DIR,
+    SPECIAL_REPORTS_DIR,
     to_relative,
 )
 
@@ -384,11 +388,15 @@ def prepare_general_osv_from_inbox(
     Волна 1 автосортировки — вызывается в pause_for_osv_general_export
     сразу после нажатия Enter (работает и в неинтерактивном режиме).
 
-    1. Ревизия general_osv: файлы без признака «_общаяосв_» в имени
-       (хвосты прошлых сессий) переносятся в архив.
-    2. Из inbox в general_osv переносятся все *.xlsx с «_общаяосв_»
-       в имени; если их несколько, конфликт разрешит штатная
-       TooManyFilesError от DataLoader.load_general_osv.
+    1. Находим файлы Общей ОСВ в inbox.
+    2. Если в inbox ЕСТЬ Общая ОСВ — архивируем ВСЁ содержимое general_osv
+       (старая ОСВ + левые файлы), затем переносим свежую ОСВ из inbox.
+    3. Если в inbox НЕТ Общей ОСВ — архивируем только левые файлы (без признака
+       '_общаяосв_'), существующая ОСВ остаётся на месте (совместимость с чистым стартом).
+    4. Переносим Общую ОСВ из inbox в general_osv (с разрешением конфликтов).
+    5. Очистка остальных целевых папок от чужой Общей ОСВ
+       (файлы с признаком '_общаяосв_' в имени) — они архивируются,
+       так как не принадлежат этим папкам.
 
     Возвращает список путей перенесённых общих ОСВ.
     """
@@ -399,25 +407,74 @@ def prepare_general_osv_from_inbox(
     target_dir.mkdir(parents=True, exist_ok=True)
     archive_dir = Path(archive_dir) if archive_dir else _default_archive_dir("general_osv")
 
-    # 1. Ревизия general_osv
-    for f in sorted(target_dir.iterdir()):
-        if not f.is_file() or _is_excel_temp(f):
-            continue
-        if GENERAL_OSV_TOKEN not in f.stem.lower():
-            archived = _archive_file(f, archive_dir, "левый файл в general_osv")
+    # 1. Находим файлы Общей ОСВ в inbox
+    inbox_general_osv_files = [
+        f for f in sorted(inbox_dir.iterdir())
+        if f.is_file() and not _is_excel_temp(f)
+        and GENERAL_OSV_TOKEN in f.stem.lower() and f.suffix.lower() == ".xlsx"
+    ]
+
+    # 2. Если в inbox ЕСТЬ Общая ОСВ — архивируем ВСЁ содержимое general_osv
+    if inbox_general_osv_files:
+        for f in sorted(target_dir.iterdir()):
+            if not f.is_file() or _is_excel_temp(f):
+                continue
+            archived = _archive_file(f, archive_dir, "заменён новой выгрузкой")
             actions.append({
                 "файл": f.name,
-                "действие": "архивирован (левый файл в general_osv)",
+                "действие": "архивирован (заменён новой выгрузкой)",
                 "откуда": str(f),
                 "куда": str(archived),
             })
 
-    # 2. Перенос общих ОСВ из inbox
-    for f in sorted(inbox_dir.iterdir()):
-        if not f.is_file() or _is_excel_temp(f):
+    # 3. Если в inbox НЕТ Общей ОСВ — старое поведение: архивируем только левые файлы
+    else:
+        for f in sorted(target_dir.iterdir()):
+            if not f.is_file() or _is_excel_temp(f):
+                continue
+            if GENERAL_OSV_TOKEN not in f.stem.lower():
+                archived = _archive_file(f, archive_dir, "левый файл в general_osv")
+                actions.append({
+                    "файл": f.name,
+                    "действие": "архивирован (левый файл в general_osv)",
+                    "откуда": str(f),
+                    "куда": str(archived),
+                })
+
+    # 4. Перенос Общей ОСВ из inbox в general_osv (с разрешением конфликтов)
+    for f in inbox_general_osv_files:
+        _move_to_dir(f, target_dir, archive_dir, actions, "перенесён в general_osv")
+
+    # 3. Очистка остальных целевых папок от чужой Общей ОСВ
+    # Эти папки не должны содержать файлы с признаком '_общаяосв_'
+    other_target_folders = [
+        ACCOUNTS_OSV_DIR,
+        SPECIAL_REPORTS_DIR,
+        ACCOUNTS_OSV_LEASE_DIR,
+        ACCOUNT_CARDS_DIR,
+    ]
+
+    for folder in other_target_folders:
+        if not folder.exists():
             continue
-        if GENERAL_OSV_TOKEN in f.stem.lower() and f.suffix.lower() == ".xlsx":
-            _move_to_dir(f, target_dir, archive_dir, actions, "перенесён в general_osv")
+        folder_archive_dir = _default_archive_dir(folder.name)
+        for f in sorted(folder.iterdir()):
+            if not f.is_file() or _is_excel_temp(f):
+                continue
+            if GENERAL_OSV_TOKEN in f.stem.lower() and f.suffix.lower() == ".xlsx":
+                archived = _archive_file(
+                    f, folder_archive_dir, "Общая ОСВ не принадлежит этой папке"
+                )
+                actions.append({
+                    "файл": f.name,
+                    "действие": "архивирован (Общая ОСВ в чужой папке)",
+                    "откуда": str(f),
+                    "куда": str(archived),
+                })
+                logger.warning(
+                    "[SORT] Обнаружена Общая ОСВ '{}' в {} — заархивирована (не принадлежит этой папке)",
+                    f.name, folder.name
+                )
 
     if actions:
         _log_and_save(actions, label="Волна 1 (общая ОСВ)", sheet_name="Волна 1")
