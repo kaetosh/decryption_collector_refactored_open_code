@@ -38,10 +38,12 @@ class Step5AddReceivableSubtypeStep(Step):
         context.summary_osv_df = osv_all_df
         
         subtype_counts = osv_all_df['подвид_задолженности'].value_counts().to_dict()
+        total_records = sum(subtype_counts.values())
+        subtypes_without_unknown = {k: v for k, v in subtype_counts.items() if k != 'не_указано'}
         logger.info(
             "[OK] Определены подвиды задолженности: {} видов (всего {} записей)",
-            len(subtype_counts), sum(subtype_counts.values())
+            len(subtypes_without_unknown), total_records
         )
-        for subtype, count in sorted(subtype_counts.items(), key=lambda x: -x[1]):
+        for subtype, count in sorted(subtypes_without_unknown.items(), key=lambda x: -x[1]):
             logger.info("  {} — {}", subtype, count)
         return context

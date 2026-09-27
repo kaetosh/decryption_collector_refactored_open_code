@@ -192,9 +192,12 @@ class Step14AccountsMixin:
             logger.warning(
                 "НДС 90.01: обнаружено {} строк с пропущенной ставкой "
                 "(«Субконто Кт_2» пусто): восстановлено по аналогам {}, "
-                "дефолтом ({:.1%}) — {}. Строки не удаляются, выручка "
-                "пересчитана. Детали: warnings/nds_missing_rows_*.xlsx",
+                "дефолтом ({:.1%}) — {}",
                 int(missing_idx.sum()), restored_n, default_rate, default_n,
+            )
+            logger.warning(
+                "Строки не удаляются, выручка пересчитана. "
+                "Детали: warnings/nds_missing_rows_*.xlsx"
             )
 
         if not audit_records:

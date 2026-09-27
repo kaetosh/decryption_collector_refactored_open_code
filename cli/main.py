@@ -171,7 +171,7 @@ def main(
         logger.info("Применённые допуски сходимости:")
         for key, value in context.tolerance_params.items():
             description = TOLERANCE_DESCRIPTIONS.get(key, key)
-            logger.info(f"  • {description}: {format_tolerance_value(key, value)}")
+            logger.info("  {}: {}", description, format_tolerance_value(key, value))
         main_pipeline = create_main_pipeline()
         context = main_pipeline.run(context)
 
