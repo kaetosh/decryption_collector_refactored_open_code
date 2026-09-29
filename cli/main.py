@@ -42,6 +42,7 @@ from pipeline.errors import PipelineError, ProcessingStepError
 from cli.arguments import parse_arguments
 from cli.splash import show_splash
 from config.settings import SHOW_SPLASH, BASE_DIR, to_relative
+from io_module.auto_sort import cleanup_old_archive
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
 from io_module.run_summary import log_run_summary
 
@@ -140,6 +141,11 @@ def main(
         # запусков сверх KEEP_LAST_RUNS удаляются
         configure_run()
         cleanup_old_runs()
+        # Архив _INPUT_DATA/_archive тоже растёт на каждом прогоне
+        # (старые выгрузки, перезаписанные версии) — очищаем его той же
+        # ручкой KEEP_LAST_RUNS. Архив текущего запуска на этом шаге ещё
+        # не создан (архивация идёт в паузах), поэтому он не пострадает.
+        cleanup_old_archive()
         logger.info("[FOLDER] Результаты запуска сохраняются в: {}", to_relative(get_run_dir()))
 
         # ФАЗА 0

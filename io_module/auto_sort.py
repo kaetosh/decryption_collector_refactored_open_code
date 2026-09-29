@@ -39,6 +39,11 @@ _INPUT_DATA/00_inbox (config.settings.INBOX_DIR), не разбираясь, ч�
 удаления: файлы прошлых сессий и перезаписанные версии сохраняются в
 _INPUT_DATA/_archive/<run_id>/<имя_папки>/.
 
+Архив тоже растёт на каждом прогоне, поэтому старые его папки удаляются
+функцией cleanup_old_archive() при старте — по аналогии с
+output_manager.cleanup_old_runs() и с той же ручкой KEEP_LAST_RUNS
+(по умолчанию последние 5).
+
 Отключается флагом AUTO_SORT_ENABLED = False (config.settings).
 """
 
@@ -233,6 +238,114 @@ def _default_archive_dir(subfolder: str = "") -> Path:
     if subfolder:
         archive_dir = archive_dir / subfolder
     return archive_dir
+
+
+def cleanup_old_archive(
+    keep_last: Optional[int] = None,
+    archive_root: Optional[Path] = None,
+) -> list[str]:
+    """
+    Удаляет папки прошлых запусков в _INPUT_DATA/_archive, кроме последних.
+
+    Архив растёт на каждом прогоне (старые выгрузки, перезаписанные версии),
+    а удалять его было нечем: в отличие от _OUTPUT_DATA, папок запусков
+    в архиве никто не убирал. Очистка — по аналогии с
+    output_manager.cleanup_old_runs(), с той же ручкой KEEP_LAST_RUNS.
+
+    Безопасность:
+    - удаляются ТОЛЬКО подпапки архива; файлы в его корне (например
+      sort_report.xlsx от запуска без configure_run) не трогаются;
+    - порядок — по времени изменения папки (mtime), а НЕ по имени: в архиве
+      есть папка 'manual' (запуск без run_id), и при сортировке по имени она
+      считалась бы самой новой и вытесняла бы настоящие прогоны, тогда как
+      mtime папки — это момент последней архивации, то есть её реальный
+      возраст;
+    - папка текущего запуска не удаляется: на старте её ещё нет (архивация
+      идёт в паузах), но при ручном вызове это защита от потери данных;
+    - не удалённая из-за занятого файла папка уйдёт при следующем запуске.
+
+    Args:
+        keep_last: Сколько последних папок хранить (по умолчанию
+            KEEP_LAST_RUNS). Значение вне 1..MAX_KEEP_LAST_RUNS заменяется
+            на максимум с предупреждением.
+        archive_root: Корень архива (по умолчанию ARCHIVE_DIR); параметр
+            нужен смоуку, чтобы работать во временных папках.
+
+    Returns:
+        Список имён удалённых папок (пустой, если удалять было нечего).
+    """
+    # Локальные импорты: защищают от циклов при инициализации пакета io_module
+    from config.settings import KEEP_LAST_RUNS
+    from io_module.output_manager import MAX_KEEP_LAST_RUNS, get_run_id
+
+    if keep_last is None:
+        keep_last = KEEP_LAST_RUNS
+    if not (1 <= keep_last <= MAX_KEEP_LAST_RUNS):
+        logger.warning(
+            "[!] KEEP_LAST_ARCHIVE = {} вне допустимого диапазона 1..{}, "
+            "используем {}",
+            keep_last,
+            MAX_KEEP_LAST_RUNS,
+            MAX_KEEP_LAST_RUNS,
+        )
+        keep_last = MAX_KEEP_LAST_RUNS
+
+    root = Path(archive_root) if archive_root is not None else ARCHIVE_DIR
+    if not root.exists() or not root.is_dir():
+        return []
+
+    try:
+        current_run_id = get_run_id()
+    except RuntimeError:
+        current_run_id = None
+
+    run_dirs = sorted(
+        (
+            d
+            for d in root.iterdir()
+            if d.is_dir() and d.name != current_run_id
+        ),
+        key=lambda d: d.stat().st_mtime,
+    )
+
+    # mtime растёт вместе с папкой, поэтому старейшие — в начале списка
+    to_delete = run_dirs[:-keep_last] if keep_last < len(run_dirs) else []
+
+    removed: list[str] = []
+    freed_bytes = 0
+    for old_dir in to_delete:
+        try:
+            size = sum(f.stat().st_size for f in old_dir.rglob("*") if f.is_file())
+            shutil.rmtree(old_dir)
+            freed_bytes += size
+            removed.append(old_dir.name)
+            logger.debug("[SORT] Удалена папка архива прошлого запуска: {}", old_dir.name)
+        except PermissionError:
+            logger.warning(
+                "[!] Не удалось удалить папку архива {}: файлы открыты в другой "
+                "программе (Excel?). Папка будет удалена при одном из следующих "
+                "запусков.",
+                old_dir.name,
+            )
+        except OSError as e:
+            logger.warning(
+                "[!] Не удалось удалить папку архива {}: {}",
+                old_dir.name,
+                e,
+            )
+
+    if removed:
+        # «осталось» считаем фактическое: папка текущего запуска в лимит
+        # keep_last не входит, поэтому их может оказаться на одну больше
+        remaining = sum(1 for d in root.iterdir() if d.is_dir())
+        logger.info(
+            "[SORT] Очистка архива: удалено {} папок прошлых запусков ({:.1f} МБ), "
+            "в архиве осталось папок: {}",
+            len(removed),
+            freed_bytes / (1024 * 1024),
+            remaining,
+        )
+    return removed
 
 
 def _archive_file(path: Path, archive_dir: Path, reason: str = "") -> Path:
