@@ -502,33 +502,76 @@ def _apply_company_reference_scope(context: ProcessingContext) -> None:
     _save_reference_scope_diagnostics(diagnostics, context)
 
 
+# Имена листов Excel-диагностики индивидуального меппинга. Первые два — обе
+# половины одной подмены: что было до правки справочника и что стало после.
+SCOPE_SHEET_APPLIED = 'Применённые строки'
+SCOPE_SHEET_OVERRIDDEN = 'Перекрытые строки'
+SCOPE_SHEET_INDIVIDUAL_ONLY = 'Индивидуальные без пары'
+SCOPE_SHEET_UNKNOWN = 'Неизвестные компании'
+
+# Служебные колонки диагностики индивидуального меппинга:
+#   SCOPE_SHEET_COL  — из какого листа справочника строка (кадры Меппинг_опу и
+#                      Меппинг_бб склеиваются через pd.concat, а колонки у них
+#                      разные — без этой метки строки не различить);
+#   SCOPE_OVERRIDER_COL — кем вытеснена строка. В самих перекрытых строках
+#                      колонка «компания» всегда «все» и не отвечает на вопрос,
+#                      кто именно перекрыл универсальную статью.
+SCOPE_SHEET_COL = 'лист'
+SCOPE_OVERRIDER_COL = 'перекрыто_компанией'
+
+
+def _tag_scope_frame(frame: pd.DataFrame, diag: Any) -> pd.DataFrame:
+    """Добавляет к кадру служебные колонки «лист» и «перекрыто_компанией»."""
+    tagged = frame.copy()
+    tagged[SCOPE_SHEET_COL] = diag.reference_name
+    tagged[SCOPE_OVERRIDER_COL] = diag.company
+    return tagged
+
+
 def _save_reference_scope_diagnostics(diagnostics: list, context: ProcessingContext) -> None:
     """
     Пишет диагностику индивидуального меппинга в mismatches/ — если есть что
-    показать: перекрытые строки, индивидуальные строки без пары в универсальном
-    блоке (возможна опечатка в ключевых колонках), неизвестные значения колонки
-    «компания» (опечатка в имени компании).
+    показать:
+      * «Применённые строки»    — индивидуальные строки, которые реально
+        действуют для компании (т.е. чем именно заменены универсальные);
+      * «Перекрытые строки»     — универсальные строки, вытесненные ими;
+      * «Индивидуальные без пары» — индивидуальные строки без пары в
+        универсальном блоке (возможна опечатка в ключевых колонках);
+      * «Неизвестные компании»  — неизвестные значения колонки «компания»
+        (опечатка в имени компании).
+
+    Первые два листа — обе половины одной правки: по «Перекрытым» видно, что
+    было до неё, по «Применённым» — что стало. Раньше в файле была только
+    первая половина, и проверить подмену можно было лишь вручную открыв
+    Справочники.xlsx.
 
     Конвейер ничего не останавливает: отчёт нужен для аудита правок справочника,
     поэтому ошибки сохранения логируются (как в Step._save_reference_mismatch_report).
     """
+    applied = [
+        _tag_scope_frame(diag.individual_frame, diag)
+        for diag in diagnostics
+        if diag.individual_frame is not None and not diag.individual_frame.empty
+    ]
     overridden = [
-        diag.overridden_frame for diag in diagnostics
+        _tag_scope_frame(diag.overridden_frame, diag)
+        for diag in diagnostics
         if diag.overridden_frame is not None and not diag.overridden_frame.empty
     ]
     individual_only = [
-        diag.individual_only_frame for diag in diagnostics
+        _tag_scope_frame(diag.individual_only_frame, diag)
+        for diag in diagnostics
         if diag.individual_only_frame is not None and not diag.individual_only_frame.empty
     ]
     unknown = [
         pd.DataFrame({
-            'лист': diag.reference_name,
+            SCOPE_SHEET_COL: diag.reference_name,
             'значение_в_колонке_компания': diag.unknown_scope_values,
         })
         for diag in diagnostics if diag.unknown_scope_values
     ]
 
-    if not (overridden or individual_only or unknown):
+    if not (applied or overridden or individual_only or unknown):
         return
 
     try:
@@ -536,17 +579,21 @@ def _save_reference_scope_diagnostics(diagnostics: list, context: ProcessingCont
         output_path = get_output_dir('mismatches') / filename
 
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+            if applied:
+                pd.concat(applied, ignore_index=True).to_excel(
+                    writer, sheet_name=SCOPE_SHEET_APPLIED, index=False,
+                )
             if overridden:
                 pd.concat(overridden, ignore_index=True).to_excel(
-                    writer, sheet_name='Перекрытые строки', index=False,
+                    writer, sheet_name=SCOPE_SHEET_OVERRIDDEN, index=False,
                 )
             if individual_only:
                 pd.concat(individual_only, ignore_index=True).to_excel(
-                    writer, sheet_name='Индивидуальные без пары', index=False,
+                    writer, sheet_name=SCOPE_SHEET_INDIVIDUAL_ONLY, index=False,
                 )
             if unknown:
                 pd.concat(unknown, ignore_index=True).to_excel(
-                    writer, sheet_name='Неизвестные компании', index=False,
+                    writer, sheet_name=SCOPE_SHEET_UNKNOWN, index=False,
                 )
 
         logger.info(

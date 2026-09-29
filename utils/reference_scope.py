@@ -41,6 +41,7 @@ class ScopeDiagnostics:
     overridden_rows: int = 0
     unknown_scope_values: list = field(default_factory=list)
     overridden_frame: Optional[pd.DataFrame] = None
+    individual_frame: Optional[pd.DataFrame] = None
     individual_only_frame: Optional[pd.DataFrame] = None
 
     @property
@@ -180,6 +181,11 @@ def resolve_company_view(
     ]
     if not individual_only.empty:
         diag.individual_only_frame = individual_only
+
+    # Все индивидуальные строки (в т.ч. перекрывающие универсальные) — для
+    # аудита: в отчёте лист «Применённые строки» показывает, что реально
+    # действует для компании, а не только что было вытеснено.
+    diag.individual_frame = individual
 
     result = pd.concat([overridden, individual], axis=0)
 

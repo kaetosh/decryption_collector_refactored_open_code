@@ -13,6 +13,9 @@
   5. Неизвестное значение колонки (опечатка в имени компании) видно в диагностике.
   6. Реальный файл: для «ГиагКХП» статья аренды 91.02 в сегменте Птицеводство
      отдаёт «Расходы по процентам аренда», для компании без правок — «Аренда».
+  7. Обвязка в executors пишет Excel с ОБЕИМИ половинами правки: лист
+     «Применённые строки» (что действует для компании) и «Перекрытые строки»
+     (что вытеснено), плюс служебные колонки «лист» и «перекрыто_компанией».
 
 Запуск: python _smoke_reference_scope.py
 """
@@ -185,6 +188,24 @@ def test_wiring_in_executors() -> None:
 
         reports = list((get_run_dir() / 'mismatches').glob('reference_scope_*.xlsx'))
         assert reports, 'Excel-диагностика индивидуального меппинга должна быть создана'
+
+        sheets = pd.read_excel(reports[0], sheet_name=None, dtype=str)
+        assert 'Применённые строки' in sheets, sorted(sheets)
+        assert 'Перекрытые строки' in sheets, sorted(sheets)
+
+        applied = sheets['Применённые строки']
+        overridden = sheets['Перекрытые строки']
+        # Обе половины правки: вытеснено столько же, сколько применено
+        assert len(applied) == len(overridden) == 32, (len(applied), len(overridden))
+        # Служебные колонки: лист справочника и кто именно перекрыл строку
+        for frame in (applied, overridden):
+            assert 'перекрыто_компанией' in frame.columns, frame.columns.tolist()
+            assert set(frame['перекрыто_компанией']) == {'ГиагКХП'}
+        assert set(overridden['лист']) == {'Меппинг_опу'}
+        # Подмена видна прямо в файле: вместо «Аренда» — проценты ППА
+        types = set(applied['вид_дохода_расхода'])
+        assert types == {'Расходы по процентам аренда'}, types
+        assert set(overridden['вид_дохода_расхода']) == {'Аренда'}
     finally:
         shutil.rmtree(get_run_dir(), ignore_errors=True)
 
@@ -196,7 +217,7 @@ def main() -> None:
     test_unknown_scope_value_reported()
     test_real_file_company_view()
     test_wiring_in_executors()
-    print('SMOKE_OK 6 scenarios: reference scope (индивидуальный меппинг компаний)')
+    print('SMOKE_OK 7 scenarios: reference scope (индивидуальный меппинг компаний)')
 
 
 if __name__ == '__main__':
