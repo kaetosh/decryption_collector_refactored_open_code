@@ -231,12 +231,20 @@ def _reference_scope_text(context: Any) -> str:
     entries = summary.get("entries") or []
 
     if entries:
-        parts = ", ".join(
-            f"{entry.get('лист', '—')}: {entry.get('индивидуальных_строк', 0)} строк "
-            f"(перекрыто универсальных — {entry.get('перекрыто_универсальных', 0)})"
-            for entry in entries
-        )
-        return f"применён — {parts}"
+        parts = []
+        for entry in entries:
+            text = (
+                f"{entry.get('лист', '—')}: {entry.get('индивидуальных_строк', 0)} строк "
+                f"(перекрыто универсальных — {entry.get('перекрыто_универсальных', 0)})"
+            )
+            # Строки, отброшенные как чужие, — часть результата, а не пустота:
+            # без них получатель видит «правок нет» и не понимает, почему в
+            # справочнике статья даёт два типа, а в отчёте — один.
+            dropped = entry.get("отброшено_строк_других_компаний", 0)
+            if dropped:
+                text += f", отброшено строк других компаний — {dropped}"
+            parts.append(text)
+        return f"применён — {'; '.join(parts)}"
 
     if summary.get("unknown_scope_values"):
         return (

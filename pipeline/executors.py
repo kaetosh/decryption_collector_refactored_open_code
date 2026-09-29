@@ -483,11 +483,12 @@ def _apply_company_reference_scope(context: ProcessingContext) -> None:
             context.references[reference_key] = view
 
         diagnostics.append(diag)
-        if diag.applied:
+        if diag.applied or diag.dropped_foreign_rows:
             entries.append({
                 'лист': sheet_name,
                 'индивидуальных_строк': diag.individual_rows,
                 'перекрыто_универсальных': diag.overridden_rows,
+                'отброшено_строк_других_компаний': diag.dropped_foreign_rows,
             })
 
     # Сводка для титульного листа отчёта (io_module/report_cover.py)

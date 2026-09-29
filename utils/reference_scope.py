@@ -39,6 +39,11 @@ class ScopeDiagnostics:
     universal_rows: int = 0
     individual_rows: int = 0
     overridden_rows: int = 0
+    # Строки, адресованные другим компаниям (в т.ч. с опечаткой в имени) и
+    # отброшенные из кадра. Их отбрасывание — не побочный эффект наличия
+    # индивидуальных строк, а самостоятельное правило (см. resolve_company_view),
+    # поэтому счётчик нужен даже тогда, когда индивидуальных строк нет.
+    dropped_foreign_rows: int = 0
     unknown_scope_values: list = field(default_factory=list)
     overridden_frame: Optional[pd.DataFrame] = None
     individual_frame: Optional[pd.DataFrame] = None
@@ -86,10 +91,22 @@ def resolve_company_view(
        индивидуальные, строки остальных компаний отбрасываются.
     3. Индивидуальные строки, совпавшие по key_cols с универсальными,
        перекрывают их (универсальная строка в результат не попадает).
-    4. Индивидуальных строк нет — кадр возвращается как есть: для компаний без
-       правок справочника поведение не меняется вообще.
+    4. Кадр не меняется ТОЛЬКО если в справочнике нет ни строк текущей
+       компании, ни строк других компаний (обычный случай — все строки
+       «все»). Обратное тоже верно и важно: у компании БЕЗ индивидуальных
+       строк чужие строки всё равно отбрасываются (см. доктринг ниже).
     5. Порядок результата: универсальные (без перекрытых), затем индивидуальные —
        важно для потребителей с keep='first' и dict(zip(...)).
+
+    Почему правило 4 нельзя читать как «нет своих строк → вернуть как есть»:
+    правило 2 самостоятельно. Раньше здесь стоял ранний выход
+    `if individual.empty: return df`, и справочник для любой компании группы
+    протекал в прогон целиком вместе с индивидуальными строками остальных.
+    Реальный кейс (29.09.2026): прогон «ТимПФ» останавливался на шаге 17 с
+    «найдено несколько бизнес-типов» по статье аренды 91.02 — «Аренда» (своя
+    строка) против «Расходы по процентам аренда» (индивидуальная строка
+    «ГиагКХП», у неё тоже сегмент «Птицеводство», как у ТимПФ).
+    Справочник был корректен, протекала фильтрация.
 
     Args:
         df: Справочник (Меппинг_опу / Меппинг_бб) или None.
@@ -139,12 +156,25 @@ def resolve_company_view(
 
     universal = df.loc[universal_mask]
     individual = df.loc[individual_mask]
+    # Строки, адресованные другим компаниям (в т.ч. опечатки в имени) — их
+    # не должно быть в кадре компании НИКОГДА, независимо от наличия
+    # индивидуальных строк (правило 2 самостоятельно).
+    foreign_mask = ~universal_mask & ~individual_mask
 
     diag.universal_rows = int(len(universal))
     diag.individual_rows = int(len(individual))
+    diag.dropped_foreign_rows = int(foreign_mask.sum())
 
-    known = {str(name).strip().casefold() for name in (known_companies or ())}
-    other_values = df.loc[~universal_mask & ~individual_mask, scope_col].dropna()
+    # Именно `is not None`, а не `or ()`: known_companies — это Iterable, и
+    # pandas.Series в `or` уходит в __bool__ → ValueError («truth value of a
+    # Series is ambiguous»). Список/Series из листа КомпанииГруппы — обычный
+    # способ передать сюда компании, молча ломать его нельзя.
+    known = {
+        str(name).strip().casefold()
+        for name in (known_companies if known_companies is not None else ())
+    }
+
+    other_values = df.loc[foreign_mask, scope_col].dropna()
     diag.unknown_scope_values = sorted(
         value
         for value in {str(value).strip() for value in other_values}
@@ -159,7 +189,16 @@ def resolve_company_view(
             ', '.join(diag.unknown_scope_values[:10]),
         )
 
-    if individual.empty:
+    if diag.dropped_foreign_rows:
+        logger.info(
+            "[i] Справочник '{}': отброшены строки других компаний — {} "
+            "(для компании '{}' они не действуют).",
+            reference_name or scope_col, diag.dropped_foreign_rows, company,
+        )
+
+    # Ни своих строк, ни чужих — в справочнике нет индивидуального меппинга
+    # вовсе: кадр не трогаем (обратная совместимость, объект идентичен).
+    if individual.empty and not diag.dropped_foreign_rows:
         return df, diag
 
     individual_key_set = set(_row_keys(individual, key_cols))
@@ -185,15 +224,21 @@ def resolve_company_view(
     # Все индивидуальные строки (в т.ч. перекрывающие универсальные) — для
     # аудита: в отчёте лист «Применённые строки» показывает, что реально
     # действует для компании, а не только что было вытеснено.
-    diag.individual_frame = individual
+    if not individual.empty:
+        diag.individual_frame = individual
 
-    result = pd.concat([overridden, individual], axis=0)
-
-    logger.info(
-        "[i] Индивидуальный меппинг '{}': для компании '{}' применено строк — {}, "
-        "перекрыто универсальных — {}",
-        reference_name or scope_col, company, diag.individual_rows, diag.overridden_rows,
-    )
+    if individual.empty:
+        # Своих строк нет, отбрасывать нечего — остаётся только отфильтрованный
+        # универсальный блок (без строк других компаний).
+        result = overridden
+    else:
+        result = pd.concat([overridden, individual], axis=0)
+        logger.info(
+            "[i] Индивидуальный меппинг '{}': для компании '{}' применено строк — {}, "
+            "перекрыто универсальных — {}",
+            reference_name or scope_col, company,
+            diag.individual_rows, diag.overridden_rows,
+        )
 
     return result, diag
 

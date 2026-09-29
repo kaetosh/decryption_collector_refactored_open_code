@@ -8,12 +8,19 @@
      с позиционными индексами они терялись после вставки колонки в лист.
   2. Нет колонки «компания» → кадр без изменений (column_missing).
   3. Индивидуальная строка перекрывает универсальную с тем же ключом листа.
-  4. Строки других компаний отбрасываются; компания без правок получает
-     исходный кадр (тот же объект).
+  4. Строки других компаний отбрасываются ВСЕГДА, в том числе для компании,
+     у которой нет ни одной своей строки (регресс кейса «ТимПФ»: ранний выход
+     `if individual.empty: return df` отдавал в прогон весь справочник, и статья
+     аренды 91.02 давала два бизнес-типа → остановка шага 17). Если же в
+     справочнике нет строк, адресованных конкретным компаниям, кадр
+     возвращается тем же объектом.
   5. Неизвестное значение колонки (опечатка в имени компании) видно в диагностике.
   6. Реальный файл: для «ГиагКХП» статья аренды 91.02 в сегменте Птицеводство
      отдаёт «Расходы по процентам аренда», для компании без правок — «Аренда».
-  7. Обвязка в executors пишет Excel с ОБЕИМИ половинами правки: лист
+  7. Реальный файл, регресс кейса «ТимПФ»: компания без своих строк не
+     наследует строки другой компании — в кадре остаётся ровно один тип статьи
+     аренды, то есть резолвер шага 17 больше не спотыкается о неоднозначность.
+  8. Обвязка в executors пишет Excel с ОБЕИМИ половинами правки: лист
      «Применённые строки» (что действует для компании) и «Перекрытые строки»
      (что вытеснено), плюс служебные колонки «лист» и «перекрыто_компанией».
 
@@ -26,10 +33,17 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config.settings import REFERENCE_CONFIGS, REFERENCE_DATA_FILE
+from config.settings import (
+    REFERENCE_CONFIGS,
+    REFERENCE_DATA_FILE,
+    REFERENCE_SCOPE_COL,
+    SCOPE_ALL_VALUE,
+)
 from io_module import DataLoader
+from pipeline.constants import ColumnNames
 from pipeline.step_config import BalanceReportConstants, OpuReportConstants
 from utils import resolve_company_view
+from utils.reference_scope import KEY_SEPARATOR
 
 
 def _load(sheet: str) -> pd.DataFrame:
@@ -78,13 +92,30 @@ def test_override_and_company_isolation() -> None:
     assert list(view['счет_фо']) == ['1150040103']
     assert len(view) == 1, view
 
+    # У компании без своих строк индивидуальные строки ЧУЖИХ компаний
+    # отбрасываются (регресс кейса «ТимПФ», 29.09.2026): раньше здесь стоял
+    # ранний выход `if individual.empty: return df`, и весь справочник,
+    # включая чужие строки, уезжал в прогон.
     other_view, other_diag = resolve_company_view(
         ref, 'Другая', key_cols, reference_name='Меппинг_опу',
         known_companies=['ГиагКХП', 'Другая'],
     )
     assert not other_diag.applied, other_diag
-    assert other_view is ref, 'компания без правок получает исходный кадр'
-    assert list(other_view['вид_дохода_расхода']) == ['Аренда', 'Расходы по процентам аренда']
+    assert other_diag.individual_rows == 0, other_diag
+    assert other_diag.dropped_foreign_rows == 1, other_diag
+    assert list(other_view['вид_дохода_расхода']) == ['Аренда'], other_view
+    assert list(other_view['счет_фо']) == ['600020103'], other_view
+
+
+def test_reference_without_individual_rows_is_untouched() -> None:
+    """Справочник, где все строки «все», возвращается тем же объектом."""
+    ref = _make_ref().iloc[:1].copy()
+    view, diag = resolve_company_view(
+        ref, 'Другая', OpuReportConstants.REFERENCE_ROW_KEY, reference_name='Меппинг_опу',
+    )
+    assert not diag.applied, diag
+    assert diag.dropped_foreign_rows == 0, diag
+    assert view is ref, 'индивидуального меппинга нет — кадр не меняется вообще'
 
 
 def test_missing_column_is_backward_compatible() -> None:
@@ -95,6 +126,100 @@ def test_missing_column_is_backward_compatible() -> None:
     )
     assert diag.column_missing, diag
     assert view is ref, 'кадр не должен изменяться'
+
+
+def _build_type_candidates_from_view(view: pd.DataFrame) -> dict:
+    """
+    Кандидаты типов ОПУ по ключу `счет[:5] + доход_расход` — та же группировка,
+    что в шаге 17 (`_build_type_candidates`), но на кадре «взгляда компании».
+    Считается здесь намеренно: смоук должен падать ровно на той неоднозначности,
+    из-за которой прогон уходил в mismatches/, не завися от приватного
+    хелпера шага.
+    """
+    truncated = view['счет'].astype(str).str.slice(0, 5)
+    group_key = (
+        truncated + KEY_SEPARATOR + view['доход_расход'].astype('string').fillna('')
+    )
+    grouped = view.assign(_key=group_key).groupby('_key', sort=False)
+    return {
+        str(value): frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
+        for value, frame in grouped
+    }
+
+
+def test_company_without_individual_rows_does_not_inherit_foreign() -> None:
+    """
+    Регресс кейса «ТимПФ» (29.09.2026): прогон компании, у которой НЕТ своих
+    строк в справочнике, не должен видеть индивидуальные строки другой
+    компании. Иначе статья аренды 91.02 даёт два бизнес-типа и шаг 17
+    останавливает прогон с «найдено несколько бизнес-типов».
+    """
+    if not REFERENCE_DATA_FILE.exists():
+        print('  [skip] Справочники.xlsx не найден — сценарий пропущен')
+        return
+
+    opu = _load('Меппинг_опу')
+    is_foreign = ~opu[REFERENCE_SCOPE_COL].astype('string').str.strip().str.casefold().eq(
+        SCOPE_ALL_VALUE.casefold()
+    )
+    foreign = opu[is_foreign]
+    if foreign.empty:
+        print('  [skip] в справочнике нет индивидуальных строк — сценарий пропущен')
+        return
+
+    # Берём компанию из КомпанииГруппы без своих строк, но с тем же
+    # сегментом, что у владельца чужих строк: именно совпадение сегмента
+    # раньше делало неоднозначность неразрешимой на ступени «тип по сегменту».
+    # Лист читается напрямую с usecols: в REFERENCE_CONFIGS его нет, а тянуть
+    # весь реестр справочников ради двух колонок незачем.
+    short_name = ColumnNames.SHORT_COMPANY_NAME
+    companies = DataLoader.load_reference_data(
+        sheet_name='КомпанииГруппы',
+        usecols=[short_name, ColumnNames.SEGMENT],
+    )
+    owners = set(foreign[REFERENCE_SCOPE_COL].astype(str).str.strip())
+    foreign_segments = set(foreign['сегмент'].astype(str).str.strip())
+    candidates = companies[
+        ~companies[short_name].astype(str).str.strip().isin(owners)
+        & companies[ColumnNames.SEGMENT].astype(str).str.strip().isin(foreign_segments)
+    ]
+    if candidates.empty:
+        print('  [skip] нет компании с чужим сегментом — сценарий пропущен')
+        return
+
+    company = str(candidates[short_name].iloc[0])
+    view, diag = resolve_company_view(
+        opu, company, OpuReportConstants.REFERENCE_ROW_KEY,
+        reference_name='Меппинг_опу',
+        known_companies=companies[short_name].dropna().astype(str),
+    )
+
+    assert diag.individual_rows == 0, (company, diag)
+    assert diag.dropped_foreign_rows == len(foreign), (company, diag)
+    assert len(view) == len(opu) - len(foreign), (len(view), len(opu), len(foreign))
+    assert 'компания' in view.columns
+    assert set(
+        view[REFERENCE_SCOPE_COL].astype('string').str.strip().str.casefold().unique()
+    ) == {SCOPE_ALL_VALUE.casefold()}, 'в кадре остались строки чужих компаний'
+
+    # Ключевой симптом кейса: у статьи аренды остаётся РОВНО один тип.
+    rent = view[
+        view['счет'].astype(str).str.startswith('91.02')
+        & view['доход_расход'].astype(str).str.contains('сдачей', na=False)
+    ]
+    types = set(rent['вид_дохода_расхода'].dropna())
+    assert types == {'Аренда'}, (company, types)
+
+    # ...и по этому ключу резолвер шага 17 больше не спотыкается о неоднозначность.
+    by_key = _build_type_candidates_from_view(view)
+    rent_keys = {
+        key for key in by_key
+        if key.startswith('91.02' + KEY_SEPARATOR)
+        and 'сдачей' in key
+    }
+    assert rent_keys, 'статья аренды не найдена в кадре'
+    for key in rent_keys:
+        assert by_key[key] == ['Аренда'], (key, by_key[key])
 
 
 def test_unknown_scope_value_reported() -> None:
@@ -213,11 +338,13 @@ def test_wiring_in_executors() -> None:
 def main() -> None:
     test_load_real_references()
     test_override_and_company_isolation()
+    test_reference_without_individual_rows_is_untouched()
     test_missing_column_is_backward_compatible()
     test_unknown_scope_value_reported()
     test_real_file_company_view()
+    test_company_without_individual_rows_does_not_inherit_foreign()
     test_wiring_in_executors()
-    print('SMOKE_OK 7 scenarios: reference scope (индивидуальный меппинг компаний)')
+    print('SMOKE_OK 9 scenarios: reference scope (индивидуальный меппинг компаний)')
 
 
 if __name__ == '__main__':
