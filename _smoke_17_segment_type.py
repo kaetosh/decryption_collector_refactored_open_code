@@ -135,6 +135,21 @@ def test_real_transactions_step17_core() -> None:
     import shutil
 
     company = 'ГиагКХП'
+    # Реальные проводки в папке сменяются от прогона к прогону: если сейчас
+    # там выгрузки другой компании (например ТимПФ), сценарий честно пропускаем
+    # — сверять их с ППА «ГиагКХП» бессмысленно (падение на чужих данных)
+    from config.settings import ACCOUNT_CARDS_DIR
+
+    prefixes = {
+        f.name.split('_отчпровод_')[0]
+        for f in ACCOUNT_CARDS_DIR.glob('*_отчпровод_*.txt')
+    }
+    if prefixes != {company}:
+        print(
+            f'  SKIP реальный сценарий: в папке отчёты по проводкам {sorted(prefixes)}, '
+            f'тест ждёт {company}'
+        )
+        return
     configure_run('smoke_seg17')
     try:
         context = ProcessingContext(company=company)

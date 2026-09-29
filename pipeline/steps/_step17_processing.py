@@ -192,6 +192,14 @@ class Step17ProcessingMixin:
         перезаписываются. Объекты с признаком ППА, которых нет в колонке 'рбп',
         попадают в диагностику: строгий режим (STRICT_PPA_MAPPING_CHECK)
         останавливает шаг, мягкий — сохраняет отчёт в mismatches/ и продолжает.
+
+        В диагностику попадают только настоящие РБП-строки (два фильтра
+        отбора):
+        1) счёт противоположной стороны (Корр.счет) — РБП (97.x): амортизация
+           ОС (91.02 / Кт 02.03) и списание (Кт 01.09), где объект называется
+           «ППА …», — не РБП, контрагент остаётся 'не_указано';
+        2) объект не известен справочнику как ОС (колонки 'ос_ппа' /
+           'ос_после_перехода_в_собственность').
         """
         marker = StepConstants.PPA_OBJECT_MARKER
         mapping_rbp = self._build_ppa_mapping(reference_ppa_df, 'рбп')
@@ -200,6 +208,13 @@ class Step17ProcessingMixin:
                 mapping_rbp.notna()
                 & mapping_rbp.astype(str).ne(StepConstants.UNSPECIFIED)
             ]
+
+        # Объекты ОС того же ППА (ос_ппа / ос_после_перехода_в_собственность):
+        # проводка с объектом ОС (списание, амортизация — например 91.02/02.03
+        # с субконто «ППА ТЕК…») — не РБП-строка, контрагент для неё из
+        # колонки 'рбп' не требуется (в таком случае _process_ppa уже разобрал
+        # её по объектам ОС, а остаток уходит в диагностику шага)
+        os_objects = self._collect_ppa_os_objects(reference_ppa_df)
 
         # Объект-РБП лежит на противоположной стороне проводки (та же логика
         # выбора колонки, что в _extract_contractors)
@@ -214,11 +229,25 @@ class Step17ProcessingMixin:
                 continue
             if object_column not in frame.columns or 'контрагент' not in frame.columns:
                 continue
+            if 'Корр.счет' not in frame.columns:
+                logger.debug(
+                    "Кадр без колонки 'Корр.счет' пропущен в ветке РБП ППА "
+                    "(колонка '{}')",
+                    object_column,
+                )
+                continue
 
             objects = frame[object_column].astype('string')
             marker_mask = (
                 objects.fillna('')
                 .str.contains(marker, case=False, regex=False, na=False)
+                # Счёт противоположной стороны — только РБП (97.x): прочие
+                # (02.03 амортизация, 01.09 списание ОС) не требуют контрагента
+                # из 'рбп', хотя объект тоже может называться «ППА…»
+                & frame['Корр.счет'].astype('string').fillna('')
+                .str.startswith('97')
+                # Объект, известный справочнику как ОС, — не РБП
+                & ~objects.fillna('').str.strip().isin(os_objects)
             )
             contractors = frame['контрагент'].astype('string')
             empty_contractor = contractors.isna() | contractors.eq(StepConstants.UNSPECIFIED)
@@ -320,6 +349,29 @@ class Step17ProcessingMixin:
             .drop_duplicates(subset=key_column)
             .set_index(key_column)['контрагент']
         )
+
+    @staticmethod
+    def _collect_ppa_os_objects(reference_ppa_df: pd.DataFrame) -> set[str]:
+        """
+        Собирает объекты ОС ППА ('ос_ппа', 'ос_после_перехода_в_собственность').
+
+        Объект из этих колонок не может быть РБП: проводка с ним (списание,
+        амортизация ОС), даже если объект называется «ППА …», не должна
+        требовать контрагента из колонки 'рбп'. Колонки могут отсутствовать
+        (лист ППА заполнен не полностью) — тогда возвращается пустое множество.
+        """
+        objects: set[str] = set()
+        for column in ('ос_ппа', 'ос_после_перехода_в_собственность'):
+            if column not in reference_ppa_df.columns:
+                continue
+            values = reference_ppa_df[column].dropna().astype(str).str.strip()
+            values = values[
+                values.ne('')
+                & values.str.casefold().ne('nan')
+                & values.ne(StepConstants.UNSPECIFIED)
+            ]
+            objects.update(values)
+        return objects
 
     def _validate_ppa_mapping(
         self,

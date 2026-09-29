@@ -13,7 +13,11 @@
   3. строки без признака ППА не затрагиваются;
   4. нет в 'рбп' + STRICT_PPA_MAPPING_CHECK=True → MissingMappingError
      с problem_data (отчёт mismatches/);
-  5. тот же случай при флаге False → шаг продолжается, отчёт сохраняется.
+  5. тот же случай при флаге False → шаг продолжается, отчёт сохраняется;
+  6. амортизация ОС (Корр.счет 02.03, объект «ППА …») — не РБП-строка:
+     строгий режим НЕ стопует, контрагент остаётся 'не_указано';
+  7. объект известен справочнику как ОС ('ос_ппа'), Корр.счет 97.21 —
+     в диагностику 'рбп' не попадает, строгий режим не стопует.
 
 Запуск: python _smoke_17_ppa_rbp_contractors.py
 """
@@ -130,12 +134,61 @@ def test_missing_rbp_strict_and_soft() -> None:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
 
 
+def test_amortization_not_rbp() -> None:
+    """Амортизация ОС (Корр.счет 02.03, объект «ППА …») — не РБП-строка.
+
+    Регресс «ТимПФ»: проводка 91.02 / 02.03 с субконто Кт_1
+    «ППА ТЕК.240617.ТИМ.№20/24-ИПС.аренда» ловилась маркером «ППА» и
+    требовала контрагента из 'рбп' → ложный MissingMappingError.
+    """
+    step = _step()
+    original = ppa_module.STRICT_PPA_MAPPING_CHECK
+    try:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = True
+        ppa = _ppa([(RBP_OTHER, 'Арендодатель-2')])
+        amort_object = 'ППА ТЕК.240617.ТИМ.№20/24-ИПС.аренда'
+        df_9102 = _df_9102(['не_указано'], [amort_object])
+        df_9102['Корр.счет'] = ['02.03']
+
+        step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ТимПФ')
+        assert list(df_9102['контрагент']) == ['не_указано'], (
+            'амортизация не получает контрагента из рбп'
+        )
+    finally:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = original
+
+
+def test_os_object_not_rbp() -> None:
+    """Объект из 'ос_ппа' на счёте 97.21 не считается недостающим РБП."""
+    step = _step()
+    original = ppa_module.STRICT_PPA_MAPPING_CHECK
+    try:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = True
+        os_object = 'ППА ТЕК.240618.ТИМ.№33/24-ИПС.субаренда'
+        ppa = pd.DataFrame({
+            'наименование_компании': ['ГиагКХП'],
+            'рбп': [RBP_OTHER],
+            'ос_ппа': [os_object],
+            'контрагент': ['Арендодатель-2'],
+        }).astype('string')
+        df_9102 = _df_9102(['не_указано'], [os_object])
+
+        step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
+        assert list(df_9102['контрагент']) == ['не_указано'], (
+            'объект ОС не является РБП — контрагент не подтягивается'
+        )
+    finally:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = original
+
+
 def main() -> None:
     test_contractor_filled_from_ppa()
     test_existing_contractor_kept()
     test_rows_without_marker_untouched()
     test_missing_rbp_strict_and_soft()
-    print('SMOKE_OK 4 scenarios: контрагенты ППА по рбп (шаг 17)')
+    test_amortization_not_rbp()
+    test_os_object_not_rbp()
+    print('SMOKE_OK 6 scenarios: контрагенты ППА по рбп (шаг 17)')
 
 
 if __name__ == '__main__':
