@@ -205,6 +205,34 @@ def _currency_text(context: Any) -> str:
     return f"{currency} — дата перевода остатков не задана"
 
 
+def _reference_scope_text(context: Any) -> str:
+    """
+    Индивидуальный меппинг компании: сколько строк справочника (Меппинг_опу /
+    Меппинг_бб) правилось именно для этой компании.
+
+    Сводку заполняет pipeline.executors._apply_company_reference_scope
+    (ключ context.data['reference_scope_summary']) до старта конвейера.
+    """
+    summary = (context.data or {}).get("reference_scope_summary") or {}
+    entries = summary.get("entries") or []
+
+    if entries:
+        parts = ", ".join(
+            f"{entry.get('лист', '—')}: {entry.get('индивидуальных_строк', 0)} строк "
+            f"(перекрыто универсальных — {entry.get('перекрыто_универсальных', 0)})"
+            for entry in entries
+        )
+        return f"применён — {parts}"
+
+    if summary.get("unknown_scope_values"):
+        return (
+            "не применён — в колонке «компания» есть неизвестные значения "
+            "(см. предупреждения и mismatches/)"
+        )
+
+    return "не применялся (правок для компании нет)"
+
+
 def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str, str]]:
     """Сводится ли отчёт, прошла ли сверка выгрузок, сколько было предупреждений."""
     rows = [("Увязка ОПУ и баланса (ЧП = НРП)", pnl_balance_status_text(context))]
@@ -226,6 +254,7 @@ def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str,
     else:
         warnings_text = "нет"
     rows.append(("Предупреждений за прогон", warnings_text))
+    rows.append(("Индивидуальный меппинг компании", _reference_scope_text(context)))
 
     for label, df_name in (
         ("Строк в расшифровке баланса", "balance_df"),

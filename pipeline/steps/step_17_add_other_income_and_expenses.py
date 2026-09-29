@@ -7,6 +7,7 @@
 - Кредитные линии: подтягивание контрагентов из справочника КредитОбслуж
 - Процентные расходы/доходы: подтягивание контрагентов
 - Изменение условий ППА: подтягивание контрагентов из справочника ППА
+- РБП ППА (проценты по аренде): контрагенты из справочника ППА по колонке 'рбп'
 - Определение группа_ка, сегмент_ка, вид_связи для всех строк
 
 Вся логика вынесена в миксины:
@@ -65,7 +66,8 @@ class Step17AddOtherIncomeExpensesToOpuStep(
 
         df_9101, df_9102 = self._filter_91_transactions(
             transactions_all_df,
-            refs['mapping_opu']
+            refs['mapping_opu'],
+            segment=context.segment,
         )
 
         segment_company = refs['companies'].loc[
@@ -98,6 +100,12 @@ class Step17AddOtherIncomeExpensesToOpuStep(
         )
 
         df_9101, df_9102 = self._process_ppa(
+            df_9101, df_9102, refs['ppa'], name_company
+        )
+
+        # Контрагенты по РБП ППА (например «Проценты ППА Договор аренды …»):
+        # после _process_ppa, чтобы не перебить подстановку по объектам ОС
+        df_9101, df_9102 = self._pull_contractors_from_ppa_by_rbp(
             df_9101, df_9102, refs['ppa'], name_company
         )
 

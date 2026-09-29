@@ -9,7 +9,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from pathlib import Path
 from loguru import logger
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple, Union
 from config.settings import (OSV_GENERAL_DIR,
                               ACCOUNTS_OSV_DIR,
                               REFERENCE_DATA_FILE,
@@ -460,7 +460,7 @@ class DataLoader:
     def load_reference_data(
         sheet_name: str,
         strings: Optional[List[str]] = None,
-        usecols: Optional[List[int]] = None,
+        usecols: Optional[Union[Sequence[int], Sequence[str]]] = None,
         *,
         required: bool = True,
     ) -> pd.DataFrame:
@@ -470,7 +470,9 @@ class DataLoader:
         Args:
             sheet_name: Имя листа в файле справочников
             strings: Столбцы, которые нужно привести к типу 'string'
-            usecols: Индексы столбцов для чтения (None = все)
+            usecols: Столбцы для чтения: индексы или ИМЕНА колонок (None = все).
+                Имена — предпочтительный способ (см. config.settings.REFERENCE_CONFIGS):
+                вставка новой колонки в лист не сдвигает разбор.
             required: Если True — падать при ошибке.
                       Если False — вернуть пустой DataFrame.
     

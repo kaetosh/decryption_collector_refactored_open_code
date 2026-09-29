@@ -33,6 +33,10 @@ from .file_utils import (
     format_filename_vectorized,
     normalize_ragged_tab_rows,
 )
+from .reference_scope import (
+    ScopeDiagnostics,
+    resolve_company_view,
+)
 
 __all__ = [
     # dataframe_utils
@@ -64,4 +68,7 @@ __all__ = [
     'convert_series',
     'refresh_rub_equivalent',
     'add_ruble_amount_column',
+    # reference_scope
+    'resolve_company_view',
+    'ScopeDiagnostics',
 ]

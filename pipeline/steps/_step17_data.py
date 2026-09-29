@@ -153,7 +153,8 @@ class Step17DataMixin:
     def _filter_91_transactions(
         self,
         transactions_all_df: pd.DataFrame,
-        reference_df: pd.DataFrame
+        reference_df: pd.DataFrame,
+        segment: str | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Фильтрует проводки по 91.01 и 91.02, подтягивает вид_дохода_расхода."""
         logger.debug("Фильтрация проводок 91.01 и 91.02")
@@ -177,8 +178,12 @@ class Step17DataMixin:
         df_9102['оборот, тыс.ед.'] = df_9102['Сумма'] / 1000
         df_9102['оборот, тыс.руб.'] = df_9102['Сумма_руб'] / 1000
 
-        df_9101 = self._add_income_expense_type(df_9101, reference_df, is_income=True)
-        df_9102 = self._add_income_expense_type(df_9102, reference_df, is_income=False)
+        df_9101 = self._add_income_expense_type(
+            df_9101, reference_df, is_income=True, segment=segment
+        )
+        df_9102 = self._add_income_expense_type(
+            df_9102, reference_df, is_income=False, segment=segment
+        )
 
         logger.debug(
             "91.01: {} строк, 91.02: {} строк",
@@ -193,6 +198,7 @@ class Step17DataMixin:
         df: pd.DataFrame,
         reference_df: pd.DataFrame,
         account_label: str,
+        segment: str | None = None,
     ) -> pd.Series:
         """
         Разрешает тип ОПУ по ключу, не выбирая произвольную строку.
@@ -200,12 +206,26 @@ class Step17DataMixin:
         Ключ '_key' должен быть уже построен в df и reference_df (см.
         build_composite_key) — строить его здесь дублирует логику и
         рисует расхождение, если в разных местах срезы differ.
+
+        Порядок разрешения — от надёжного источника к менее надёжному:
+        1. по ключу ровно один тип — присваивается он;
+        2. несколько типов: строки с подтверждённым признаком ППА (корр.счёт из
+           PPA_ACCOUNTS и объект с префиксом 'ППА') получают тип ППА;
+        3. остальные строки: тип ищется среди строк меппинга СЕГМЕНТА компании
+           (индивидуальные строки компании живут в блоке её сегмента) — если
+           там ровно один тип, присваивается он. Благодаря этому статья, которая
+           у одной компании означает другое (например «Расходы по процентам
+           аренда» вместо «Аренда»), не смешивается с общим блоком справочника;
+        4. иначе — ReferenceMismatchError с диагностикой (произвольный выбор
+           первой строки запрещён).
         """
         reference = reference_df
-        candidates = {
-            key: frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
-            for key, frame in reference.groupby('_key', sort=False)
-        }
+        candidates = self._build_type_candidates(reference)
+        segment_candidates = (
+            self._build_type_candidates(reference[reference['сегмент'] == segment])
+            if segment and 'сегмент' in reference.columns
+            else {}
+        )
 
         corr = df['Корр.счет'].astype(str)
         ppa_account_mask = corr.str.startswith(AccountConstants.PPA_ACCOUNTS, na=False)
@@ -238,7 +258,22 @@ class Step17DataMixin:
             ppa_rows = key_mask & ppa_mask
             if ppa_rows.any() and expected_type in key_candidates:
                 resolved.loc[ppa_rows] = expected_type
-            ambiguous_mask.loc[key_mask & resolved.isna()] = True
+
+            unresolved = key_mask & resolved.isna()
+            if not unresolved.any():
+                continue
+
+            segment_types = segment_candidates.get(key, [])
+            if len(segment_types) == 1:
+                resolved.loc[unresolved] = segment_types[0]
+                logger.info(
+                    "Тип ОПУ по счёту {} для ключа '{}' определён по сегменту '{}' "
+                    "компании: '{}'",
+                    account_label, key, segment, segment_types[0],
+                )
+                continue
+
+            ambiguous_mask.loc[unresolved] = True
 
         df['вид_дохода_расхода'] = resolved
         if ambiguous_mask.any():
@@ -250,23 +285,41 @@ class Step17DataMixin:
             problem_data['допустимые_типы'] = problem_data['ключ_поиска'].map(
                 lambda key: ' | '.join(candidates.get(key, []))
             )
+            problem_data['типы_по_сегменту_компании'] = problem_data['ключ_поиска'].map(
+                lambda key: ' | '.join(segment_candidates.get(key, []))
+            )
             raise ReferenceMismatchError(
                 message=(
                     f"В справочнике Меппинг_опу для {int(ambiguous_mask.sum())} строк "
                     f"по счёту {account_label} найдено несколько бизнес-типов. "
-                    "Строки с подтверждённым объектом ППА разрешены; остальные "
-                    "требуют уточнения справочника."
+                    "Строки с подтверждённым объектом ППА разрешены; остальным тип "
+                    "не удалось определить и по сегменту компании — требуется "
+                    "уточнение справочника."
                 ),
                 problem_data=problem_data,
                 reference_name="Меппинг_опу",
             )
         return resolved
 
+    @staticmethod
+    def _build_type_candidates(reference: pd.DataFrame) -> dict:
+        """
+        Возвращает {ключ '_key': [уникальные виды дохода/расхода]}.
+
+        Вынесено отдельно: тот же расчёт нужен и по всему справочнику, и по
+        блоку сегмента компании (см. _resolve_income_expense_mapping).
+        """
+        return {
+            key: frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
+            for key, frame in reference.groupby('_key', sort=False)
+        }
+
     def _add_income_expense_type(
         self,
         df: pd.DataFrame,
         reference_df: pd.DataFrame,
-        is_income: bool
+        is_income: bool,
+        segment: str | None = None,
     ) -> pd.DataFrame:
         """Подтягивает вид_дохода_расхода из справочника Меппинг_опу."""
         account_label = self.ACCOUNT_OTHER_INCOME if is_income else self.ACCOUNT_OTHER_EXPENSE
@@ -292,7 +345,7 @@ class Step17DataMixin:
         )
         df['_key'] = build_composite_key(df, 'счет', 'доход_расход', truncate_a=5)
 
-        self._resolve_income_expense_mapping(df, reference_df, account_label)
+        self._resolve_income_expense_mapping(df, reference_df, account_label, segment=segment)
 
         unmapped_mask = df['вид_дохода_расхода'].isna()
 

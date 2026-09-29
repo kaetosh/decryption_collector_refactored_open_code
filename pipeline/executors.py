@@ -19,7 +19,7 @@ from loguru import logger
 from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError, PeriodMismatchError, TooManyFilesError
-from pipeline.step_config import OpuReportConstants
+from pipeline.step_config import BalanceReportConstants, OpuReportConstants
 from config.settings import (
     ACCOUNT_CARDS_DIR,
     ACCOUNTS_OSV_DIR,
@@ -39,8 +39,9 @@ from io_module import (
     safe_build_cover_rows,
     sort_inbox_by_expected_list,
 )
-from io_module.output_manager import get_run_dir
+from io_module.output_manager import get_output_dir, get_run_dir, get_run_id
 from logging_handling.logger_config import format_warnings_summary
+from utils.reference_scope import resolve_company_view
 from utils.currency_utils import (
     needs_conversion,
     get_currency,
@@ -437,6 +438,134 @@ def _validate_and_enrich_company_info(context: ProcessingContext) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 2а. Индивидуальный меппинг компании (колонка «компания» в листах меппинга)
+# ─────────────────────────────────────────────────────────────────────────────
+def _apply_company_reference_scope(context: ProcessingContext) -> None:
+    """
+    Приводит меппинги к «взгляду компании»: строки с её именем в колонке
+    «компания» (config.settings.REFERENCE_SCOPE_COL) перекрывают универсальные
+    («все»), строки других компаний отбрасываются.
+
+    Вызывается после валидации компании (известны company и список компаний
+    «КомпанииГруппы») и до старта конвейера — поэтому шаги баланса
+    (4/5/7/8/9/13) и ОПУ (14/17/19) читают уже готовый взгляд, а не собирают
+    его каждый сам. Компании без индивидуальных строк получают справочник
+    без изменений (см. utils/reference_scope.resolve_company_view).
+    """
+    companies_df = context.references.get('компании_группы')
+    known_companies: tuple[str, ...] = ()
+    if companies_df is not None and ColumnNames.SHORT_COMPANY_NAME in companies_df.columns:
+        known_companies = tuple(
+            companies_df[ColumnNames.SHORT_COMPANY_NAME].dropna().astype(str)
+        )
+
+    targets = (
+        ('меппинг_опу', 'Меппинг_опу', OpuReportConstants.REFERENCE_ROW_KEY),
+        ('меппинг_баланс', 'Меппинг_бб', BalanceReportConstants.MAPPING_KEYS),
+    )
+
+    entries: list[dict] = []
+    diagnostics: list = []
+
+    for reference_key, sheet_name, key_cols in targets:
+        reference = context.references.get(reference_key)
+        if reference is None or reference.empty:
+            continue
+
+        view, diag = resolve_company_view(
+            reference,
+            context.company,
+            key_cols,
+            reference_name=sheet_name,
+            known_companies=known_companies,
+        )
+        if view is not None:
+            context.references[reference_key] = view
+
+        diagnostics.append(diag)
+        if diag.applied:
+            entries.append({
+                'лист': sheet_name,
+                'индивидуальных_строк': diag.individual_rows,
+                'перекрыто_универсальных': diag.overridden_rows,
+            })
+
+    # Сводка для титульного листа отчёта (io_module/report_cover.py)
+    context.data['reference_scope_summary'] = {
+        'company': context.company,
+        'entries': entries,
+        'unknown_scope_values': sorted({
+            value for diag in diagnostics for value in diag.unknown_scope_values
+        }),
+    }
+
+    _save_reference_scope_diagnostics(diagnostics, context)
+
+
+def _save_reference_scope_diagnostics(diagnostics: list, context: ProcessingContext) -> None:
+    """
+    Пишет диагностику индивидуального меппинга в mismatches/ — если есть что
+    показать: перекрытые строки, индивидуальные строки без пары в универсальном
+    блоке (возможна опечатка в ключевых колонках), неизвестные значения колонки
+    «компания» (опечатка в имени компании).
+
+    Конвейер ничего не останавливает: отчёт нужен для аудита правок справочника,
+    поэтому ошибки сохранения логируются (как в Step._save_reference_mismatch_report).
+    """
+    overridden = [
+        diag.overridden_frame for diag in diagnostics
+        if diag.overridden_frame is not None and not diag.overridden_frame.empty
+    ]
+    individual_only = [
+        diag.individual_only_frame for diag in diagnostics
+        if diag.individual_only_frame is not None and not diag.individual_only_frame.empty
+    ]
+    unknown = [
+        pd.DataFrame({
+            'лист': diag.reference_name,
+            'значение_в_колонке_компания': diag.unknown_scope_values,
+        })
+        for diag in diagnostics if diag.unknown_scope_values
+    ]
+
+    if not (overridden or individual_only or unknown):
+        return
+
+    try:
+        filename = f"reference_scope_{Step._slugify(context.company)}_{get_run_id()}.xlsx"
+        output_path = get_output_dir('mismatches') / filename
+
+        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+            if overridden:
+                pd.concat(overridden, ignore_index=True).to_excel(
+                    writer, sheet_name='Перекрытые строки', index=False,
+                )
+            if individual_only:
+                pd.concat(individual_only, ignore_index=True).to_excel(
+                    writer, sheet_name='Индивидуальные без пары', index=False,
+                )
+            if unknown:
+                pd.concat(unknown, ignore_index=True).to_excel(
+                    writer, sheet_name='Неизвестные компании', index=False,
+                )
+
+        logger.info(
+            "[FOLDER] Диагностика индивидуального меппинга сохранена в: {}",
+            to_relative(output_path),
+        )
+    except PermissionError:
+        logger.error(
+            "[!] НЕ УДАЛОСЬ сохранить диагностику индивидуального меппинга: "
+            "файл открыт в другой программе (Excel?) или нет прав на запись.",
+        )
+    except Exception as save_error:
+        logger.warning(
+            "[!] Не удалось сохранить диагностику индивидуального меппинга: {}",
+            save_error,
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 3. Оркестратор — теперь читается как план действий
 # ─────────────────────────────────────────────────────────────────────────────
 def initialize_context() -> ProcessingContext:
@@ -468,6 +597,11 @@ def initialize_context() -> ProcessingContext:
 
     # Шаг 4. Валидация компании и обогащение контекста
     _validate_and_enrich_company_info(context)
+
+    # Шаг 5. Индивидуальный меппинг компании: строки с её именем в колонке
+    # «компания» перекрывают универсальные («все») — один раз на прогон, до
+    # старта конвейера, чтобы все шаги читали один и тот же взгляд
+    _apply_company_reference_scope(context)
 
     logger.debug(
         "Контекст инициализирован: компания={}, период={}, строк в ОСВ={}, справочников={}",

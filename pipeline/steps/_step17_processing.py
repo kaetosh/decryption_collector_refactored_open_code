@@ -170,6 +170,131 @@ class Step17ProcessingMixin:
 
         return df_9101, df_9102
 
+    def _pull_contractors_from_ppa_by_rbp(
+        self,
+        df_9101: pd.DataFrame,
+        df_9102: pd.DataFrame,
+        reference_ppa_df: pd.DataFrame,
+        name_company: str = '',
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Подтягивает контрагентов из справочника ППА по колонке 'рбп'.
+
+        Строки 91.01/91.02, у которых объект противоположной стороны
+        (Субконто Дт_1 для доходов, Субконто Кт_1 для расходов) — РБП из
+        справочника ППА (например «Проценты ППА Договор аренды № …»),
+        получают контрагента из ППА. Для процентов по аренде это единственный
+        источник: в проводке на стороне Кт стоит 97.21 и объект РБП, поэтому
+        обычное извлечение контрагентов (_extract_contractors) даёт 'не_указано'.
+
+        Вызывается после _process_ppa: контрагенты, уже подставленные по
+        объектам ОС (выбытие прав пользования / переход в собственность), не
+        перезаписываются. Объекты с признаком ППА, которых нет в колонке 'рбп',
+        попадают в диагностику: строгий режим (STRICT_PPA_MAPPING_CHECK)
+        останавливает шаг, мягкий — сохраняет отчёт в mismatches/ и продолжает.
+        """
+        marker = StepConstants.PPA_OBJECT_MARKER
+        mapping_rbp = self._build_ppa_mapping(reference_ppa_df, 'рбп')
+        if not mapping_rbp.empty:
+            mapping_rbp = mapping_rbp[
+                mapping_rbp.notna()
+                & mapping_rbp.astype(str).ne(StepConstants.UNSPECIFIED)
+            ]
+
+        # Объект-РБП лежит на противоположной стороне проводки (та же логика
+        # выбора колонки, что в _extract_contractors)
+        sides = ((df_9101, 'Субконто Дт_1'), (df_9102, 'Субконто Кт_1'))
+
+        filled_total = 0
+        problem_frames: list[pd.DataFrame] = []
+        missing_values: set[str] = set()
+
+        for frame, object_column in sides:
+            if frame is None or frame.empty:
+                continue
+            if object_column not in frame.columns or 'контрагент' not in frame.columns:
+                continue
+
+            objects = frame[object_column].astype('string')
+            marker_mask = (
+                objects.fillna('')
+                .str.contains(marker, case=False, regex=False, na=False)
+            )
+            contractors = frame['контрагент'].astype('string')
+            empty_contractor = contractors.isna() | contractors.eq(StepConstants.UNSPECIFIED)
+
+            if mapping_rbp.empty:
+                mapped = pd.Series(pd.NA, index=frame.index, dtype='string')
+            else:
+                mapped = objects.map(mapping_rbp).astype('string')
+
+            fill_mask = marker_mask & empty_contractor & mapped.notna()
+            if fill_mask.any():
+                frame.loc[fill_mask, 'контрагент'] = mapped.loc[fill_mask]
+                filled_total += int(fill_mask.sum())
+
+            unmapped_mask = marker_mask & empty_contractor & mapped.isna()
+            if unmapped_mask.any():
+                rows = frame.loc[unmapped_mask].copy()
+                rows['рбп_ппа'] = objects.loc[unmapped_mask]
+                missing_values.update(rows['рбп_ппа'].dropna().astype(str))
+                problem_frames.append(rows)
+
+        if filled_total:
+            logger.info(
+                "[OK] Подтянуто контрагентов из справочника ППА (по колонке 'рбп'): {}",
+                filled_total,
+            )
+
+        if not problem_frames:
+            return df_9101, df_9102
+
+        missing_by_type = {'рбп': sorted(missing_values)}
+        detail_source = pd.concat(problem_frames, ignore_index=True)
+        problem_data = self.make_missing_values_problem_data(
+            missing_by_type,
+            name_company,
+            source_by_type={
+                'рбп': (
+                    detail_source,
+                    'рбп_ппа',
+                    ['оборот, тыс.ед.', 'оборот, тыс.руб.'],
+                ),
+            },
+        )
+
+        error = MissingMappingError(
+            message=(
+                f"В справочнике ППА (колонка 'рбп') нет {len(missing_by_type['рбп'])} "
+                f"объектов по компании '{name_company}', по которым нужно подтянуть "
+                f"контрагента для строк 91.01/91.02 (проценты/РБП ППА). Дополните "
+                f"лист ППА в Справочники.xlsx. "
+                + self.hint_companies_in_reference(reference_ppa_df, 'наименование_компании')
+            ),
+            problem_data=problem_data,
+            reference_name="ППА",
+            searched_company=name_company,
+        )
+
+        if STRICT_PPA_MAPPING_CHECK:
+            raise error
+
+        logger.warning(
+            "[!] Мягкий режим (STRICT_PPA_MAPPING_CHECK=False): в справочнике ППА "
+            "(колонка 'рбп') нет {} объектов по компании '{}' — контрагент не "
+            "подтянут, строки остались с '{}'.",
+            len(missing_by_type['рбп']), name_company, StepConstants.UNSPECIFIED,
+        )
+        try:
+            self._save_reference_mismatch_report(error)
+        except Exception as report_exc:
+            logger.warning(
+                "[!] Не удалось сохранить отчёт по объектам 'рбп' из ППА: {}",
+                report_exc,
+            )
+
+        return df_9101, df_9102
+
     @staticmethod
     def _build_ppa_mapping(
         reference_ppa_df: pd.DataFrame,
