@@ -91,9 +91,23 @@ COVER_WARNINGS_LIMIT = 12
 
 # Подпапки папки запуска с диагностикой: имя -> что внутри
 DIAGNOSTIC_SUBFOLDERS: tuple[tuple[str, str], ...] = (
-    ("mismatches", "расхождения — требуют проверки и правки справочников"),
+    ("mismatches", "проблемные данные — требуют разбора"),
     ("warnings", "данные, восстановленные программой автоматически"),
 )
+
+# Диагностика, которая пишется при ШТАТНОЙ работе шагов, а не из-за ошибки.
+# Один префикс на папку `mismatches` вводил в заблуждение: подпись «требуют
+# правки» стояла и у файлов, которые пишутся при каждом прогоне по умолчанию
+# и ничего не требуют. Подпись выбирается по имени файла (см. _diagnostic_hint).
+#   reference_scope_*        — аудит применённых индивидуальных правок
+#                              меппинга (pipeline/executors.py);
+#   step20/step21_collapse_* — отчёты свёртки статей ОПУ и баланса.
+DIAGNOSTIC_INFORMATIONAL_PREFIXES: tuple[str, ...] = (
+    "reference_scope_",
+    "step20_collapse_opu_",
+    "step21_collapse_balance_",
+)
+INFORMATIONAL_HINT = "сводная информация о работе программы, правок не требует"
 
 # Служебные файлы Excel (~$...) не показываем в легенде диагностики
 _SORT_REPORT_NAME = "sort_report.xlsx"
@@ -560,25 +574,56 @@ def _diagnostic_rows() -> list[tuple[str, str]]:
     return rows
 
 
+def _diagnostic_hint(filename: str, default_hint: str) -> str:
+    """
+    Подпись файла диагностики: у штатной информации она своя.
+
+    Папка `mismatches` на самом деле неоднородна: туда пишутся и настоящие
+    проблемные данные (mismatch_*, missing_files_*), и файлы, которые создаются
+    при штатной работе шагов (аудит меппинга, отчёты свёртки). Одна подпись на
+    всю папку заставляла получателя искать ошибки там, где их нет.
+    """
+    if filename.startswith(DIAGNOSTIC_INFORMATIONAL_PREFIXES):
+        return INFORMATIONAL_HINT
+    return default_hint
+
+
+def _is_informational(filename: str) -> bool:
+    """Файл диагностики создан при штатной работе шага, а не из-за ошибки."""
+    return filename.startswith(DIAGNOSTIC_INFORMATIONAL_PREFIXES)
+
+
 def _files_in_folder(
     folder: Path,
     prefix: str,
     hint: str,
     only: Optional[str] = None,
 ) -> list[tuple[str, str]]:
-    """Список файлов папки (без служебных ~$) в виде строк легенды."""
+    """
+    Список файлов папки (без служебных ~$) в виде строк легенды.
+
+    Подпись выбирается по имени файла, а не по папке (см. _diagnostic_hint).
+    Порядок: сначала то, что требует разбора, затем штатная информация —
+    на титульном листе порядок читается как приоритет. Внутри групп файлы
+    остаются отсортированы по имени (сортировка устойчива).
+    """
     if not folder.is_dir():
         return []
     try:
         entries = sorted(folder.iterdir())
     except OSError:
         return []
-    return [
-        (f"{prefix}{entry.name}", hint)
+    files = [
+        entry
         for entry in entries
         if entry.is_file()
         and not entry.name.startswith(EXCEL_TEMP_PREFIX)
         and (only is None or entry.name == only)
+    ]
+    files.sort(key=lambda entry: _is_informational(entry.name))
+    return [
+        (f"{prefix}{entry.name}", _diagnostic_hint(entry.name, hint))
+        for entry in files
     ]
 
 

@@ -10,7 +10,11 @@
   4. Запись в реальный xlsx: «О отчёте» первым листом, цвета ярлычков,
      ширины колонок, перенос текста, выделение заголовков разделов.
   5. Служебные файлы ~$ не попадают в список диагностики.
-  6. Сбой при сборе строк не превращается в падение сохранения отчёта.
+  6. Подпись файла диагностики — по его природе, а не по папке: mismatch_*
+     требует разбора, аудит меппинга и отчёты свёртки (reference_scope_*,
+     step20/step21_collapse_*) помечены как штатная информация; проблемные
+     файлы стоят в списке выше информационных.
+  7. Сбой при сборе строк не превращается в падение сохранения отчёта.
 
 Запуск: python _smoke_report_cover.py
 """
@@ -87,6 +91,9 @@ def main() -> None:
     (tmp_dir / 'warnings').mkdir()
     (tmp_dir / 'mismatches' / 'mismatch_step_19.xlsx').write_bytes(b'x')
     (tmp_dir / 'mismatches' / '~$mismatch_step_19.xlsx').write_bytes(b'x')
+    (tmp_dir / 'mismatches' / 'reference_scope_РЗК.xlsx').write_bytes(b'x')
+    (tmp_dir / 'mismatches' / 'step20_collapse_opu_РЗК.xlsx').write_bytes(b'x')
+    (tmp_dir / 'mismatches' / 'step21_collapse_balance_РЗК.xlsx').write_bytes(b'x')
     (tmp_dir / 'warnings' / 'nds_missing_rows_РЗК.xlsx').write_bytes(b'x')
     (tmp_dir / 'sort_report.xlsx').write_bytes(b'x')
 
@@ -188,9 +195,34 @@ def main() -> None:
     check(bool(ws.cell(section_row, 1).fill.start_color.rgb), 'заголовок раздела залит')
 
     print('\n6. Диагностика прогона')
+    rows = rc.build_cover_rows(make_context(), warnings=[])
     diagnostics = [label for label, _ in rows if '/' in label or label == 'sort_report.xlsx']
     check(not any('~$' in name for name in diagnostics), f'служебные ~$ исключены: {diagnostics}')
     check('sort_report.xlsx' in diagnostics, 'sort_report в списке диагностики')
+
+    # Подпись файла — по его природе, а не по папке: mismatch_* требует разбора,
+    # а аудит меппинга и отчёты свёртки пишутся при штатной работе шагов.
+    hints = {label: value for label, value in rows if '/' in label}
+    check(
+        'разбора' in hints['mismatches/mismatch_step_19.xlsx'],
+        f'проблемные данные помечены как требующие разбора: {hints["mismatches/mismatch_step_19.xlsx"]}',
+    )
+    for name in ('reference_scope_РЗК.xlsx', 'step20_collapse_opu_РЗК.xlsx',
+                 'step21_collapse_balance_РЗК.xlsx'):
+        check(
+            hints.get(f'mismatches/{name}') == rc.INFORMATIONAL_HINT,
+            f'{name} — штатная информация, а не расхождение',
+        )
+    check(
+        hints['warnings/nds_missing_rows_РЗК.xlsx'].startswith('данные, восстановленные'),
+        'папка warnings сохранила прежнюю подпись',
+    )
+    # Порядок читается как приоритет: сначала то, что требует разбора.
+    order = [label for label in diagnostics if label.startswith('mismatches/')]
+    check(
+        order[0] == 'mismatches/mismatch_step_19.xlsx',
+        f'проблемный файл выше информационных: {order}',
+    )
 
     print('\n7. Сбой при сборе не ломает сохранение')
     check(rc.safe_build_cover_rows(object()) == [], 'битый контекст -> пустой лист, без исключения')
