@@ -202,12 +202,12 @@ class Step17ProcessingMixin:
            'ос_после_перехода_в_собственность').
         """
         marker = StepConstants.PPA_OBJECT_MARKER
+        # Записи с незаполненным контрагентом ('не_указано', пусто) уже
+        # отброшены в _build_ppa_mapping — и по ключу 'рбп', и по значению:
+        # такой РБП считается отсутствующим в справочнике и уходит в
+        # диагностику ниже (строгий/мягкий режим), а не подставляет
+        # контрагента-заглушку
         mapping_rbp = self._build_ppa_mapping(reference_ppa_df, 'рбп')
-        if not mapping_rbp.empty:
-            mapping_rbp = mapping_rbp[
-                mapping_rbp.notna()
-                & mapping_rbp.astype(str).ne(StepConstants.UNSPECIFIED)
-            ]
 
         # Объекты ОС того же ППА (ос_ппа / ос_после_перехода_в_собственность):
         # проводка с объектом ОС (списание, амортизация — например 91.02/02.03
@@ -295,9 +295,10 @@ class Step17ProcessingMixin:
         error = MissingMappingError(
             message=(
                 f"В справочнике ППА (колонка 'рбп') нет {len(missing_by_type['рбп'])} "
-                f"объектов по компании '{name_company}', по которым нужно подтянуть "
-                f"контрагента для строк 91.01/91.02 (проценты/РБП ППА). Дополните "
-                f"лист ППА в Справочники.xlsx. "
+                f"объектов по компании '{name_company}' либо у них не заполнен "
+                f"контрагент (стоит '{StepConstants.UNSPECIFIED}') — по этим объектам "
+                f"нужно подтянуть контрагента для строк 91.01/91.02 "
+                f"(проценты/РБП ППА). Дополните лист ППА в Справочники.xlsx. "
                 + self.hint_companies_in_reference(reference_ppa_df, 'наименование_компании')
             ),
             problem_data=problem_data,
@@ -310,8 +311,8 @@ class Step17ProcessingMixin:
 
         logger.warning(
             "[!] Мягкий режим (STRICT_PPA_MAPPING_CHECK=False): в справочнике ППА "
-            "(колонка 'рбп') нет {} объектов по компании '{}' — контрагент не "
-            "подтянут, строки остались с '{}'.",
+            "(колонка 'рбп') нет {} объектов по компании '{}' либо у них не "
+            "заполнен контрагент — контрагент не подтянут, строки остались с '{}'.",
             len(missing_by_type['рбп']), name_company, StepConstants.UNSPECIFIED,
         )
         try:
@@ -324,8 +325,8 @@ class Step17ProcessingMixin:
 
         return df_9101, df_9102
 
-    @staticmethod
     def _build_ppa_mapping(
+        self,
         reference_ppa_df: pd.DataFrame,
         key_column: str,
     ) -> pd.Series:
@@ -336,16 +337,45 @@ class Step17ProcessingMixin:
         полностью) — тогда возвращается пустой маппинг: все строки с такими
         объектами ОС не смапятся и штатно попадут в MissingMappingError
         (_validate_ppa_mapping), а не в KeyError здесь.
+
+        Служебная заглушка 'не_указано' (а также пустые строки и NaN) не
+        является ни ключом, ни значением (`Step._is_service_value`): строка
+        ППА с заполненным ключом, но незаполненным контрагентом — это
+        незаполненный справочник. Такие строки исключаются, поэтому объект
+        уходит в штатную диагностику (строгий режим — MissingMappingError,
+        мягкий — отчёт в mismatches/ + замена на '3 лица'), а не получает
+        контрагента 'не_указано' молча. Регресс 30.09.2026 (шаг 6, группа ОС
+        аренды/лизинга) — та же логика для контрагентов ППА в шаге 17.
+        Фильтрация идёт до drop_duplicates: строка с реальным контрагентом
+        выигрывает у строки-заглушки с тем же ключом.
         """
-        if key_column not in reference_ppa_df.columns:
-            logger.warning(
-                "[!] В справочнике ППА нет колонки '{}' — меппинг по ней невозможен.",
+        for column in (key_column, 'контрагент'):
+            if column not in reference_ppa_df.columns:
+                logger.warning(
+                    "[!] В справочнике ППА нет колонки '{}' — меппинг по '{}' "
+                    "невозможен, объекты уйдут в диагностику.",
+                    column,
+                    key_column,
+                )
+                return pd.Series(dtype='string')
+
+        key_service = self._is_service_value(reference_ppa_df[key_column])
+        value_service = self._is_service_value(reference_ppa_df['контрагент'])
+        is_service = key_service | value_service
+
+        skipped = int(is_service.sum())
+        if skipped:
+            logger.debug(
+                "Меппинг ППА ({} -> контрагент): исключено служебных строк: {} "
+                "(в ключе: {}, в значении: {})",
                 key_column,
+                skipped,
+                int(key_service.sum()),
+                int(value_service.sum()),
             )
-            return pd.Series(dtype='string')
 
         return (
-            reference_ppa_df
+            reference_ppa_df.loc[~is_service]
             .drop_duplicates(subset=key_column)
             .set_index(key_column)['контрагент']
         )
@@ -443,9 +473,10 @@ class Step17ProcessingMixin:
                 message=(
                     f"В справочнике ППА отсутствуют объекты ОС для подтягивания "
                     f"контрагентов при выбытии прав пользования активами / изменении "
-                    f"условий договоров аренды (шаг 17) по компании '{name_company}'. "
-                    f"Колонки без меппинга: {sorted(missing_by_type)}. Дополните лист "
-                    f"ППА в Справочники.xlsx. "
+                    f"условий договоров аренды (шаг 17) по компании '{name_company}' "
+                    f"либо у них не заполнен контрагент (стоит "
+                    f"'{StepConstants.UNSPECIFIED}'). Колонки без меппинга: "
+                    f"{sorted(missing_by_type)}. Дополните лист ППА в Справочники.xlsx. "
                     + self.hint_companies_in_reference(
                         reference_ppa_df, 'наименование_компании'
                     )
@@ -486,7 +517,8 @@ class Step17ProcessingMixin:
         all_missing = sorted(missing_os_ppa | missing_os_transfer)
         logger.warning(
             "[!] Мягкий режим (STRICT_PPA_MAPPING_CHECK=False): в справочнике ППА "
-            "отсутствуют {} объектов ОС для компании '{}' — заменяются на '{}'",
+            "отсутствуют {} объектов ОС для компании '{}' либо у них не заполнен "
+            "контрагент — заменяются на '{}'",
             len(all_missing), name_company, StepConstants.THIRD_PARTY,
         )
         for item in all_missing:
@@ -508,7 +540,9 @@ class Step17ProcessingMixin:
                 unmapped_mask = (
                     mask
                     & df['объект для изм ппа'].isin(missing_set)
-                    & df['контрагент'].isna()
+                    # Незаполненным считается и контрагент-заглушка: иначе
+                    # 'не_указано' из ППА не заменилось бы на '3 лица'
+                    & self._is_service_value(df['контрагент'])
                 )
                 df.loc[unmapped_mask, 'контрагент'] = StepConstants.THIRD_PARTY
 

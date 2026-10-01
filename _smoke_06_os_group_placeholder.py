@@ -16,18 +16,36 @@
 5. Полная цепочка шага 6: синтетический счёт 05 и счёт 20 с пустым Субконто
    получают 'не_указано', а 76.07 и 97.21 — реальные группы.
 
+Регресс 30.09.2026 (прогон «УБ 8мес2026»): заглушка 'не_указано' встречается
+не только в ключе ППА, но и в ЗНАЧЕНИИ (у договоров № 141/24 и № 142/24
+заполнены договор и РБП, а группа ОС — 'не_указано'). Такая строка мимо
+проверок не проходила: ключ в словаре есть, значение — строка, а не NaN,
+поэтому шаг 6 молчал, а шаг 13 «меппинг баланса» падал на немеппленных
+строках 76.07.1 / 97.21.
+
+6. _create_mapping исключает строку, где ЗНАЧЕНИЕ — заглушка/пусто.
+7. Дубль ключа: заглушка первой, реальная группа второй -> в словаре реальная.
+8. Строгий режим: строки аренды/лизинга с заглушкой -> MissingOSGroupError
+   (76.07.2 — промежуточная сумма, не-арендные счета — не обязательные).
+9. Мягкий режим: тот же кейс — WARNING без исключения, шаг продолжается.
+
 Запуск: conda run -n fl_acc_card python -u _smoke_06_os_group_placeholder.py
 '''
 import pandas as pd
 
+import pipeline.steps.step_06_add_os_group as step6_module
+from pipeline.errors import MissingOSGroupError
 from pipeline.steps.step_06_add_os_group import Step6AddOSGroupColumnStep
 
 failures: list = []
+counters = {'passed': 0, 'total': 0}
 
 
 def check(condition: bool, message: str) -> None:
     '''Мини-ассерт с накоплением результата.'''
+    counters['total'] += 1
     if condition:
+        counters['passed'] += 1
         print('[OK] ' + message)
     else:
         failures.append(message)
@@ -104,11 +122,132 @@ check(got['97.21'] == 'Здания', '97.21: группа по РБП сохр�
 check(got['60.01'] == UNSPEC, 'прочие счета: штатная заглушка не_указано')
 
 # ======================================================================
+# 6-7. Заглушка в ЗНАЧЕНИИ справочника ППА (регресс 30.09.2026, «УБ 8мес2026»)
+# ======================================================================
+ppa_stub_group = pd.DataFrame({
+    'наименование_компании': ['УБ', 'УБ', 'УБ'],
+    'договор_аренды': ['Договор 141/24', 'Договор 142/24', 'Договор В'],
+    'рбп': ['Проценты ППА 141', 'Проценты ППА 142', 'РБП Лизинг 1'],
+    'группа_ос': [UNSPEC, '', 'Здания'],
+})
+
+by_contract = step._create_mapping(ppa_stub_group, 'договор_аренды', 'группа_ос')
+by_rbp = step._create_mapping(ppa_stub_group, 'рбп', 'группа_ос')
+check(
+    'Договор 141/24' not in by_contract,
+    '_create_mapping: договор с группой не_указано исключён (регресс УБ)',
+)
+check(
+    'Договор 142/24' not in by_contract,
+    '_create_mapping: договор с пустой группой исключён',
+)
+check(
+    by_contract.get('Договор В') == 'Здания',
+    '_create_mapping: строка с реальной группой сохранена',
+)
+check(
+    'Проценты ППА 141' not in by_rbp,
+    '_create_mapping: РБП с группой не_указано исключён',
+)
+
+dup = pd.DataFrame({
+    'договор_аренды': ['Договор Д', 'Договор Д'],
+    'группа_ос': [UNSPEC, 'Здания'],
+})
+check(
+    step._create_mapping(dup, 'договор_аренды', 'группа_ос').get('Договор Д') == 'Здания',
+    'дубль ключа: реальная группа выигрывает у строки-заглушки',
+)
+
+ppa_stub_contract = pd.DataFrame({
+    'рбп': ['РБП 1', 'РБП 2'],
+    'договор_аренды': ['Договор А', UNSPEC],
+})
+check(
+    'РБП 2' not in step._create_mapping(ppa_stub_contract, 'рбп', 'договор_аренды'),
+    'contract_by_rbp: РБП с договором-заглушкой исключён',
+)
+
+# ======================================================================
+# 8-9. Обязательный признак у строк аренды/лизинга: строгий/мягкий режим
+# ======================================================================
+osv_lease = pd.DataFrame({
+    'счет': pd.Series(['76.07.1', '97.21', '76.07.2', '60.01'], dtype='string'),
+    'субконто': pd.Series(['Аренда', 'Арендные платежи', UNSPEC, 'Контрагент'], dtype='string'),
+    'допсубконто': pd.Series(
+        ['ООО Арендодатель', 'Проценты ППА 141', UNSPEC, 'ООО КА'], dtype='string',
+    ),
+    'подвид_задолженности': pd.Series(
+        ['Аренда', 'Аренда', UNSPEC, UNSPEC], dtype='string',
+    ),
+    'группа_ос_аренды_лизинга': pd.Series([UNSPEC, None, UNSPEC, UNSPEC], dtype='string'),
+})
+mask_97_lease = (
+    osv_lease['подвид_задолженности'].isin(['Аренда', 'Лизинг'])
+    & (osv_lease['счет'] == '97.21')
+)
+
+check(
+    step._is_service_value(
+        pd.Series([UNSPEC, ' Здания ', None, ''], dtype='string')
+    ).tolist() == [True, False, True, True],
+    '_is_service_value: заглушка/пусто/NaN — служебные, пробелы обрезаются',
+)
+
+original_strict = step6_module.STRICT_OS_GROUP_CHECK
+strict_error = None
+step6_module.STRICT_OS_GROUP_CHECK = True
+try:
+    step._require_lease_os_group(osv_lease, mask_97_lease)
+except MissingOSGroupError as exc:
+    strict_error = exc
+finally:
+    step6_module.STRICT_OS_GROUP_CHECK = original_strict
+
+check(
+    strict_error is not None,
+    'строгий режим: заглушка у 76.07.1/97.21 -> MissingOSGroupError',
+)
+if strict_error is not None:
+    check(
+        list(strict_error.problem_data['счет']) == ['76.07.1', '97.21'],
+        'строгий режим: в problem_data только обязательные строки (76.07.2 вне аренды)',
+    )
+    check(
+        'листе ППА' in str(strict_error),
+        'строгий режим: подсказка про заполнение группы ОС в листе ППА',
+    )
+
+osv_ok = osv_lease.copy()
+osv_ok['группа_ос_аренды_лизинга'] = pd.Series(
+    ['Здания', 'Здания', UNSPEC, UNSPEC], dtype='string',
+)
+passed_ok = True
+step6_module.STRICT_OS_GROUP_CHECK = True
+try:
+    step._require_lease_os_group(osv_ok, mask_97_lease)
+except MissingOSGroupError:
+    passed_ok = False
+finally:
+    step6_module.STRICT_OS_GROUP_CHECK = original_strict
+check(passed_ok, 'строгий режим: заполненные группы проходят проверку без ошибки')
+
+soft_ok = True
+step6_module.STRICT_OS_GROUP_CHECK = False
+try:
+    step._require_lease_os_group(osv_lease, mask_97_lease)
+except MissingOSGroupError:
+    soft_ok = False
+finally:
+    step6_module.STRICT_OS_GROUP_CHECK = original_strict
+check(soft_ok, 'мягкий режим: тот же кейс — WARNING без исключения, шаг продолжается')
+
+# ======================================================================
 print('-' * 60)
 if failures:
     print('[FAIL] SMOKE_FAILED: ' + str(len(failures)))
     for item in failures:
         print('   - ' + item)
     raise SystemExit(1)
-print('[OK] SMOKE_OK')
+print('[OK] SMOKE_OK ({}/{})'.format(counters['passed'], counters['total']))
 

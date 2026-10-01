@@ -411,23 +411,37 @@ class Step6AddOSGroupColumnStep(Step):
     def _create_mapping(self, df: pd.DataFrame, key_col: str, value_col: str) -> dict:
         """
         Создает маппинг из DataFrame, исключая NaN и служебные значения
-        (заглушка 'не_указано' и пустые строки) в ключе.
+        (заглушка 'не_указано' и пустые строки) — и в ключе, и в значении.
 
         Заглушка 'не_указано' штатно присутствует в листе ППА (строки,
         где заполнена только часть колонок), и НЕ является бизнес-ключом:
         иначе placeholder из ОСВ (синтетические счета из общей ОСВ,
         строки с пустым Субконто) получал бы произвольную группу ОС
         либо чужой договор.
+
+        Заглушка в ЗНАЧЕНИИ (регресс 30.09.2026, прогон «УБ 8мес2026») —
+        это незаполненная группа ОС / договор у реального ключа. Такая
+        строка тоже исключается: иначе в ОСВ уезжала строка 'не_указано',
+        её не ловила ни проверка ключей (ключ в словаре есть), ни проверка
+        через isna() (значение — строка, а не NaN), и шаг 13 «меппинг
+        баланса» падал на немеппленных позициях 76.07.1 / 97.21.
+        Фильтрация идёт ДО drop_duplicates, поэтому строка с реальным
+        значением выигрывает у строки-заглушки с тем же ключом.
         """
-        keys = df[key_col].astype('string').str.strip()
-        is_service = keys.fillna('').isin(['', self.UNSPECIFIED])
+        key_service = self._is_service_value(df[key_col])
+        value_service = self._is_service_value(df[value_col])
+        is_service = key_service | value_service
 
         skipped = int(is_service.sum())
         if skipped:
             logger.debug(
-                'Меппинг ППА ({}): исключены служебные значения: {} строк',
+                'Меппинг ППА ({} -> {}): исключено служебных строк: {} '
+                '(в ключе: {}, в значении: {})',
                 key_col,
+                value_col,
                 skipped,
+                int(key_service.sum()),
+                int(value_service.sum()),
             )
 
         return (
@@ -449,6 +463,66 @@ class Step6AddOSGroupColumnStep(Step):
         '''
         groups = osv_all_df['допсубконто'].map(os_group_by_rbp)
         return groups.where(osv_all_df['допсубконто'] != self.UNSPECIFIED)
+
+    def _require_lease_os_group(
+        self, osv_all_df: pd.DataFrame, mask_97: pd.Series
+    ) -> None:
+        """
+        Контроль обязательного признака: у строк аренды/лизинга группа ОС
+        должна быть проставлена.
+
+        Обязательные строки — счета 76.07/76.05.3 и 97.21 (Аренда/Лизинг),
+        кроме субсчёта 76.07.2: это промежуточная сумма, остаток по которой
+        НЕ входит в задолженность по аренде, поэтому группа ОС для неё не
+        требуется (ожидаемое 'не_указано'). prefix-match защищает от любых
+        вложенных субсчетов (76.07.2, 76.07.2.1, …).
+
+        Незаполненной считается не только NaN, но и служебная заглушка
+        'не_указано': так мимо проверки не проскакивает значение из ППА
+        (`группа_ос` = 'не_указано' у реального договора/РБП) — регресс
+        30.09.2026, прогон «УБ 8мес2026»: шаг 6 молчал, а шаг 13 «меппинг
+        баланса» падал на немеппленных 76.07.1 / 97.21.
+
+        Строгий режим (STRICT_OS_GROUP_CHECK=True) — MissingOSGroupError
+        с проблемными строками ОСВ (problem_data сохранит базовый класс);
+        мягкий — WARNING, строки остаются с 'не_указано'.
+        """
+        mask_76_scope = osv_all_df['счет'].astype(str).str.startswith(
+            (self.ACCOUNT_76_07_PREFIX, self.ACCOUNT_76_05_3_PREFIX)
+        )
+        mask_76_07_2 = osv_all_df['счет'].astype(str).str.startswith('76.07.2')
+        lease_scope_mask = (mask_76_scope & ~mask_76_07_2) | mask_97
+
+        missing_mask = (
+            self._is_service_value(osv_all_df['группа_ос_аренды_лизинга'])
+            & lease_scope_mask
+        )
+        if not missing_mask.any():
+            return
+
+        if STRICT_OS_GROUP_CHECK:
+            # Строгий режим: останавливаем конвейер
+            missing_rows = osv_all_df[missing_mask].copy()
+            raise MissingOSGroupError(
+                message=(
+                    f"В ОСВ найдено {missing_mask.sum()} строк аренды/лизинга "
+                    f"без группы ОС в справочнике ППА. Проверьте, что в листе ППА "
+                    f"для этих договоров/РБП заполнена группа ОС, а не "
+                    f"'{self.UNSPECIFIED}'"
+                ),
+                problem_data=missing_rows,
+                reference_name="справочнике ППА",
+                missing_count=int(missing_mask.sum()),
+            )
+
+        # Мягкий режим: строки остаются с 'не_указано'
+        logger.warning(
+            "[!] Мягкий режим: {} строк аренды/лизинга без группы ОС "
+            "остаются с '{}'. С такими строками шаг 13 «меппинг баланса» "
+            "не найдёт комбинацию в Меппинг_бб",
+            missing_mask.sum(),
+            self.UNSPECIFIED,
+        )
 
     def _process(self, context: ProcessingContext) -> ProcessingContext:
         logger.debug("Добавление группы ОС")
@@ -535,40 +609,9 @@ class Step6AddOSGroupColumnStep(Step):
             .fillna(os_groups_97)
         )
         
-        # Строки аренды/лизинга, для которых группа ОС обязательна:
-        # счета 76.07/76.05.3 и 97.21 (Аренда/Лизинг), кроме субсчёта 76.07.2 —
-        # это промежуточная сумма, остаток по которой НЕ входит в задолженность
-        # по аренде, поэтому группа ОС для неё не требуется (ожидаемое 'не_указано').
-        # prefix-match защищает от любых вложенных субсчетов (76.07.2, 76.07.2.1, …).
-        mask_76_scope = osv_all_df['счет'].astype(str).str.startswith(
-            (self.ACCOUNT_76_07_PREFIX, self.ACCOUNT_76_05_3_PREFIX)
-        )
-        mask_76_07_2 = osv_all_df['счет'].astype(str).str.startswith('76.07.2')
-        lease_scope_mask = (mask_76_scope & ~mask_76_07_2) | mask_97
-
-        # Проверяем, остались ли строки аренды/лизинга без группы ОС
-        missing_mask = (
-            osv_all_df['группа_ос_аренды_лизинга'].isna() & lease_scope_mask
-        )
-        if missing_mask.any():
-            if STRICT_OS_GROUP_CHECK:
-                # Строгий режим: останавливаем конвейер
-                missing_rows = osv_all_df[missing_mask].copy()
-                raise MissingOSGroupError(
-                    message=(
-                        f"В ОСВ найдено {missing_mask.sum()} строк аренды/лизинга "
-                        f"без группы ОС в справочнике ППА"
-                    ),
-                    problem_data=missing_rows,
-                    reference_name="справочнике ППА",
-                    missing_count=int(missing_mask.sum()),
-                )
-            # Мягкий режим: заменяем на 'не_указано'
-            logger.warning(
-                "[!] Мягкий режим: {} строк аренды/лизинга без группы ОС заменены на '{}'",
-                missing_mask.sum(),
-                self.UNSPECIFIED,
-            )
+        # Строки аренды/лизинга, для которых группа ОС обязательна, —
+        # под строгим/мягким контролем (см. _require_lease_os_group)
+        self._require_lease_os_group(osv_all_df, mask_97)
 
         # Остальные строки (не аренда/лизинг) — допустимая заглушка 'не_указано'
         osv_all_df['группа_ос_аренды_лизинга'] = (

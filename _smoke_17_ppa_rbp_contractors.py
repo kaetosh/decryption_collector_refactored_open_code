@@ -18,6 +18,14 @@
      строгий режим НЕ стопует, контрагент остаётся 'не_указано';
   7. объект известен справочнику как ОС ('ос_ппа'), Корр.счет 97.21 —
      в диагностику 'рбп' не попадает, строгий режим не стопует.
+  8. 'не_указано' в ППА — не значение: строки справочника, где контрагент
+     не заполнен (заглушка/пусто), исключаются из меппинга
+     (_build_ppa_mapping; регресс 30.09.2026 — та же логика, что для группы
+     ОС аренды/лизинга в шаге 6);
+  9. РБП есть в ППА, но контрагент не заполнен → строгий режим стопует
+     с этим РБП в problem_data, мягкий — продолжает с 'не_указано';
+ 10. объект ОС ('ос_ппа') есть в ППА, но контрагент не заполнен → строгий
+     режим стопует (объект в problem_data), мягкий — замена на '3 лица'.
 
 Запуск: python _smoke_17_ppa_rbp_contractors.py
 """
@@ -30,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import pipeline.steps._step17_processing as ppa_module
 from pipeline.errors import MissingMappingError
+from pipeline.step_config import StepConstants
 from pipeline.steps.step_17_add_other_income_and_expenses import (
     Step17AddOtherIncomeExpensesToOpuStep,
 )
@@ -107,7 +116,7 @@ def test_rows_without_marker_untouched() -> None:
 
 def test_missing_rbp_strict_and_soft() -> None:
     """Нет объекта в 'рбп': строгий режим стопует, мягкий продолжает с отчётом."""
-    step = _step()
+    step = _step_no_report()
     original = ppa_module.STRICT_PPA_MAPPING_CHECK
     try:
         ppa_module.STRICT_PPA_MAPPING_CHECK = True
@@ -181,6 +190,152 @@ def test_os_object_not_rbp() -> None:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
 
 
+def _step_no_report() -> Step17AddOtherIncomeExpensesToOpuStep:
+    """Шаг с заглушкой сохранения отчёта — смоук не пишет в _OUTPUT_DATA."""
+    step = _step()
+    step._save_reference_mismatch_report = lambda error: None
+    return step
+
+
+def _empty_9101_full() -> pd.DataFrame:
+    """Пустой df_9101 со всеми колонками, которые читает _process_ppa."""
+    return pd.DataFrame({
+        'счет': pd.Series(dtype='string'),
+        'вид_дохода_расхода': pd.Series(dtype='string'),
+        'Корр.счет': pd.Series(dtype='string'),
+        'контрагент': pd.Series(dtype='string'),
+        'Субконто Дт_1': pd.Series(dtype='string'),
+        'оборот, тыс.ед.': pd.Series(dtype='float64'),
+        'оборот, тыс.руб.': pd.Series(dtype='float64'),
+    })
+
+
+def _df_9102_ppa_object(contractor: str, ppa_object: str) -> pd.DataFrame:
+    """Строка 91.02 с объектом ОС ППА: Корр.счет 01.09, тип расхода ППА."""
+    df = pd.DataFrame({
+        'счет': ['91.02'],
+        'Корр.счет': ['01.09'],
+        'доход_расход': ['Расходы от выбытия прав пользования активами'],
+        'вид_дохода_расхода': [StepConstants.PPA_EXPENSE_TYPE],
+        'контрагент': [contractor],
+        'Субконто Кт_1': [ppa_object],
+        'оборот, тыс.ед.': [10.0],
+        'оборот, тыс.руб.': [10.0],
+        'сегмент': ['Птицеводство'],
+    })
+    return df.astype({
+        'счет': 'string', 'Корр.счет': 'string', 'доход_расход': 'string',
+        'вид_дохода_расхода': 'string', 'контрагент': 'string',
+        'Субконто Кт_1': 'string', 'сегмент': 'string',
+    })
+
+
+def test_build_mapping_drops_service_values() -> None:
+    """'не_указано' в ППА — ни ключ, ни значение (регресс 30.09.2026).
+
+    Регресс: строка ППА с заполненным ключом, но контрагентом-заглушкой,
+    считалась рабочей — объект получал контрагента 'не_указано' молча, без
+    диагностики (map возвращает строку, а не NaN → isna() = False).
+    """
+    step = _step()
+    ppa = pd.DataFrame({
+        'наименование_компании': ['ГиагКХП'] * 4,
+        'рбп': ['РБП А', 'РБП Б', 'не_указано', 'РБП В'],
+        'ос_ппа': ['ОС 1', 'ОС 2', 'ОС 3', 'ОС 4'],
+        'контрагент': ['КА 1', 'не_указано', 'КА 3', ''],
+    }).astype('string')
+
+    mapping_rbp = step._build_ppa_mapping(ppa, 'рбп')
+    assert mapping_rbp.to_dict() == {'РБП А': 'КА 1'}, mapping_rbp.to_dict()
+
+    mapping_os = step._build_ppa_mapping(ppa, 'ос_ппа')
+    assert mapping_os.to_dict() == {'ОС 1': 'КА 1', 'ОС 3': 'КА 3'}, mapping_os.to_dict()
+
+    duplicate = pd.DataFrame({
+        'рбп': ['РБП Д', 'РБП Д'],
+        'контрагент': ['не_указано', 'КА Д'],
+    }).astype('string')
+    assert step._build_ppa_mapping(duplicate, 'рбп').to_dict() == {'РБП Д': 'КА Д'}, (
+        'строка с реальным контрагентом выигрывает у строки-заглушки'
+    )
+
+    no_contractor_column = pd.DataFrame({'рбп': ['РБП Е']}).astype('string')
+    assert step._build_ppa_mapping(no_contractor_column, 'рбп').empty, (
+        'нет колонки контрагента — пустой маппинг и диагностика, а не KeyError'
+    )
+
+
+def test_rbp_with_stub_contractor() -> None:
+    """РБП есть в ППА, но контрагент по нему не заполнен ('не_указано')."""
+    step = _step_no_report()
+    original = ppa_module.STRICT_PPA_MAPPING_CHECK
+    try:
+        ppa = _ppa([(RBP_IN_DATA, 'не_указано')])
+
+        ppa_module.STRICT_PPA_MAPPING_CHECK = True
+        df_9102 = _df_9102(['не_указано'], [RBP_IN_DATA])
+        try:
+            step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
+        except MissingMappingError as exc:
+            assert list(exc.problem_data['отсутствующее_значение']) == [RBP_IN_DATA], (
+                exc.problem_data
+            )
+        else:
+            raise AssertionError(
+                'ожидался MissingMappingError: у РБП не заполнен контрагент'
+            )
+
+        ppa_module.STRICT_PPA_MAPPING_CHECK = False
+        df_9102 = _df_9102(['не_указано'], [RBP_IN_DATA])
+        _, df_result = step._pull_contractors_from_ppa_by_rbp(
+            _empty_9101(), df_9102, ppa, 'ГиагКХП',
+        )
+        assert list(df_result['контрагент']) == ['не_указано'], 'мягкий режим не стопует'
+    finally:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = original
+
+
+def test_os_object_with_stub_contractor() -> None:
+    """Объект ОС есть в ППА, но контрагент по нему не заполнен.
+
+    Регресс 30.09.2026: такое значение считалось «смапленным», объект не
+    попадал в диагностику, а в мягком режиме контрагент-заглушка даже не
+    заменялся на '3 лица' (проверялся только isna()).
+    """
+    step = _step_no_report()
+    original = ppa_module.STRICT_PPA_MAPPING_CHECK
+    os_object = 'ППА Договор лизинга № 2021/17114 от 30.12.2021'
+    ppa = pd.DataFrame({
+        'наименование_компании': ['ГиагКХП'],
+        'ос_ппа': [os_object],
+        'ос_после_перехода_в_собственность': [None],
+        'рбп': ['не_указано'],
+        'контрагент': ['не_указано'],
+    }).astype('string')
+    try:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = True
+        df_9102 = _df_9102_ppa_object('не_указано', os_object)
+        try:
+            step._process_ppa(_empty_9101_full(), df_9102, ppa, 'ГиагКХП')
+        except MissingMappingError as exc:
+            assert list(exc.problem_data['отсутствующее_значение']) == [os_object], (
+                exc.problem_data
+            )
+        else:
+            raise AssertionError(
+                'ожидался MissingMappingError: у объекта ОС не заполнен контрагент'
+            )
+
+        ppa_module.STRICT_PPA_MAPPING_CHECK = False
+        df_9102 = _df_9102_ppa_object('не_указано', os_object)
+        _, df_result = step._process_ppa(_empty_9101_full(), df_9102, ppa, 'ГиагКХП')
+        assert list(df_result['контрагент']) == [StepConstants.THIRD_PARTY], (
+            'мягкий режим заменяет контрагента-заглушку на 3 лица'
+        )
+    finally:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = original
+
+
 def main() -> None:
     test_contractor_filled_from_ppa()
     test_existing_contractor_kept()
@@ -188,7 +343,10 @@ def main() -> None:
     test_missing_rbp_strict_and_soft()
     test_amortization_not_rbp()
     test_os_object_not_rbp()
-    print('SMOKE_OK 6 scenarios: контрагенты ППА по рбп (шаг 17)')
+    test_build_mapping_drops_service_values()
+    test_rbp_with_stub_contractor()
+    test_os_object_with_stub_contractor()
+    print('SMOKE_OK 9 scenarios: контрагенты ППА по рбп (шаг 17)')
 
 
 if __name__ == '__main__':
