@@ -24,14 +24,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from pipeline.base import Step
 from pipeline.errors import MissingMappingError
-from pipeline.step_config import StepConstants
+from pipeline.step_config import AccountConstants, StepConstants
 from pipeline.steps._step17_processing import Step17ProcessingMixin
 
 
 class MockStep(Step17ProcessingMixin):
     """Мок-класс для тестирования миксина без полной инициализации Step."""
 
-    PPA_ACCOUNTS = ('01.09', '02.01', '01.01')
+    PPA_OPPA_ACCOUNTS = AccountConstants.PPA_OPPA_ACCOUNTS
+    PPA_TRANSFER_ACCOUNTS = AccountConstants.PPA_TRANSFER_ACCOUNTS
+    PPA_ACCOUNTS = AccountConstants.PPA_ACCOUNTS
     NDS_ACCOUNTS = ('68.02',)
 
     def __init__(self):
@@ -51,6 +53,10 @@ class MockStep(Step17ProcessingMixin):
     def make_missing_values_problem_data(self, missing_by_type, company, **kwargs):
         """Считаем реальный формат отчёта (без сохранения файла)."""
         return Step.make_missing_values_problem_data(missing_by_type, company, **kwargs)
+
+    # Общий хелпер живёт на Step (перенос из шага 6, сессия 30.09.2026),
+    # а MockStep наследует только миксин — отдаём общую реализацию.
+    _is_service_value = staticmethod(Step._is_service_value)
 
 
 def make_reference_ppa(include_os_ppa=True, include_os_transfer=True, fill_ppa=True, fill_transfer=True):
@@ -229,6 +235,77 @@ def test_soft_mode_missing_column():
     return True
 
 
+def test_new_accounts_0203_0103_pull_osc_ppa():
+    """Сценарий 5: 02.03/01.03 подтягивают контрагента по «ос_ппа».
+
+    02.01/01.01 по-прежнему идут в «ос_после_перехода_в_собственность».
+    """
+    print("\n=== Сценарий 5: счета 02.03/01.03 (ветка ос_ппа) ===")
+    step = MockStep()
+
+    ref_ppa = pd.DataFrame({
+        'наименование_компании': ['Компания_А'] * 6,
+        # По одному объекту в строке: контрагент соответствует своей колонке
+        'ос_ппа': ['Объект_1', 'Объект_2', 'Объект_5', None, None, None],
+        'ос_после_перехода_в_собственность': [None, None, None, 'Объект_3', 'Объект_4', None],
+        'контрагент': ['Контрагент_1', 'Контрагент_2', 'Контрагент_5', 'Контрагент_3', 'Контрагент_4', None],
+    }).astype({'наименование_компании': 'string', 'ос_ппа': 'string',
+                'ос_после_перехода_в_собственность': 'string', 'контрагент': 'string'})
+
+    # 91.01: 02.03/01.03 -> ос_ппа, 02.01/01.01 -> ос_после_перехода_в_собственность
+    df_9101 = pd.DataFrame({
+        'вид_дохода_расхода': [StepConstants.PPA_INCOME_TYPE] * 4,
+        'Корр.счет': ['02.03', '01.03', '02.01', '01.01'],
+        'Субконто Дт_1': ['Объект_1', 'Объект_2', 'Объект_3', 'Объект_4'],
+        'контрагент': [None] * 4,
+        'сегмент': ['Сегмент_А'] * 4,
+        'оборот, тыс.ед.': [100.0, 200.0, 300.0, 400.0],
+        'оборот, тыс.руб.': [100.0, 200.0, 300.0, 400.0],
+    }).astype({'вид_дохода_расхода': 'string', 'Корр.счет': 'string',
+                'Субконто Дт_1': 'string', 'контрагент': 'string',
+                'сегмент': 'string'})
+
+    # 91.02: расходы ППА на 02.03/01.03 -> ос_ппа
+    df_9102 = pd.DataFrame({
+        'вид_дохода_расхода': [StepConstants.PPA_EXPENSE_TYPE] * 2,
+        'Корр.счет': ['02.03', '01.03'],
+        'Субконто Кт_1': ['Объект_5', 'Объект_2'],
+        'контрагент': [None, None],
+        'сегмент': ['Сегмент_А'] * 2,
+        'оборот, тыс.ед.': [150.0, 250.0],
+        'оборот, тыс.руб.': [150.0, 250.0],
+    }).astype({'вид_дохода_расхода': 'string', 'Корр.счет': 'string',
+                'Субконто Кт_1': 'string', 'контрагент': 'string',
+                'сегмент': 'string'})
+
+    with patch('pipeline.steps._step17_processing.STRICT_PPA_MAPPING_CHECK', True):
+        res_9101, res_9102 = step._process_ppa(
+            df_9101.copy(), df_9102.copy(), ref_ppa, 'Компания_А',
+        )
+
+    expected_9101 = ['Контрагент_1', 'Контрагент_2', 'Контрагент_3', 'Контрагент_4']
+    actual_9101 = res_9101['контрагент'].tolist()
+    if actual_9101 != expected_9101:
+        print(f"  FAIL: df_9101 ожидалось {expected_9101}, получено {actual_9101}")
+        return False
+
+    expected_9102 = ['Контрагент_5', 'Контрагент_2']
+    actual_9102 = res_9102['контрагент'].tolist()
+    if actual_9102 != expected_9102:
+        print(f"  FAIL: df_9102 ожидалось {expected_9102}, получено {actual_9102}")
+        return False
+
+    # Поле 'объект для изм ппа' заполняется и для 02.03/01.03
+    objects_9101 = res_9101['объект для изм ппа'].tolist()
+    expected_objects = ['Объект_1', 'Объект_2', 'Объект_3', 'Объект_4']
+    if objects_9101 != expected_objects:
+        print(f"  FAIL: объект для изм ппа = {objects_9101}, ожидалось {expected_objects}")
+        return False
+
+    print("  OK: 02.03/01.03 подтянуты по ос_ппа, 02.01/01.01 — по ос_после_перехода_в_собственность")
+    return True
+
+
 def test_happy_path():
     """Сценарий 4: happy path — все объекты смаплены."""
     print("\\n=== Сценарий 4: Happy path (все объекты в ППА) ===")
@@ -304,6 +381,7 @@ if __name__ == '__main__':
     results.append(("Мягкий режим", test_soft_mode_replaces()))
     results.append(("Мягкий режим (нет колонки)", test_soft_mode_missing_column()))
     results.append(("Happy path", test_happy_path()))
+    results.append(("Счета 02.03/01.03", test_new_accounts_0203_0103_pull_osc_ppa()))
 
     print("\\n" + "=" * 60)
     print("ИТОГО:")

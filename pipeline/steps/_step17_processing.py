@@ -61,6 +61,7 @@ class Step17ProcessingMixin:
         if not mask_ppa_income_9101.any() and not mask_ppa_income_9102.any():
             return df_9101, df_9102
 
+        # Ворота заполнения 'объект для изм ппа': вид дохода/расхода ППА И корр.счёт из PPA_ACCOUNTS
         mask_ppa_accounts_9101 = df_9101['Корр.счет'].astype(str).str.startswith(
             self.PPA_ACCOUNTS, na=False
         )
@@ -83,47 +84,57 @@ class Step17ProcessingMixin:
             reference_ppa_df, 'ос_после_перехода_в_собственность'
         )
 
-        mask_01_09_9101 = (
+        # Ветка 'ос_ппа' (списание/амортизация/принятие к учёту)
+        mask_os_ppa_9101 = (
             mask_ppa_income_9101 &
-            df_9101['Корр.счет'].astype(str).str.startswith('01.09', na=False)
+            df_9101['Корр.счет'].astype(str).str.startswith(
+                self.PPA_OPPA_ACCOUNTS, na=False
+            )
         )
-        mapped_1_9101 = df_9101['объект для изм ппа'].map(mapping_ppa)
+        mapped_os_ppa_9101 = df_9101['объект для изм ппа'].map(mapping_ppa)
         df_9101['контрагент'] = np.where(
-            mask_01_09_9101 & mapped_1_9101.notna(),
-            mapped_1_9101,
+            mask_os_ppa_9101 & mapped_os_ppa_9101.notna(),
+            mapped_os_ppa_9101,
             df_9101['контрагент']
         )
 
-        mask_01_09_9102 = (
+        mask_os_ppa_9102 = (
             mask_ppa_income_9102 &
-            df_9102['Корр.счет'].astype(str).str.startswith('01.09', na=False)
+            df_9102['Корр.счет'].astype(str).str.startswith(
+                self.PPA_OPPA_ACCOUNTS, na=False
+            )
         )
-        mapped_1_9102 = df_9102['объект для изм ппа'].map(mapping_ppa)
+        mapped_os_ppa_9102 = df_9102['объект для изм ппа'].map(mapping_ppa)
         df_9102['контрагент'] = np.where(
-            mask_01_09_9102 & mapped_1_9102.notna(),
-            mapped_1_9102,
+            mask_os_ppa_9102 & mapped_os_ppa_9102.notna(),
+            mapped_os_ppa_9102,
             df_9102['контрагент']
         )
 
-        mask_02_01_or_01_01_9101 = (
+        # Ветка 'ос_после_перехода_в_собственность' (амортизация/ввод в эксплуатацию)
+        mask_transfer_9101 = (
             mask_ppa_income_9101 &
-            df_9101['Корр.счет'].astype(str).str.startswith(('02.01', '01.01'), na=False)
+            df_9101['Корр.счет'].astype(str).str.startswith(
+                self.PPA_TRANSFER_ACCOUNTS, na=False
+            )
         )
-        mapped_2_9101 = df_9101['объект для изм ппа'].map(mapping_transfer)
+        mapped_transfer_9101 = df_9101['объект для изм ппа'].map(mapping_transfer)
         df_9101['контрагент'] = np.where(
-            mask_02_01_or_01_01_9101 & mapped_2_9101.notna(),
-            mapped_2_9101,
+            mask_transfer_9101 & mapped_transfer_9101.notna(),
+            mapped_transfer_9101,
             df_9101['контрагент']
         )
 
-        mask_02_01_or_01_01_9102 = (
+        mask_transfer_9102 = (
             mask_ppa_income_9102 &
-            df_9102['Корр.счет'].astype(str).str.startswith(('02.01', '01.01'), na=False)
+            df_9102['Корр.счет'].astype(str).str.startswith(
+                self.PPA_TRANSFER_ACCOUNTS, na=False
+            )
         )
-        mapped_2_9102 = df_9102['объект для изм ппа'].map(mapping_transfer)
+        mapped_transfer_9102 = df_9102['объект для изм ппа'].map(mapping_transfer)
         df_9102['контрагент'] = np.where(
-            mask_02_01_or_01_01_9102 & mapped_2_9102.notna(),
-            mapped_2_9102,
+            mask_transfer_9102 & mapped_transfer_9102.notna(),
+            mapped_transfer_9102,
             df_9102['контрагент']
         )
 
@@ -131,12 +142,12 @@ class Step17ProcessingMixin:
         df_9102['контрагент'] = df_9102['контрагент'].astype('string')
 
         count_ppa_9101 = (
-            (mask_01_09_9101 & mapped_1_9101.notna()).sum() +
-            (mask_02_01_or_01_01_9101 & mapped_2_9101.notna()).sum()
+            (mask_os_ppa_9101 & mapped_os_ppa_9101.notna()).sum() +
+            (mask_transfer_9101 & mapped_transfer_9101.notna()).sum()
         )
         count_ppa_9102 = (
-            (mask_01_09_9102 & mapped_1_9102.notna()).sum() +
-            (mask_02_01_or_01_01_9102 & mapped_2_9102.notna()).sum()
+            (mask_os_ppa_9102 & mapped_os_ppa_9102.notna()).sum() +
+            (mask_transfer_9102 & mapped_transfer_9102.notna()).sum()
         )
 
         logger.debug(
@@ -146,12 +157,12 @@ class Step17ProcessingMixin:
 
         missing_by_mapping = {
             'ос_ппа': (
-                (df_9101, mask_01_09_9101, mapped_1_9101),
-                (df_9102, mask_01_09_9102, mapped_1_9102),
+                (df_9101, mask_os_ppa_9101, mapped_os_ppa_9101),
+                (df_9102, mask_os_ppa_9102, mapped_os_ppa_9102),
             ),
             'ос_после_перехода_в_собственность': (
-                (df_9101, mask_02_01_or_01_01_9101, mapped_2_9101),
-                (df_9102, mask_02_01_or_01_01_9102, mapped_2_9102),
+                (df_9101, mask_transfer_9101, mapped_transfer_9101),
+                (df_9102, mask_transfer_9102, mapped_transfer_9102),
             ),
         }
         missing_by_type = self._validate_ppa_mapping(
@@ -244,6 +255,7 @@ class Step17ProcessingMixin:
                 # Счёт противоположной стороны — только РБП (97.x): прочие
                 # (02.03 амортизация, 01.09 списание ОС) не требуют контрагента
                 # из 'рбп', хотя объект тоже может называться «ППА…»
+            # (их контрагента подтягивает _process_ppa по ветке 'ос_ппа')
                 & frame['Корр.счет'].astype('string').fillna('')
                 .str.startswith('97')
                 # Объект, известный справочнику как ОС, — не РБП

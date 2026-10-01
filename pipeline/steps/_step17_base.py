@@ -5,12 +5,12 @@ Mixin с базовыми атрибутами для Шага 17.
     ACCOUNT_OTHER_INCOME = '91.01'          # счёт прочих доходов
     ACCOUNT_OTHER_EXPENSE = '91.02'         # счёт прочих расходов
     NDS_ACCOUNTS = '68.02'                 # счёт НДС
-    PPA_ACCOUNTS = кортеж счетов ОС (01.09, 02.01, 01.01)
+    PPA_ACCOUNTS = счета ППА из AccountConstants: 01.09/02.03/01.03 + 02.01/01.01
     GROUP_COLS = ключи группировки 91.01/91.02
     FX_* = константы курсовых разниц из OpuReportConstants
 """
 from pipeline.base import Step
-from pipeline.step_config import OpuReportConstants
+from pipeline.step_config import AccountConstants, OpuReportConstants
 
 
 class Step17BaseMixin(Step):
@@ -25,7 +25,9 @@ class Step17BaseMixin(Step):
 
     NDS_ACCOUNTS = '68.02'
 
-    PPA_ACCOUNTS = ('01.09', '02.01', '01.01')
+    PPA_OPPA_ACCOUNTS = AccountConstants.PPA_OPPA_ACCOUNTS
+    PPA_TRANSFER_ACCOUNTS = AccountConstants.PPA_TRANSFER_ACCOUNTS
+    PPA_ACCOUNTS = AccountConstants.PPA_ACCOUNTS
 
     GROUP_COLS = (
         'счет',

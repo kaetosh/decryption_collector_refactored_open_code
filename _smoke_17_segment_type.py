@@ -85,12 +85,17 @@ def test_ppa_rule_keeps_priority() -> None:
     df = _df([
         ('91.02', 'Статья', '01.09', 'ППА Лизинговый объект № 1'),
         ('91.02', 'Статья', '97.21', 'Проценты ППА Договор аренды № 020823-49'),
+        # Счета из PPA_OPPA_ACCOUNTS (02.03/01.03) — тоже подтверждённый объект ППА
+        ('91.02', 'Статья', '02.03', 'ППА Объект на 02.03'),
+        ('91.02', 'Статья', '01.03', 'ППА Объект на 01.03'),
     ])
 
     step._resolve_income_expense_mapping(
         df, ref, step.ACCOUNT_OTHER_EXPENSE, segment='Птицеводство',
     )
-    assert list(df['вид_дохода_расхода']) == [PPA_TYPE, RENT_TYPE], df['вид_дохода_расхода'].tolist()
+    assert list(df['вид_дохода_расхода']) == [
+        PPA_TYPE, RENT_TYPE, PPA_TYPE, PPA_TYPE,
+    ], df['вид_дохода_расхода'].tolist()
 
 
 def test_ambiguous_key_is_hard_error() -> None:
