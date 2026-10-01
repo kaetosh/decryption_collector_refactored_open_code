@@ -257,6 +257,108 @@ class BaseAccountOSVProcessor(FileProcessor):
         ]
         return desired_order_not_with_suff, desired_order_not_with_suff.copy()
 
+    # =========================================================================
+    # УРОВЕНЬ СЧЁТА В ИЕРАРХИИ ОСВ
+    # =========================================================================
+
+    @staticmethod
+    def _sorted_level_columns(df: pd.DataFrame) -> list:
+        """Столбцы Level_* слева направо (Level_0, Level_1, ...)."""
+        cols = [col for col in df.columns if str(col).startswith('Level_')]
+
+        def _index(col):
+            parts = str(col).split('_', 1)
+            return int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else 0
+
+        return sorted(cols, key=_index)
+
+    def _describe_level_columns(self, df: pd.DataFrame) -> str:
+        """Разбор Level_*-столбцов для сообщения об ошибке."""
+        from utils.column_utils import describe_level_columns
+
+        return describe_level_columns(df)
+
+    def _ensure_account_level(
+        self,
+        df: pd.DataFrame,
+        account_for_table: Optional[str]
+    ) -> pd.DataFrame:
+        """
+        Гарантирует, что номер счёта занимает «свой» столбец Level_*.
+
+        Контракт, на который опираются шаги 1в и 3: в сводной ОСВ есть столбец
+        Level_*, целиком состоящий из бухгалтерских счетов, и синтетический счёт
+        берётся из его первых двух символов.
+
+        Регресс от 01.10.2026 (`ББ_осв_98.01`): в ОСВ, где счёт есть только в
+        заголовке отчёта, а строка счёта пришла с пустым «Субконто»,
+        `_process_missing_values` ставит на верхний уровень заглушку
+        'не_указано', номер счёта уезжает в Level_1, а shiftable_level
+        дописывает туда же контрагента. Столбца со счетами не остаётся НИ
+        ОДНОГО — и шаг 1в останавливал прогон из-за одного файла из двадцати.
+
+        Ничего не делаем, если такой столбец уже есть (19 файлов из 20).
+        Иначе поднимаем счёт из заголовка в Level_0, прежние уровни сдвигаем
+        вправо (данные не теряются), а дубли счёта из уровней убираем — он
+        теперь представлен в Level_0.
+        """
+        level_cols = self._sorted_level_columns(df)
+
+        if not level_cols:
+            if account_for_table:
+                df['Level_0'] = pd.Series(
+                    [account_for_table] * len(df), index=df.index, dtype='string'
+                )
+                logger.warning(
+                    "В ОСВ '{}' не было столбцов Level_*. Счёт {} записан в Level_0 "
+                    "по данным заголовка отчёта.",
+                    self.file, account_for_table,
+                )
+            else:
+                logger.warning(
+                    "В ОСВ '{}' не было столбцов Level_*, а счёт из заголовка отчёта "
+                    "определить не удалось — уровень счёта не проверен.",
+                    self.file,
+                )
+            return df
+
+        if any(self._is_accounting_code_vectorized(df[col]).all() for col in level_cols):
+            return df
+
+        if not account_for_table:
+            # Не-УПП: счёт из заголовка не извлекаем, чинить уровень нечем.
+            # Не роняем файл — сообщаем, чтобы потеря уровня была видна.
+            logger.warning(
+                "В ОСВ '{}' не найден столбец Level_*, целиком состоящий из "
+                "бухгалтерских счетов, и счёт из заголовка отчёта недоступен. "
+                "Разбор: {}. Шаги 1в и 3 применят запасное правило.",
+                self.file, self._describe_level_columns(df),
+            )
+            return df
+
+        logger.warning(
+            "В ОСВ '{}' номер счёта {} не лёг на свой уровень: {}. "
+            "Счёт поднят в Level_0, прежние уровни сдвинуты вправо.",
+            self.file, account_for_table, self._describe_level_columns(df),
+        )
+
+        shifted = {}
+        for col in level_cols:
+            values = df[col].astype('string')
+            # Номер счёта теперь живёт в Level_0 — в уровнях аналитики он лишний
+            shifted[f'Level_{int(str(col).split("_", 1)[1]) + 1}'] = values.mask(
+                values == account_for_table
+            )
+
+        df = df.drop(columns=level_cols)
+        for name, values in shifted.items():
+            df[name] = values
+        df['Level_0'] = pd.Series(
+            [account_for_table] * len(df), index=df.index, dtype='string'
+        )
+
+        return df
+
 
 class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
     """Обработчик для ОСВ счета 1С УПП"""
@@ -409,6 +511,10 @@ class AccountOSV_UPPFileProcessor(BaseAccountOSVProcessor):
         # Дополнительная обработка уровней, если счет не был определен внутри таблицы
         if account_for_table:
             df = self._shift_level_columns_vectorized(df, account_for_table)
+
+        # Последний шанс починить уровень счёта. Идёт после shiftable_level,
+        # чтобы тот уже не успел дописать аналитику в столбец счёта.
+        df = self._ensure_account_level(df, account_for_table)
         
         return df, self.table_for_check
     
@@ -534,6 +640,10 @@ class AccountOSV_NonUPPFileProcessor(BaseAccountOSVProcessor):
         
         # Выравнивание столбцов
         df = self.shiftable_level(df)
+
+        # Счёт из заголовка отчёта в не-УПП не извлекается, поэтому уровень счёта
+        # здесь только проверяется: чинить нечем, но потеря уровня должна быть видна.
+        df = self._ensure_account_level(df, None)
         
         # Создание таблицы для проверки
         self.table_for_check = self._create_check_tables(df, df_for_check, self.file)

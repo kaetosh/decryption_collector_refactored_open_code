@@ -8,7 +8,7 @@ from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import InputDataError
-from utils import find_target_column
+from utils import resolve_account_level_column, describe_level_columns
 
 class Step3AddAccountColumnStep(Step):
     """
@@ -30,17 +30,18 @@ class Step3AddAccountColumnStep(Step):
         osv_all_df = context.summary_osv_df.copy()
         
         # Поиск столбца содержащего только счета
-        name_col_with_all_account = find_target_column(
+        name_col_with_all_account = resolve_account_level_column(
             osv_all_df,
             column_prefix='level_',
-            search_direction='rightmost',
-            account_type='all_accounts',
-            shift=0
         )
-        
+
         if not name_col_with_all_account:
             raise InputDataError(
-                "В сводной ОСВ по счетам не найден столбец Level_ содержащий только бухгалтерские счета"
+                "В сводной ОСВ по счетам не найден столбец level_ с номерами "
+                "бухгалтерских счетов. "
+                f"Разбор столбцов: {describe_level_columns(osv_all_df, column_prefix='level_')}. "
+                "Формат выгрузок одинаковый у всех файлов, и виноват обычно один — "
+                "тот, чей номер счёта не лёг на свой уровень (в логе назван файлом)."
             )
         
         logger.debug("Найден столбец со счетами: {}", name_col_with_all_account)

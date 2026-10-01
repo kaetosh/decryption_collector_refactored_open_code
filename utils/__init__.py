@@ -9,6 +9,8 @@ from .dataframe_utils import (
 )
 from .column_utils import (
     find_target_column,
+    resolve_account_level_column,
+    describe_level_columns,
     process_account,
     normalize_account,
 )
@@ -47,6 +49,8 @@ __all__ = [
     'get_required_columns_df',
     # column_utils
     'find_target_column',
+    'resolve_account_level_column',
+    'describe_level_columns',
     'process_account',
     'normalize_account',
     # file_utils

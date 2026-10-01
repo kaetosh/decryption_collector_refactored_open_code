@@ -8,7 +8,11 @@ import pandas as pd
 from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from io_module import DataLoader
-from utils import find_target_column, normalize_account
+from utils import (
+    resolve_account_level_column,
+    describe_level_columns,
+    normalize_account,
+)
 from pipeline.errors import ConvergenceError, MissingMappingError, ReferenceMismatchError, InputDataError
 from pipeline.step_config import ReconciliationConstants
 
@@ -165,11 +169,15 @@ class Step1cReconcileTotalsStep(Step):
         ]
         osv_for_recon = osv_for_recon.drop(columns=cols_to_drop, errors='ignore')
         
-        name_col_with_all_account = find_target_column(
-            osv_for_recon, column_prefix='Level_', search_direction='rightmost', account_type='all_accounts', shift=0
-        )
+        name_col_with_all_account = resolve_account_level_column(osv_for_recon)
         if not name_col_with_all_account:
-            raise InputDataError("В сводной ОСВ по счетам не найден столбец Level_, содержащий только бухгалтерские счета")
+            raise InputDataError(
+                "В сводной ОСВ по счетам не найден столбец Level_ с номерами "
+                f"бухгалтерских счетов. Разбор столбцов: {describe_level_columns(osv_for_recon)}. "
+                "Проверьте выгрузки ОСВ по счетам в _INPUT_DATA/accounts_osv: формат "
+                "одинаковый у всех файлов, и виноват обычно один — тот, чей номер "
+                "счёта не лёг на свой уровень (в логе он назван файлом)."
+            )
             
         osv_for_recon['синтетический_счет'] = osv_for_recon[name_col_with_all_account].astype(str).str[:2]
         
@@ -191,10 +199,7 @@ class Step1cReconcileTotalsStep(Step):
             # Также фильтруем СЫРОЙ osv_all_df, чтобы Step 2 не получил лишние строки
             # Находим колонку Level_ с кодами счетов (так же как в Step 3)
             raw_clean = self.clean_whitespace(osv_all_df)
-            raw_name_col = find_target_column(
-                raw_clean, column_prefix='Level_', search_direction='rightmost',
-                account_type='all_accounts', shift=0
-            )
+            raw_name_col = resolve_account_level_column(raw_clean)
             if raw_name_col:
                 raw_synth = raw_clean[raw_name_col].astype(str).str[:2]
                 mask_keep = ~raw_synth.isin(accounts_from_general_osv)

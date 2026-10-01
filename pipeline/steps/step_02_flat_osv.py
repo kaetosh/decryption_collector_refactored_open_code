@@ -7,7 +7,14 @@ from loguru import logger
 import pandas as pd
 
 from pipeline.base import Step, ProcessingContext
-from utils import find_target_column, needs_conversion, get_rate_for_date, convert_series
+from pipeline.errors import InputDataError
+from utils import (
+    find_target_column,
+    describe_level_columns,
+    needs_conversion,
+    get_rate_for_date,
+    convert_series,
+)
 
 class Step2FlatSummaryOSVStep(Step):
     """
@@ -83,6 +90,14 @@ class Step2FlatSummaryOSVStep(Step):
             account_type='no_accounts',
             shift=0
         )
+        if not name_leftcol:
+            # Раньше здесь был KeyError вида osv_all_df[None] — виновника не видно.
+            # Допсубконто — самый левый столбец, где нет НИ ОДНОГО счёта.
+            raise InputDataError(
+                "В сводной ОСВ по счетам не найден столбец Level_ без счетов "
+                "(допсубконто). "
+                f"Разбор столбцов: {describe_level_columns(osv_all_df)}."
+            )
         osv_all_df['допсубконто'] = osv_all_df[name_leftcol]
         
         # Приведем имена столбцов в нижний регистр для универсальности в следующих изменениях
