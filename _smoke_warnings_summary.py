@@ -24,19 +24,27 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import logging_handling.logger_config as logger_config
 
+# При перенаправлении вывода в файл консоль Windows пишет в cp1251 —
+# фиксируем UTF-8, иначе символы вроде «×» роняют print.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PASSED = 0
+FAILED = 0
 
 
 def check(condition: bool, message: str) -> None:
-    global PASSED
+    global PASSED, FAILED
     if condition:
         PASSED += 1
         print(f"  [OK] {message}")
     else:
+        FAILED += 1
         print(f"  [FAIL] {message}")
 
 
-def main() -> None:
+def main() -> int:
     from loguru import logger
 
     tmp_log = Path(tempfile.mkdtemp(prefix='smoke_log_')) / 'app.log'
@@ -150,8 +158,12 @@ def main() -> None:
     except OSError as exc:
         print(f'  [WARN] временный лог не удалён: {exc}')
 
-    print(f'\nSMOKE_OK ({PASSED} проверок)')
+    total = PASSED + FAILED
+    verdict = 'SMOKE_OK' if not FAILED else 'SMOKE_FAIL'
+    print(f'\n{verdict} ({PASSED}/{total} проверок)')
+
+    return 1 if FAILED else 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

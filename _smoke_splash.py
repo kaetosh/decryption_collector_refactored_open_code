@@ -15,30 +15,37 @@
 
 Запуск: python _smoke_splash.py
 """
-import argparse
 import io
 import sys
 from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
+# При перенаправлении вывода в файл консоль Windows пишет в cp1251 —
+# фиксируем UTF-8, иначе символы вроде «≤» роняют print.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 import cli.splash as splash
 
 PASSED = 0
+FAILED = 0
 
 
 def check(condition: bool, message: str) -> None:
-    global PASSED
+    global PASSED, FAILED
     if condition:
         PASSED += 1
         print(f"  [OK] {message}")
     else:
+        FAILED += 1
         print(f"  [FAIL] {message}")
 
 
-def main() -> None:
+def main() -> int:
     # --- 1. Глифы ---
     letters = set("".join(splash.TITLE_WORDS))
     missing = sorted(letters - set(splash._GLYPHS))
@@ -95,7 +102,7 @@ def main() -> None:
     footer = "\n".join(lines[splash.TITLE_ROWS:])
     check("1.0.0" in footer, "в подвале версия приложения")
     check("26.09.2026 12:34:56" in footer, f"в подвале дата запуска: {footer.splitlines()[-2:]}")
-    check("Сбор расшифровки баланса из ОСВ" in footer, "в подвале описание")
+    check(splash._DESCRIPTION in footer, f"в подвале описание: {splash._DESCRIPTION}")
     check("трассировка стека" in footer and "DEBUG" in footer, "режимы отражены в подвале")
 
     plain = splash.build_splash_lines(now=now)
@@ -126,7 +133,7 @@ def main() -> None:
     check("█" in out, "rich: блочные символы попали в вывод")
     check("╔" in out and "╚" in out, "rich: двойная рамка панели")
     check("1.0.0" in out, "rich: версия в подвале панели")
-    check("Сбор расшифровки баланса из ОСВ" in out, "rich: описание в подвале панели")
+    check(splash._DESCRIPTION in out, "rich: описание в подвале панели")
 
     # Регресс: rich при justify='center' центрирует строки заново после
     # отбрасывания хвостовых пробелов — верх слов сдвигался вправо.
@@ -217,8 +224,11 @@ def main() -> None:
         "main() вызывает show_splash до loguru-шапки",
     )
 
-    print(f"\nSMOKE_OK ({PASSED} проверок)")
+    total = PASSED + FAILED
+    verdict = "SMOKE_OK" if not FAILED else "SMOKE_FAIL"
+    print(f"\n{verdict} ({PASSED}/{total} проверок)")
+    return 1 if FAILED else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

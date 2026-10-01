@@ -29,7 +29,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 from io_module import run_summary as rs
 from pipeline.step_config import OpuReportConstants, ReportLayoutConstants
 
+# При перенаправлении вывода в файл консоль Windows пишет в cp1251 —
+# фиксируем UTF-8, иначе символы вроде «×» роняют print.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PASSED = 0
+FAILED = 0
 
 # Реальный прогон УК 8мес2026: актив +8 026 162, пассив -8 026 162,
 # pnl_df: Выручка -1 359 246.45, Себестоимость 465 886.07, Прочие доходы -96 399.32
@@ -46,11 +53,12 @@ REAL_PNL = pd.DataFrame({
 
 
 def check(condition: bool, message: str) -> None:
-    global PASSED
+    global PASSED, FAILED
     if condition:
         PASSED += 1
         print(f"  [OK] {message}")
     else:
+        FAILED += 1
         print(f"  [FAIL] {message}")
 
 
@@ -176,8 +184,10 @@ def main() -> int:
     rs.log_run_summary(Exploding())
     check(True, "исключение в атрибуте: WARNING вместо исключения")
 
-    print(f"\n{'SMOKE_OK' if PASSED else 'SMOKE_FAIL'} ({PASSED} проверок)")
-    return 0 if PASSED else 1
+    total = PASSED + FAILED
+    verdict = 'SMOKE_OK' if not FAILED else 'SMOKE_FAIL'
+    print(f"\n{verdict} ({PASSED}/{total} проверок)")
+    return 1 if FAILED else 0
 
 
 if __name__ == '__main__':

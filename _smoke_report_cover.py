@@ -32,14 +32,16 @@ from config.defaults import format_tolerance_value
 from io_module import report_cover as rc
 
 PASSED = 0
+FAILED = 0
 
 
 def check(condition: bool, message: str) -> None:
-    global PASSED
+    global PASSED, FAILED
     if condition:
         PASSED += 1
         print(f"  [OK] {message}")
     else:
+        FAILED += 1
         print(f"  [FAIL] {message}")
 
 
@@ -85,7 +87,7 @@ def find_label(rows: list, needle: str) -> str:
     return ''
 
 
-def main() -> None:
+def main() -> int:
     tmp_dir = Path(tempfile.mkdtemp(prefix='smoke_cover_'))
     (tmp_dir / 'mismatches').mkdir()
     (tmp_dir / 'warnings').mkdir()
@@ -249,7 +251,9 @@ def main() -> None:
     check('ПРЕДУПРЕЖДЕНИЯ ЗА ПРОГОН' not in [label for label, _ in rows],
           'без сводки раздел не создаётся (обратная совместимость)')
 
-    print(f'\nSMOKE_OK ({PASSED} проверок)')
+    total = PASSED + FAILED
+    verdict = 'SMOKE_OK' if not FAILED else 'SMOKE_FAIL'
+    print(f'\n{verdict} ({PASSED}/{total} проверок)')
 
     try:
         for entry in sorted(tmp_dir.iterdir()):
@@ -263,6 +267,8 @@ def main() -> None:
     except OSError:
         pass
 
+    return 1 if FAILED else 0
+
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
