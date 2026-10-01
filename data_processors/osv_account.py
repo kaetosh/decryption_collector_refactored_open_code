@@ -278,6 +278,19 @@ class BaseAccountOSVProcessor(FileProcessor):
 
         return describe_level_columns(df)
 
+    def _dirty_level_columns(self, df: pd.DataFrame) -> list:
+        """
+        Столбцы Level_*, в которых есть значения, не являющиеся счетами.
+
+        Имена столбцов, а не примеры значений: WARNING попадает в сводку
+        предупреждений, а та режет текст до 200 символов, поэтому в сообщение
+        идёт только то, что помещается. Примеры — в DEBUG.
+        """
+        return [
+            col for col in self._sorted_level_columns(df)
+            if not self._is_accounting_code_vectorized(df[col]).all()
+        ]
+
     def _ensure_account_level(
         self,
         df: pd.DataFrame,
@@ -329,17 +342,24 @@ class BaseAccountOSVProcessor(FileProcessor):
             # Не-УПП: счёт из заголовка не извлекаем, чинить уровень нечем.
             # Не роняем файл — сообщаем, чтобы потеря уровня была видна.
             logger.warning(
-                "В ОСВ '{}' не найден столбец Level_*, целиком состоящий из "
-                "бухгалтерских счетов, и счёт из заголовка отчёта недоступен. "
-                "Разбор: {}. Шаги 1в и 3 применят запасное правило.",
-                self.file, self._describe_level_columns(df),
+                "В ОСВ '{}' нет столбца Level_* целиком из счетов, и счёт из "
+                "заголовка недоступен — шаги 1в и 3 применят запасное правило.",
+                self.file,
+            )
+            logger.debug(
+                "Разбор уровней ОСВ '{}': {}", self.file,
+                self._describe_level_columns(df),
             )
             return df
 
         logger.warning(
-            "В ОСВ '{}' номер счёта {} не лёг на свой уровень: {}. "
+            "В ОСВ '{}' номер счёта {} не лёг на свой уровень (не-счета в: {}). "
             "Счёт поднят в Level_0, прежние уровни сдвинуты вправо.",
-            self.file, account_for_table, self._describe_level_columns(df),
+            self.file, account_for_table, ', '.join(self._dirty_level_columns(df)),
+        )
+        logger.debug(
+            "Разбор уровней ОСВ '{}' до починки: {}", self.file,
+            self._describe_level_columns(df),
         )
 
         shifted = {}
