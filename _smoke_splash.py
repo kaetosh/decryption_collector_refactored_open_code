@@ -12,6 +12,9 @@
   5. Фолбэки: ошибка rich глотается show_splash (никаких исключений).
   6. CLI: --no-splash парсится; cli/main.main принимает no_splash и
      передаёт его из entry_point.
+  7. Пауза заставки (hold_splash): с TTY ждёт SPLASH_HOLD_SECONDS, без TTY
+     (редирект/CI) и при 0/отрицательном значении не ждёт, KeyboardInterrupt
+     не глотается, main() отключает паузу при --no-interactive.
 
 Запуск: python _smoke_splash.py
 """
@@ -222,6 +225,82 @@ def main() -> int:
     check(
         "show_splash(" in source_main,
         "main() вызывает show_splash до loguru-шапки",
+    )
+
+    # --- 7. Пауза заставки (hold_splash) ---
+    from config.settings import SPLASH_HOLD_SECONDS
+
+    check(
+        isinstance(SPLASH_HOLD_SECONDS, (int, float)) and SPLASH_HOLD_SECONDS > 0,
+        f"SPLASH_HOLD_SECONDS — положительное число ({SPLASH_HOLD_SECONDS})",
+    )
+
+    def _slept(seconds=None, tty: bool = True) -> list:
+        """Прогоняет hold_splash с подменёнными sleep/isatty, возвращает задержки."""
+        delays: list = []
+        with mock.patch.object(splash.time, "sleep", side_effect=delays.append), \
+                mock.patch.object(
+                    splash.sys.stdout, "isatty", return_value=tty, create=True
+                ):
+            splash.hold_splash(seconds)
+        return delays
+
+    check(
+        _slept() == [SPLASH_HOLD_SECONDS],
+        f"с TTY ждёт SPLASH_HOLD_SECONDS: {_slept()}",
+    )
+    check(
+        _slept(1.5) == [1.5],
+        "явная задержка перекрывает настройку",
+    )
+    check(
+        _slept(0) == [],
+        "нулевая задержка (--no-interactive) не ждёт вовсе",
+    )
+    check(
+        _slept(-1) == [],
+        "отрицательная задержка не ждёт",
+    )
+    check(
+        _slept(tty=False) == [],
+        "без TTY (редирект/CI) пауза пропускается",
+    )
+    # stdout без isatty (подмена смоуком) — не должно падать
+    with mock.patch.object(splash.sys, "stdout", object()):
+        try:
+            splash.hold_splash(0.01)
+            no_isatty_ok = True
+        except Exception:
+            no_isatty_ok = False
+    check(no_isatty_ok, "stdout без isatty() не роняет hold_splash")
+
+    # Ctrl+C во время паузы не должен глушиться (BaseException), иначе
+    # «Завершаем работу» из cli/main.py не сработает
+    with mock.patch.object(splash.time, "sleep", side_effect=KeyboardInterrupt), \
+            mock.patch.object(splash.sys.stdout, "isatty", return_value=True, create=True):
+        try:
+            splash.hold_splash()
+            interrupt_swallowed = True
+        except KeyboardInterrupt:
+            interrupt_swallowed = False
+    check(not interrupt_swallowed, "KeyboardInterrupt во время паузы не глотается")
+
+    check(
+        "hold_splash(0 if no_interactive else None)" in source_main,
+        "main() отключает паузу при --no-interactive",
+    )
+    check(
+        "hold_splash(" in source_main,
+        "main() вызывает hold_splash после show_splash",
+    )
+    # Блок заставки внутри try: иначе Ctrl+C в паузу дал бы traceback
+    check(
+        source_main.index("hold_splash(") > source_main.index("try:"),
+        "блок заставки с паузой находится внутри try (Ctrl+C обрабатывается)",
+    )
+    check(
+        source_main.index("hold_splash(") < source_main.index("except KeyboardInterrupt"),
+        "пауза доходит до ветки KeyboardInterrupt",
     )
 
     total = PASSED + FAILED

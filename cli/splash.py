@@ -23,11 +23,12 @@ SHOW_SPLASH в config/settings.py и CLI-флаг --no-splash (см. cli/main.py
 и остаётся без изменений.
 """
 import sys
+import time
 from datetime import datetime
 
 from loguru import logger
 
-from config.settings import APP_NAME, APP_VERSION
+from config.settings import APP_NAME, APP_VERSION, SPLASH_HOLD_SECONDS
 
 # Слова титула. Смоук сверяет их с APP_NAME — при смене имени приложения
 # проверка укажет, что нужно дорисовать глифы новых букв.
@@ -245,3 +246,36 @@ def _show_splash(
         # rich не установлен (требование вынесено отдельно) — печатаем
         # те же строки без рамки, заставка не должна ронять приложение.
         print(payload, flush=True)
+
+
+def hold_splash(seconds: float | None = None) -> None:
+    """
+    Держит заставку на экране заданное число секунд после отрисовки.
+
+    Сразу после заставки печатаются строки лога и инструкция первой паузы
+    со списком файлов по целевым папкам (pipeline/executors.py) — это
+    десятки строк, которые вытесняют титул за верхнюю границу консоли.
+    Пауза даёт время его увидеть. Сама по себе она титул не удерживает,
+    а лишь даёт время прочитать до прокрутки.
+
+    seconds=None — взять SPLASH_HOLD_SECONDS (config/settings.py);
+    0 или отрицательное — не ждать вовсе (так в --no-interactive).
+
+    Пауза пропускается без TTY (редирект в файл/пайп, CI): там заставку
+    никто не видит, а фоновым прогонам лишние секунды не нужны.
+
+    Ctrl+C во время ожидания не глушится: KeyboardInterrupt — это
+    BaseException, а не Exception, и он штатно обрабатывается в cli/main.py
+    (см. ветку «Получен сигнал прерывания»).
+    """
+    delay = SPLASH_HOLD_SECONDS if seconds is None else seconds
+    if delay is None or delay <= 0:
+        return
+    try:
+        interactive_console = sys.stdout is not None and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        # stdout подменён (смоук, IDE-перехват) или уже закрыт
+        interactive_console = False
+    if not interactive_console:
+        return
+    time.sleep(delay)

@@ -40,7 +40,7 @@ from pipeline.executors import (
 )
 from pipeline.errors import PipelineError, ProcessingStepError
 from cli.arguments import parse_arguments
-from cli.splash import show_splash
+from cli.splash import hold_splash, show_splash
 from config.settings import SHOW_SPLASH, BASE_DIR, to_relative
 from io_module.auto_sort import cleanup_old_archive
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
@@ -126,16 +126,23 @@ def main(
     # предупреждение об опечатках печатаем здесь, когда логирование готово.
     _warn_about_unknown_args(unknown_args, suggestions)
 
-    # Заставка — до loguru-шапки: блок идёт в stdout, записи логгера в
-    # stderr/app.log, порядок в консоли не зависит от их слияния.
-    # show_splash не бросает исключений — декоративный блок не остановит
-    # конвейер даже при сбое (логируется в DEBUG).
-    if SHOW_SPLASH and not no_splash:
-        show_splash(show_traceback=show_traceback, verbose=verbose)
-
-    logger.info("[FOLDER] Базовая папка проекта: {}", BASE_DIR)
-
     try:
+        # Заставка — до loguru-шапки: блок идёт в stdout, записи логгера в
+        # stderr/app.log, порядок в консоли не зависит от их слияния.
+        # show_splash не бросает исключений — декоративный блок не остановит
+        # конвейер даже при сбое (логируется в DEBUG).
+        # Блок стоит ВНУТРИ try: сразу за ним hold_splash ждёт пару секунд,
+        # и Ctrl+C в этот момент должен попасть в штатную ветку
+        # «Получен сигнал прерывания», а не в traceback.
+        if SHOW_SPLASH and not no_splash:
+            show_splash(show_traceback=show_traceback, verbose=verbose)
+            # Пауза, чтобы титул не уехал за верхнюю границу консоли
+            # (ниже печатаются строки лога и инструкция первой паузы со
+            # списком файлов). Без TTY и в --no-interactive пропускается.
+            hold_splash(0 if no_interactive else None)
+
+        logger.info("[FOLDER] Базовая папка проекта: {}", BASE_DIR)
+
         # Инициализация вывода: все результаты запуска пишутся
         # в отдельную папку _OUTPUT_DATA/run_<run_id>; папки прошлых
         # запусков сверх KEEP_LAST_RUNS удаляются
