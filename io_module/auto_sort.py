@@ -363,7 +363,10 @@ def _archive_file(path: Path, archive_dir: Path, reason: str = "") -> Path:
             counter += 1
     shutil.move(str(path), str(dest))
     if reason:
-        logger.debug("[SORT] Архивирован '{}': {} -> {}", path.name, reason, dest)
+        logger.debug(
+            "[SORT] Архивирован '{}': {} -> {}",
+            path.name, reason, to_relative(dest),
+        )
     return dest
 
 
@@ -414,7 +417,7 @@ def _move_to_dir(
         logger.warning(
             "[SORT] '{}': файл уже был в {} с другим содержимым — заменён, "
             "старая версия в архиве ({})",
-            src.name, target_dir.name, old,
+            src.name, target_dir.name, to_relative(old),
         )
         return dest
     shutil.move(str(src), str(dest))
@@ -424,7 +427,9 @@ def _move_to_dir(
             src.name, action, canonical_name, target_dir.name,
         )
     else:
-        logger.debug("[SORT] '{}': {} -> {}", src.name, action, dest)
+        logger.debug(
+            "[SORT] '{}': {} -> {}", src.name, action, to_relative(dest),
+        )
     actions.append({
         "файл": src.name,
         "действие": action + (
@@ -475,7 +480,7 @@ def _rename_to_canonical(
         logger.warning(
             "[SORT] '{}': имя приведено к эталону '{}', прежний файл под эталонным "
             "именем отличался содержимым — в архиве ({})",
-            f.name, canonical_name, old,
+            f.name, canonical_name, to_relative(old),
         )
         return
     f.rename(dest)

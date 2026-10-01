@@ -11,6 +11,7 @@ from io import StringIO
 from pathlib import Path
 from typing import List, Optional, Tuple
 from loguru import logger
+from config.settings import to_relative
 
 # ---------------------------------------------------------------------------
 # Определение кодировки текстовых (TXT) выгрузок 1С
@@ -166,7 +167,10 @@ def find_missing_files(filenames: List[str], folder_path: str = 'INPUT_DATA') ->
     """Возвращает список файлов из filenames, которых нет в указанной папке."""
     folder = Path(folder_path)
     if not folder.exists() or not folder.is_dir():
-        logger.error("Папка '{}' не найдена или не является директорией", folder_path)
+        logger.error(
+            "Папка '{}' не найдена или не является директорией",
+            to_relative(folder),
+        )
         return filenames.copy()
         
     existing_files = {f.name for f in folder.iterdir() if f.is_file()}

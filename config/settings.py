@@ -11,11 +11,20 @@ BASE_DIR = Path(__file__).parent.parent
 
 
 def to_relative(path: Path) -> str:
-    """Возвращает путь относительно BASE_DIR (например: _OUTPUT_DATA/run_20260926_234842)."""
+    """Возвращает путь относительно BASE_DIR (например: _INPUT_DATA/_archive/20261001_111851).
+
+    Единая точка для путей в логах и сообщениях: абсолютный путь занимает
+    в строке лога десятки символов и ради него пришлось бы открывать Проводник.
+    Принимает и str, и Path (в логах встречаются оба) — вызывающий код не
+    обязан приводить аргумент заранее.
+
+    Путь вне BASE_DIR возвращается как есть: обрезать нечего, а молча
+    выкинуть часть пути нельзя (иначе в сообщении не найти нужную папку).
+    """
     try:
-        return str(path.relative_to(BASE_DIR))
-    except ValueError:
-        return str(path)  # fallback если путь вне BASE_DIR
+        return str(Path(path).relative_to(BASE_DIR))
+    except (ValueError, TypeError):
+        return str(path)  # fallback: путь вне BASE_DIR или не приводится к пути
 
 
 # Основные директории

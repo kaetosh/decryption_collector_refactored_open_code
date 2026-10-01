@@ -628,7 +628,10 @@ def initialize_context() -> ProcessingContext:
         logger.error("[ERR] {}", e)
         if e.found_files:
             logger.error("[ERR] Найденные файлы: {}", ", ".join(e.found_files))
-            logger.error("[ERR] Оставьте только один файл общей ОСВ в папке {}", e.expected_dir)
+            logger.error(
+                "[ERR] Оставьте только один файл общей ОСВ в папке {}",
+                to_relative(e.expected_dir),
+            )
         raise
 
     if osv_df.empty:
