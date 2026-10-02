@@ -12,11 +12,12 @@ Mixin с загрузкой и фильтрацией данных для Шаг
 import pandas as pd
 from loguru import logger
 
+from config.settings import REFERENCE_SCOPE_COL, SCOPE_ALL_VALUE
 from utils import build_composite_key
 
 from pipeline.base import ProcessingContext
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
-from pipeline.step_config import AccountConstants, StepConstants
+from pipeline.step_config import StepConstants
 
 
 class Step17DataMixin:
@@ -219,40 +220,36 @@ class Step17DataMixin:
         build_composite_key) — строить его здесь дублирует логику и
         рисует расхождение, если в разных местах срезы differ.
 
-        Порядок разрешения — от надёжного источника к менее надёжному:
+        Жёсткое правило: на один _key ('счет[:5] + доход_расход') должен быть
+        ровно один 'вид_дохода_расхода'. Разрешение — две ступени:
         1. по ключу ровно один тип — присваивается он;
-        2. несколько типов: строки с подтверждённым признаком ППА (корр.счёт из
-           PPA_ACCOUNTS и объект с префиксом 'ППА') получают тип ППА;
-        3. остальные строки: тип ищется среди строк меппинга СЕГМЕНТА компании
-           (индивидуальные строки компании живут в блоке её сегмента) — если
-           там ровно один тип, присваивается он. Благодаря этому статья, которая
-           у одной компании означает другое (например «Расходы по процентам
-           аренда» вместо «Аренда»), не смешивается с общим блоком справочника;
-        4. иначе — ReferenceMismatchError с диагностикой (произвольный выбор
+        2. несколько типов: если во «взгляде компании» на этот ключ есть ЕЁ
+           собственные строки (колонка 'компания' != 'все') и они дают ровно
+           один тип — берётся он (индивидуальные строки перекрывают
+           универсальные); это расширяет перекрытие с ключа строки справочника
+           на ключ поиска;
+        3. иначе — ReferenceMismatchError с диагностикой (произвольный выбор
            первой строки запрещён).
+
+        Ступени «тип подтверждённого объекта ППА» и «тип из блока сегмента»
+        удалены (сессия 02.10.2026): подстрока «ППА» в имени объекта не является
+        бизнес-признаком, а сегмент на реальном Меппинг_опу не разрешал НИ
+        ОДНОГО ключа (замер 02.10.2026: все многотипные ключи имеют одинаковый
+        сегмент у всех типов — 0 разрешённых сегментом). Сегмент остался только
+        источником подсказки в тексте ошибки: различие, которое раньше «выручала»
+        ступень 3, теперь надо разводить колонкой 'компания'.
         """
         reference = reference_df
         candidates = self._build_type_candidates(reference)
+        # Индивидуальные строки компании: во «взгляде компании» остались только
+        # 'все' и строки самой компании (чужие отброшены resolve_company_view)
+        individual_candidates = self._build_individual_type_candidates(reference)
+        # Сегмент — только источник подсказки в диагностике, решение не принимает
         segment_candidates = (
             self._build_type_candidates(reference[reference['сегмент'] == segment])
             if segment and 'сегмент' in reference.columns
             else {}
         )
-
-        corr = df['Корр.счет'].astype(str)
-        ppa_account_mask = corr.str.startswith(AccountConstants.PPA_ACCOUNTS, na=False)
-        object_cols = (
-            ['Субконто Кт_1', 'Субконто Кт_2']
-            if account_label == self.ACCOUNT_OTHER_EXPENSE
-            else ['Субконто Дт_1', 'Субконто Дт_2']
-        )
-        ppa_object_mask = pd.Series(False, index=df.index)
-        for column in object_cols:
-            if column in df.columns:
-                ppa_object_mask |= df[column].astype(str).str.strip().str.casefold().str.startswith(
-                    StepConstants.PPA_OBJECT_MARKER.casefold()
-                )
-        ppa_mask = ppa_account_mask & ppa_object_mask
 
         resolved = pd.Series(pd.NA, index=df.index, dtype='string')
         ambiguous_mask = pd.Series(False, index=df.index)
@@ -262,30 +259,19 @@ class Step17DataMixin:
                 resolved.loc[key_mask] = key_candidates[0]
                 continue
 
-            expected_type = (
-                StepConstants.PPA_EXPENSE_TYPE
-                if account_label == self.ACCOUNT_OTHER_EXPENSE
-                else StepConstants.PPA_INCOME_TYPE
-            )
-            ppa_rows = key_mask & ppa_mask
-            if ppa_rows.any() and expected_type in key_candidates:
-                resolved.loc[ppa_rows] = expected_type
-
-            unresolved = key_mask & resolved.isna()
-            if not unresolved.any():
-                continue
-
-            segment_types = segment_candidates.get(key, [])
-            if len(segment_types) == 1:
-                resolved.loc[unresolved] = segment_types[0]
+            # Индивидуальные строки компании перекрывают универсальные: если на
+            # ключ поиска у компании ровно один свой тип — берём его
+            individual_types = individual_candidates.get(key, [])
+            if len(individual_types) == 1:
+                resolved.loc[key_mask] = individual_types[0]
                 logger.info(
-                    "Тип ОПУ по счёту {} для ключа '{}' определён по сегменту '{}' "
-                    "компании: '{}'",
-                    account_label, key, segment, segment_types[0],
+                    "Тип ОПУ по счёту {} для ключа '{}' определён по индивидуальным "
+                    "строкам компании (колонка '{}'): '{}'",
+                    account_label, key, REFERENCE_SCOPE_COL, individual_types[0],
                 )
                 continue
 
-            ambiguous_mask.loc[unresolved] = True
+            ambiguous_mask.loc[key_mask] = True
 
         df['вид_дохода_расхода'] = resolved
         if ambiguous_mask.any():
@@ -297,16 +283,30 @@ class Step17DataMixin:
             problem_data['допустимые_типы'] = problem_data['ключ_поиска'].map(
                 lambda key: ' | '.join(candidates.get(key, []))
             )
+            problem_data['типы_индивидуальных_строк'] = problem_data['ключ_поиска'].map(
+                lambda key: ' | '.join(individual_candidates.get(key, [])) or '—'
+            )
             problem_data['типы_по_сегменту_компании'] = problem_data['ключ_поиска'].map(
                 lambda key: ' | '.join(segment_candidates.get(key, []))
+            )
+            problem_data['причина'] = problem_data['ключ_поиска'].map(
+                lambda key: (
+                    'нет индивидуальных строк компании'
+                    if not individual_candidates.get(key)
+                    else 'в индивидуальных строках больше одного типа'
+                )
+            )
+            problem_data['подсказка'] = problem_data['ключ_поиска'].map(
+                lambda key: self._ambiguity_hint(key, segment, segment_candidates)
             )
             raise ReferenceMismatchError(
                 message=(
                     f"В справочнике Меппинг_опу для {int(ambiguous_mask.sum())} строк "
-                    f"по счёту {account_label} найдено несколько бизнес-типов. "
-                    "Строки с подтверждённым объектом ППА разрешены; остальным тип "
-                    "не удалось определить и по сегменту компании — требуется "
-                    "уточнение справочника."
+                    f"по счёту {account_label} на один ключ (счет + доход_расход) "
+                    f"приходится несколько 'вид_дохода_расхода', и ни один не "
+                    f"определён однозначно: нет индивидуальных строк компании "
+                    f"(колонка '{REFERENCE_SCOPE_COL}') с единственным типом. "
+                    f"Разведите типы колонкой '{REFERENCE_SCOPE_COL}'."
                 ),
                 problem_data=problem_data,
                 reference_name="Меппинг_опу",
@@ -325,6 +325,39 @@ class Step17DataMixin:
             key: frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
             for key, frame in reference.groupby('_key', sort=False)
         }
+
+    @staticmethod
+    def _build_individual_type_candidates(reference: pd.DataFrame) -> dict[str, list[str]]:
+        """Кандидаты типов из индивидуальных строк компании (scope != 'все')."""
+        if REFERENCE_SCOPE_COL not in reference.columns:
+            return {}
+        individual_mask = (
+            reference[REFERENCE_SCOPE_COL].fillna(SCOPE_ALL_VALUE)
+            .astype('string').str.strip().str.casefold()
+            != SCOPE_ALL_VALUE.casefold()
+        )
+        if not individual_mask.any():
+            return {}
+        individual = reference[individual_mask]
+        grouped = individual.assign(_key=individual['_key']).groupby('_key', sort=False)
+        return {
+            key: frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
+            for key, frame in grouped
+        }
+
+    @staticmethod
+    def _ambiguity_hint(
+        key: str, segment: str | None, segment_candidates: dict
+    ) -> str:
+        """Подсказка для текста ReferenceMismatchError."""
+        seg_types = segment_candidates.get(key, [])
+        if len(seg_types) == 1 and segment:
+            return (
+                f"В блоке сегмента '{segment}' тип однозначен "
+                f"('{seg_types[0]}') — перенесите строку меппинга "
+                f"в колонку '{REFERENCE_SCOPE_COL}' этой компании."
+            )
+        return ""
 
     def _add_income_expense_type(
         self,
