@@ -104,9 +104,13 @@ class Step17AddOtherIncomeExpensesToOpuStep(
         )
 
         # Контрагенты по РБП ППА (например «Проценты ППА Договор аренды …»):
-        # после _process_ppa, чтобы не перебить подстановку по объектам ОС
+        # после _process_ppa, чтобы не перебить подстановку по объектам ОС.
+        # Признак РБП-строки — данные (колонка 'рбп' ППА + ОСВ 97.x с видом
+        # субконто аренды/лизинга), а не подстрока «ППА» в имени объекта.
         df_9101, df_9102 = self._pull_contractors_from_ppa_by_rbp(
-            df_9101, df_9102, refs['ppa'], name_company
+            df_9101, df_9102, refs['ppa'], name_company,
+            osv_df=context.summary_osv_df,
+            valid_rbp_types=refs['valid_rbp_types'],
         )
 
         df_9101, df_9102 = self._process_asset_sales(

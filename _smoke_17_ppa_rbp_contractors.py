@@ -7,25 +7,36 @@
 стоит 97.21, поэтому обычное извлечение контрагентов даёт 'не_указано'.
 Источник контрагента для них — колонка 'рбп' листа ППА.
 
+Признак РБП-строки берётся из ДАННЫХ, а не из подстроки «ППА» в имени объекта:
+счёт противоположной стороны — 97.x И объект входит в множество известных РБП
+(колонка 'рбп' справочника либо ОСВ: 97.x + вид субконто из ВидыРБП_АрендаЛизинг).
+
 Сценарии:
-  1. Объект с признаком ППА найден в 'рбп' → контрагент подтянут;
+  1. Объект РБП (колонка 'рбп') найден → контрагент подтянут;
   2. уже проставленный контрагент не перезаписывается;
-  3. строки без признака ППА не затрагиваются;
-  4. нет в 'рбп' + STRICT_PPA_MAPPING_CHECK=True → MissingMappingError
-     с problem_data (отчёт mismatches/);
+  3. объект, не известный как РБП, не затрагивается;
+  4. объект есть в ОСВ (97.x + вид субконто аренды/лизинга), но нет в 'рбп' +
+     STRICT_PPA_MAPPING_CHECK=True → MissingMappingError с problem_data;
   5. тот же случай при флаге False → шаг продолжается, отчёт сохраняется;
-  6. амортизация ОС (Корр.счет 02.03, объект «ППА …») — не РБП-строка:
-     строгий режим НЕ стопует, контрагент остаётся 'не_указано';
-  7. объект известен справочнику как ОС ('ос_ппа'), Корр.счет 97.21 —
-     в диагностику 'рбп' не попадает, строгий режим не стопует.
+  6. амортизация ОС (Корр.счет 02.03, объект «ППА …») — не РБП-строка (счёт
+     не 97.x): строгий режим НЕ стопует, контрагент остаётся 'не_указано';
+  7. объект известен как ОС ('ос_ппа'), Корр.счет 97.21, но не известен как
+     РБП (нет ни в 'рбп', ни в ОСВ-наборе) — не диагностируется;
   8. 'не_указано' в ППА — не значение: строки справочника, где контрагент
      не заполнен (заглушка/пусто), исключаются из меппинга
      (_build_ppa_mapping; регресс 30.09.2026 — та же логика, что для группы
      ОС аренды/лизинга в шаге 6);
-  9. РБП есть в ППА, но контрагент не заполнен → строгий режим стопует
+  9. РБП есть в ППА ('рбп'), но контрагент не заполнен → строгий режим стопует
      с этим РБП в problem_data, мягкий — продолжает с 'не_указано';
  10. объект ОС ('ос_ппа') есть в ППА, но контрагент не заполнен → строгий
-     режим стопует (объект в problem_data), мягкий — замена на '3 лица'.
+     режим стопует (объект в problem_data), мягкий — замена на '3 лица';
+ 11. коллизия 'рбп' == 'ос_ппа' (регресс 01.10.2026, компания ББ): объект есть
+     в обеих колонках, контрагент заполнен → подставляется (раньше молча
+     терялся — объект исключался как «известный как ОС»);
+ 12. та же коллизия, но контрагент 'не_указано' → строгий режим стопует;
+ 13. объект найден в ОСВ-наборе РБП (97.x + вид субконто), но не в 'рбп'
+     справочника → диагностика (справочник неполный, запись не теряется молча);
+ 14. объект не известен ни в 'рбп', ни в ОСВ-наборе → не диагностируется.
 
 Запуск: python _smoke_17_ppa_rbp_contractors.py
 """
@@ -58,6 +69,25 @@ def _ppa(rows: list[tuple[str, str]]) -> pd.DataFrame:
         'наименование_компании': ['ГиагКХП'] * len(rows),
         'рбп': [row[0] for row in rows],
         'контрагент': [row[1] for row in rows],
+    }).astype('string')
+
+
+# Виды РБП аренды/лизинга (справочник ВидыРБП_АрендаЛизинг) — по ним
+# _collect_osv_rbp_objects определяет РБП-объекты в ОСВ.
+VALID_RBP_TYPES = {'Аренда', 'Арендные платежи', 'Лизинг', 'Лизинговые платежи'}
+
+
+def _osv(
+    objects: list[str],
+    subconto: str = 'Арендные платежи',
+    account: str = '97.21',
+) -> pd.DataFrame:
+    """Мини-ОСВ: строки 97.x с видом субконто аренды/лизинга и объектом РБП."""
+    size = len(objects)
+    return pd.DataFrame({
+        'счет': [account] * size,
+        'субконто': [subconto] * size,
+        'допсубконто': objects,
     }).astype('string')
 
 
@@ -106,25 +136,32 @@ def test_existing_contractor_kept() -> None:
 
 
 def test_rows_without_marker_untouched() -> None:
+    """Объект, не известный как РБП, не затрагивается."""
     step = _step()
     ppa = _ppa([(RBP_IN_DATA, CONTRACTOR)])
     df_9102 = _df_9102(['не_указано'], ['Автомобиль легковой Aydi Q7'])
 
     step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
-    assert list(df_9102['контрагент']) == ['не_указано'], 'без признака ППА не трогаем'
+    assert list(df_9102['контрагент']) == ['не_указано'], 'не РБП — не трогаем'
 
 
 def test_missing_rbp_strict_and_soft() -> None:
-    """Нет объекта в 'рбп': строгий режим стопует, мягкий продолжает с отчётом."""
+    """Объект есть в ОСВ-наборе РБП, но нет в 'рбп': строгий стопует, мягкий — нет."""
     step = _step_no_report()
     original = ppa_module.STRICT_PPA_MAPPING_CHECK
     try:
         ppa_module.STRICT_PPA_MAPPING_CHECK = True
         ppa = _ppa([(RBP_OTHER, 'Арендодатель-2')])
         df_9102 = _df_9102(['не_указано'], [RBP_IN_DATA])
+        # Объект подтверждён как РБП по ОСВ (97.21 + вид субконто аренды), но
+        # в колонке 'рбп' справочника его нет → диагностика неполноты справочника
+        osv = _osv([RBP_IN_DATA])
 
         try:
-            step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
+            step._pull_contractors_from_ppa_by_rbp(
+                _empty_9101(), df_9102, ppa, 'ГиагКХП',
+                osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
+            )
         except MissingMappingError as exc:
             assert exc.problem_data is not None, 'problem_data обязателен для mismatches/'
             assert 'отсутствующее_значение' in set(exc.problem_data.columns)
@@ -137,6 +174,7 @@ def test_missing_rbp_strict_and_soft() -> None:
         df_9102 = _df_9102(['не_указано'], [RBP_IN_DATA])
         _, df_result = step._pull_contractors_from_ppa_by_rbp(
             _empty_9101(), df_9102, ppa, 'ГиагКХП',
+            osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
         )
         assert list(df_result['контрагент']) == ['не_указано'], 'мягкий режим не стопует'
     finally:
@@ -148,7 +186,9 @@ def test_amortization_not_rbp() -> None:
 
     Регресс «ТимПФ»: проводка 91.02 / 02.03 с субконто Кт_1
     «ППА ТЕК.240617.ТИМ.№20/24-ИПС.аренда» ловилась маркером «ППА» и
-    требовала контрагента из 'рбп' → ложный MissingMappingError.
+    требовала контрагента из 'рбп' → ложный MissingMappingError. Теперь
+    признак — счёт противоположной стороны 97.x: 02.03 — не РБП-сторона,
+    строка не затрагивается.
     """
     step = _step()
     original = ppa_module.STRICT_PPA_MAPPING_CHECK
@@ -168,7 +208,11 @@ def test_amortization_not_rbp() -> None:
 
 
 def test_os_object_not_rbp() -> None:
-    """Объект из 'ос_ппа' на счёте 97.21 не считается недостающим РБП."""
+    """Объект из 'ос_ппа' на счёте 97.21 не известен как РБП → не диагностируется.
+
+    Объекта нет ни в 'рбп' справочника, ни в ОСВ-наборе РБП (ОСВ не передана),
+    поэтому подтвердить, что это РБП ППА, нельзя — строка не трогается.
+    """
     step = _step()
     original = ppa_module.STRICT_PPA_MAPPING_CHECK
     try:
@@ -336,6 +380,153 @@ def test_os_object_with_stub_contractor() -> None:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
 
 
+def test_collision_rbp_equals_os_ppa_filled() -> None:
+    """Коллизия 'рбп' == 'ос_ппа' (регресс 01.10.2026, компания ББ).
+
+    Справочник 1С иногда дублирует объект РБП в колонку 'ос_ппа'. Раньше такой
+    объект исключался из отбора как «известный как ОС», и настоящий РБП
+    оставался с контрагентом 'не_указано' молча. Теперь объект есть в 'рбп' →
+    контрагент подставляется.
+    """
+    step = _step()
+    object_name = (
+        'ППА ГАП СТБ ТЕК.250818.ББ.Дог.№1595/25-ББ '
+        'запайщик контейнеров Mondini (инв. №РЦН006191)'
+    )
+    ppa = pd.DataFrame({
+        'наименование_компании': ['ББ'],
+        'рбп': [object_name],
+        'ос_ппа': [object_name],  # коллизия: тот же объект в колонке ОС
+        'контрагент': ['Ставропольский бройлер ООО'],
+    }).astype('string')
+    df_9102 = _df_9102(['не_указано'], [object_name])
+
+    step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ББ')
+    assert list(df_9102['контрагент']) == ['Ставропольский бройлер ООО'], (
+        'коллизия рбп == ос_ппа не должна мешать подстановке контрагента'
+    )
+
+
+def test_collision_rbp_equals_os_ppa_stub_contractor() -> None:
+    """Та же коллизия, но контрагент 'не_указано' → строгий режим стопует."""
+    step = _step_no_report()
+    original = ppa_module.STRICT_PPA_MAPPING_CHECK
+    object_name = (
+        'ППА ГАП РБ ТЕК.250901.ББ.Дог.№195/25-ББ '
+        'LADA LARGUS FS0154 Р 276УА 161'
+    )
+    ppa = pd.DataFrame({
+        'наименование_компании': ['ББ'],
+        'рбп': [object_name],
+        'ос_ппа': [object_name],
+        'контрагент': ['не_указано'],
+    }).astype('string')
+    try:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = True
+        df_9102 = _df_9102(['не_указано'], [object_name])
+        try:
+            step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ББ')
+        except MissingMappingError as exc:
+            assert list(exc.problem_data['отсутствующее_значение']) == [object_name], (
+                exc.problem_data
+            )
+        else:
+            raise AssertionError(
+                'ожидался MissingMappingError: у РБП (рбп == ос_ппа) '
+                'не заполнен контрагент'
+            )
+
+        ppa_module.STRICT_PPA_MAPPING_CHECK = False
+        df_9102 = _df_9102(['не_указано'], [object_name])
+        _, df_result = step._pull_contractors_from_ppa_by_rbp(
+            _empty_9101(), df_9102, ppa, 'ББ',
+        )
+        assert list(df_result['контрагент']) == ['не_указано'], 'мягкий режим не стопует'
+    finally:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = original
+
+
+def test_osv_rbp_object_missing_in_reference() -> None:
+    """Объект есть в ОСВ-наборе РБП, но нет в 'рбп' → диагностика (вариант C)."""
+    step = _step_no_report()
+    original = ppa_module.STRICT_PPA_MAPPING_CHECK
+    object_name = (
+        'Проценты ППА ГАП ТверБ ТЕК.250904.ББ.Дог.№67/25-ТвБ '
+        'Автомат лентообвязывающий ТР-6000'
+    )
+    try:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = True
+        ppa = _ppa([(RBP_OTHER, 'Арендодатель-2')])
+        df_9102 = _df_9102(['не_указано'], [object_name])
+        osv = _osv([object_name])
+
+        try:
+            step._pull_contractors_from_ppa_by_rbp(
+                _empty_9101(), df_9102, ppa, 'ГиагКХП',
+                osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
+            )
+        except MissingMappingError as exc:
+            assert list(exc.problem_data['отсутствующее_значение']) == [object_name], (
+                exc.problem_data
+            )
+        else:
+            raise AssertionError(
+                'ожидался MissingMappingError: РБП из ОСВ отсутствует в справочнике'
+            )
+    finally:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = original
+
+
+def test_object_unknown_in_reference_and_osv() -> None:
+    """Объект не известен ни в 'рбп', ни в ОСВ-наборе → не диагностируется."""
+    step = _step()
+    original = ppa_module.STRICT_PPA_MAPPING_CHECK
+    try:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = True
+        ppa = _ppa([(RBP_IN_DATA, CONTRACTOR)])
+        unknown = 'Автомобиль легковой Aydi Q7'
+        df_9102 = _df_9102(['не_указано'], [unknown])
+        osv = _osv([RBP_IN_DATA])  # в ОСВ — другой объект
+
+        step._pull_contractors_from_ppa_by_rbp(
+            _empty_9101(), df_9102, ppa, 'ГиагКХП',
+            osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
+        )
+        assert list(df_9102['контрагент']) == ['не_указано'], (
+            'объект не подтверждён как РБП — не трогаем и не диагностируем'
+        )
+    finally:
+        ppa_module.STRICT_PPA_MAPPING_CHECK = original
+
+
+def test_collect_helpers_robust_to_missing_columns() -> None:
+    """Хелперы сбора РБП-объектов устойчивы к отсутствию колонок и к None."""
+    step = _step()
+    assert step._collect_ppa_rbp_objects(pd.DataFrame({'х': [1]})) == set()
+    assert step._collect_osv_rbp_objects(None, VALID_RBP_TYPES) == set()
+    assert step._collect_osv_rbp_objects(
+        pd.DataFrame({'счет': ['97.21']}), VALID_RBP_TYPES
+    ) == set()
+
+    ppa = pd.DataFrame({'рбп': ['РБП А', 'не_указано', None]}).astype('string')
+    assert step._collect_ppa_rbp_objects(ppa) == {'РБП А'}, (
+        step._collect_ppa_rbp_objects(ppa)
+    )
+
+    osv = _osv(['РБП ОСВ', 'не_указано'])
+    assert step._collect_osv_rbp_objects(osv, VALID_RBP_TYPES) == {'РБП ОСВ'}, (
+        step._collect_osv_rbp_objects(osv, VALID_RBP_TYPES)
+    )
+    # счёт не 97.x — не РБП-строка ОСВ
+    assert step._collect_osv_rbp_objects(
+        _osv(['Х'], account='26.01'), VALID_RBP_TYPES
+    ) == set()
+    # вид субконто вне списка аренды/лизинга — не РБП
+    assert step._collect_osv_rbp_objects(
+        _osv(['Х'], subconto='Страхование'), VALID_RBP_TYPES
+    ) == set()
+
+
 def main() -> None:
     test_contractor_filled_from_ppa()
     test_existing_contractor_kept()
@@ -346,7 +537,12 @@ def main() -> None:
     test_build_mapping_drops_service_values()
     test_rbp_with_stub_contractor()
     test_os_object_with_stub_contractor()
-    print('SMOKE_OK 9 scenarios: контрагенты ППА по рбп (шаг 17)')
+    test_collision_rbp_equals_os_ppa_filled()
+    test_collision_rbp_equals_os_ppa_stub_contractor()
+    test_osv_rbp_object_missing_in_reference()
+    test_object_unknown_in_reference_and_osv()
+    test_collect_helpers_robust_to_missing_columns()
+    print('SMOKE_OK 14 scenarios: контрагенты ППА по рбп (шаг 17)')
 
 
 if __name__ == '__main__':

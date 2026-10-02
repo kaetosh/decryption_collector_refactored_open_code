@@ -113,6 +113,17 @@ class Step17DataMixin:
             asset_sale_types,
         )
 
+        # Виды РБП аренды/лизинга (справочник ВидыРБП_АрендаЛизинг) — для
+        # определения РБП-объектов по ОСВ (счёт 97.x + вид субконто) в ветке
+        # контрагентов ППА (_pull_contractors_from_ppa_by_rbp). Служебная
+        # заглушка 'не_указано' не является видом РБП.
+        rbp_types_df = context.references.get('виды_рбп_аренда_лизинг')
+        valid_rbp_types: set[str] = set()
+        if rbp_types_df is not None and 'виды_рбп_аренда_лизинг' in rbp_types_df.columns:
+            types_series = rbp_types_df['виды_рбп_аренда_лизинг'].astype('string')
+            types_series = types_series[~self._is_service_value(types_series)]
+            valid_rbp_types = set(types_series.dropna().str.strip().tolist())
+
         return {
             'mapping_opu': mapping_opu_df,
             'ppa': ppa_df,
@@ -121,6 +132,7 @@ class Step17DataMixin:
             'credit': credit_df,
             'accounts_with_contractors': accounts_with_contractors,
             'asset_sale_types': asset_sale_types,
+            'valid_rbp_types': valid_rbp_types,
         }
 
     def _load_data_from_context(
