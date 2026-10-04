@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
+from io_module.data_io import DataSaver
 from io_module.output_manager import get_output_dir, get_run_id
 from pipeline.errors import (
     ReferenceMismatchError,
@@ -27,6 +28,33 @@ from pipeline.constants import (
 )
 from pipeline.decorators import handle_pipeline_errors
 from config.settings import SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR, to_relative
+
+
+def _format_diagnostic_sheet(output_path: Any) -> None:
+    """
+    Приводит только что записанный диагностический xlsx к общему виду.
+
+    Файлы mismatches/ читает получатель, а не программа: без автофильтра и
+    закреплённой шапки искать нужную строку среди сотен приходится вручную.
+    Форматирование то же, что у листов основного отчёта
+    (DataSaver._apply_excel_formatting) — иначе папка диагностики выглядит
+    беднее самой книги, ради разбора которой и создана.
+
+    Ошибка форматирования не должна ломать уже записанный файл: он и без
+    заголовков остаётся пригодным, поэтому всё глушится в DEBUG.
+    """
+    from openpyxl import load_workbook
+
+    try:
+        workbook = load_workbook(output_path)
+        for worksheet in workbook.worksheets:
+            DataSaver._apply_excel_formatting(worksheet)
+        workbook.save(output_path)
+    except Exception as exc:  # noqa: BLE001 — файл уже записан, терять его нельзя
+        logger.debug(
+            "Не удалось применить форматирование к диагностическому файлу "
+            "{}: {}", output_path, exc,
+        )
 
 
 @dataclass(slots=True)
@@ -574,6 +602,7 @@ class Step(ABC):
             output_path = get_output_dir("mismatches") / filename
             
             error.problem_data.to_excel(output_path, index=False)
+            _format_diagnostic_sheet(output_path)
             
             logger.info(
                 "[FOLDER] Проблемные данные сохранены в: {}", to_relative(output_path)
@@ -887,6 +916,7 @@ class Step(ABC):
                 'шаг': error.step_name
             })
             df.to_excel(output_path, index=False)
+            _format_diagnostic_sheet(output_path)
             
             logger.error(
                 "[FOLDER] Список отсутствующих файлов сохранён в: {}", to_relative(output_path)
