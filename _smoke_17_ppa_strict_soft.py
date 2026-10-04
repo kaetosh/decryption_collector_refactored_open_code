@@ -384,16 +384,15 @@ if __name__ == '__main__':
     results.append(("Счета 02.03/01.03", test_new_accounts_0203_0103_pull_osc_ppa()))
 
     print("\\n" + "=" * 60)
-    print("ИТОГО:")
-    all_passed = True
-    for name, passed in results:
-        status = "PASS" if passed else "FAIL"
-        print(f"  {status}: {name}")
-        if not passed:
-            all_passed = False
-
-    if all_passed:
-        print("\\nSMOKE_OK")
-    else:
-        print("\\nSMOKE_FAIL")
+    passed = sum(1 for _, ok in results if ok)
+    total = len(results)
+    # Формат итоговой строки общий для всех смоуков (SMOKE_OK (n/n) либо
+    # SMOKE_FAIL (f/n) и код возврата 1). Здесь n — число СЦЕНАРИЕВ, а не
+    # число проверок: каждый сценарий возвращает True/False и печатает свои
+    # провалы сам (см. print("  FAIL: ...") выше).
+    label = "STRICT_PPA_MAPPING_CHECK (шаг 17, ППА) — сценариев"
+    if passed != total:
+        print(f"SMOKE_FAIL ({total - passed}/{total}) — {label}")
         sys.exit(1)
+    print(f"SMOKE_OK ({passed}/{total}) — {label}")
+    sys.exit(0)

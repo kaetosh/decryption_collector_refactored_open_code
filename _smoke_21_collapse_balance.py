@@ -30,11 +30,14 @@ from pipeline.steps.step_21_collapse_balance import Step21CollapseBalanceArticle
 configure_run()
 
 failures: list = []
+PASSED = 0
 
 
 def check(condition: bool, message: str) -> None:
     """Мини-ассерт с накоплением результата."""
+    global PASSED
     if condition:
+        PASSED += 1
         print(f"[OK] {message}")
     else:
         failures.append(message)
@@ -200,10 +203,13 @@ check(str(df[RSBU].dtype) in ("int64", "Int64", "Float64"),
 # Итог
 # ==========================================================================
 print("\n" + "=" * 70)
+total = PASSED + len(failures)
+label = "свёртывание статей баланса (шаг 21)"
 if failures:
-    print(f"SMOKE_FAIL: {len(failures)} проверок не прошло:")
+    print(f"SMOKE_FAIL ({len(failures)}/{total}) — {label}")
     for f in failures:
-        print(f"  - {f}")
+        print(f"  [FAIL] {f}")
     sys.exit(1)
-print("SMOKE_OK: все проверки шага 21 прошли")
+print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+sys.exit(0)
 

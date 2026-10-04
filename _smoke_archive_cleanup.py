@@ -32,10 +32,13 @@ from io_module.auto_sort import cleanup_old_archive
 from io_module.output_manager import configure_run, get_run_id, get_run_dir
 
 failures: list = []
+PASSED = 0
 
 
 def check(condition: bool, message: str) -> None:
+    global PASSED
     if condition:
+        PASSED += 1
         print(f"[OK] {message}")
     else:
         failures.append(message)
@@ -191,12 +194,15 @@ def main() -> None:
     test_current_run_dir_kept()
 
     print("=" * 60)
+    total = PASSED + len(failures)
+    label = "очистка архива _INPUT_DATA/_archive"
     if failures:
-        print(f"SMOKE_FAIL: {len(failures)} проверок не прошли")
+        print(f"SMOKE_FAIL ({len(failures)}/{total}) — {label}")
         for message in failures:
-            print(f"  - {message}")
+            print(f"  [FAIL] {message}")
         sys.exit(1)
-    print("SMOKE_OK 7 сценариев: очистка архива _INPUT_DATA/_archive")
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

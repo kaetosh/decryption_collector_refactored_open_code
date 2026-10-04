@@ -31,11 +31,14 @@ from pipeline.steps.step_14_build_opu_foundation import Step14BuildOpuFoundation
 
 _STEP = Step14BuildOpuFoundationStep()
 failures: list = []
+PASSED = 0
 
 
 def check(condition: bool, message: str) -> None:
     """Мини-ассерт с накоплением результата."""
+    global PASSED
     if condition:
+        PASSED += 1
         print(f"[OK] {message}")
     else:
         failures.append(message)
@@ -174,9 +177,12 @@ check(abs(cost_9002 - 115.0) < 1e-9,
 # ==========================================================================
 logger.remove()
 print("\n=== ИТОГ ===")
+total = PASSED + len(failures)
+label = "типы данных шага 14 (без object-колонок)"
 if failures:
-    print(f"SMOKE_FAIL ({len(failures)}):")
+    print(f"SMOKE_FAIL ({len(failures)}/{total}) — {label}")
     for f in failures:
-        print("  -", f)
+        print(f"  [FAIL] {f}")
     sys.exit(1)
-print("SMOKE_OK")
+print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+sys.exit(0)

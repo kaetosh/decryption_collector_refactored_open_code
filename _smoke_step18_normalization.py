@@ -43,6 +43,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 _STEP = Step18AddTaskAndOtherMovementsStep()
 failures: list = []
+PASSED = 0
 
 COMPANY = 'Тестовая Компания'
 SEGMENT = 'Растениеводство'
@@ -53,7 +54,9 @@ POSEVY_VIEW = 'Посевы изменение в оценке'
 
 def check(condition: bool, message: str) -> None:
     """Мини-ассерт с накоплением результата."""
+    global PASSED
     if condition:
+        PASSED += 1
         print(f"[OK] {message}")
     else:
         failures.append(message)
@@ -239,9 +242,12 @@ check(ctx_src.journal_df is not journal_src,
 
 # ==========================================================================
 print("\n=== ИТОГ ===")
+total = PASSED + len(failures)
+label = "безусловная нормализация журнала ОПУ (шаг 18)"
 if failures:
-    print(f"SMOKE_FAIL ({len(failures)}):")
+    print(f"SMOKE_FAIL ({len(failures)}/{total}) — {label}")
     for f in failures:
-        print("  -", f)
+        print(f"  [FAIL] {f}")
     sys.exit(1)
-print("SMOKE_OK")
+print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+sys.exit(0)

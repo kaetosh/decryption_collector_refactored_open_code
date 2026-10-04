@@ -39,11 +39,14 @@ configure_run()
 run_dir = get_run_dir()
 
 failures: list = []
+PASSED = 0
 
 
 def check(condition: bool, message: str) -> None:
     """Мини-ассерт с накоплением результата."""
+    global PASSED
     if condition:
+        PASSED += 1
         print(f"[OK] {message}")
     else:
         failures.append(message)
@@ -273,9 +276,12 @@ except Exception as e:  # noqa: BLE001 — смоук должен показа�
 shutil.rmtree(run_dir, ignore_errors=True)
 
 print("\n=== ИТОГ ===")
+total = PASSED + len(failures)
+label = "восстановление пропущенных ставок НДС (шаг 14)"
 if failures:
-    print(f"SMOKE_FAIL ({len(failures)}):")
+    print(f"SMOKE_FAIL ({len(failures)}/{total}) — {label}")
     for f in failures:
-        print("  -", f)
+        print(f"  [FAIL] {f}")
     sys.exit(1)
-print("SMOKE_OK")
+print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+sys.exit(0)
