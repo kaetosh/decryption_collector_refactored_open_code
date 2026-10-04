@@ -35,6 +35,7 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 PASSED = 0
 FAILED = 0
+failures: list[str] = []
 
 
 def check(condition: bool, message: str) -> None:
@@ -44,6 +45,7 @@ def check(condition: bool, message: str) -> None:
         print(f"  [OK] {message}")
     else:
         FAILED += 1
+        failures.append(message)
         print(f"  [FAIL] {message}")
 
 
@@ -195,7 +197,11 @@ shutil.rmtree(tmp_dir, ignore_errors=True)
 
 print("\n=== ИТОГ ===")
 total = PASSED + FAILED
+label = "пути в логах сокращаются до BASE_DIR"
 if FAILED:
-    print(f"SMOKE_FAIL ({PASSED}/{total} проверок)")
+    print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+    for item in failures:
+        print(f"  [FAIL] {item}")
     sys.exit(1)
-print(f"SMOKE_OK ({PASSED}/{total} проверок): пути в логах сокращаются до BASE_DIR")
+print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+sys.exit(0)

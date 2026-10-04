@@ -51,6 +51,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 FAILED = 0
 PASSED = 0
+_failed_messages: list[str] = []
 
 CONTRACTOR = 'МИНИСТЕРСТВО СХ И ПРОДОВОЛЬСТВИЯ БЕЛГОРОДСКОЙ ОБЛАСТИ'
 
@@ -63,6 +64,7 @@ def check(condition: bool, message: str) -> None:
         print(f"[OK] {message}")
     else:
         FAILED += 1
+        _failed_messages.append(message)
         print(f"[FAIL] {message}")
 
 
@@ -274,8 +276,11 @@ else:
 # ==========================================================================
 print("\n=== ИТОГ ===")
 total = PASSED + FAILED
+label = "уровень счёта в Level_* для ОСВ по счёту (шаги 1в/2/3)"
 if FAILED:
-    print(f"SMOKE_FAIL ({FAILED}/{total}):")
+    print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+    for line in _failed_messages:
+        print(f"  [FAIL] {line}")
     sys.exit(1)
-print(f"SMOKE_OK ({PASSED}/{total})")
+print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
 sys.exit(0)

@@ -244,10 +244,12 @@ check(soft_ok, 'мягкий режим: тот же кейс — WARNING без
 
 # ======================================================================
 print('-' * 60)
+label = "заглушка не_указано в ППА — не ключ и не значение (шаг 6)"
 if failures:
-    print('[FAIL] SMOKE_FAILED: ' + str(len(failures)))
+    print(f"SMOKE_FAIL ({len(failures)}/{counters['total']}) — {label}")
     for item in failures:
-        print('   - ' + item)
+        print(f"  [FAIL] {item}")
     raise SystemExit(1)
-print('[OK] SMOKE_OK ({}/{})'.format(counters['passed'], counters['total']))
+print(f"SMOKE_OK ({counters['passed']}/{counters['total']}) — {label}")
+raise SystemExit(0)
 

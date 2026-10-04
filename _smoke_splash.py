@@ -304,9 +304,12 @@ def main() -> int:
     )
 
     total = PASSED + FAILED
-    verdict = "SMOKE_OK" if not FAILED else "SMOKE_FAIL"
-    print(f"\n{verdict} ({PASSED}/{total} проверок)")
-    return 1 if FAILED else 0
+    label = "заставка при запуске и её пауза"
+    if FAILED:
+        print(f"\nSMOKE_FAIL ({FAILED}/{total}) — {label}")
+        return 1
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    return 0
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ from io_module import report_cover as rc
 
 PASSED = 0
 FAILED = 0
+_failed_messages: list[str] = []
 
 
 def check(condition: bool, message: str) -> None:
@@ -42,6 +43,7 @@ def check(condition: bool, message: str) -> None:
         print(f"  [OK] {message}")
     else:
         FAILED += 1
+        _failed_messages.append(message)
         print(f"  [FAIL] {message}")
 
 
@@ -252,8 +254,13 @@ def main() -> int:
           'без сводки раздел не создаётся (обратная совместимость)')
 
     total = PASSED + FAILED
-    verdict = 'SMOKE_OK' if not FAILED else 'SMOKE_FAIL'
-    print(f'\n{verdict} ({PASSED}/{total} проверок)')
+    label = "титульный лист отчёта (лист «О отчёте»)"
+    if FAILED:
+        print(f"\nSMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        return 1
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
 
     try:
         for entry in sorted(tmp_dir.iterdir()):
