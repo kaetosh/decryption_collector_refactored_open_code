@@ -11,7 +11,7 @@
   3. Шаг 17 передаёт сегмент компании скаляром (у счетов 91 сегмент
      единый), шаги 14/15/16 — колонкой 'сегмент'. Оба режима поддержаны.
 
-Запуск: python _smoke_connection_type.py
+Запуск: python -u _smoke_connection_type.py
 """
 import sys
 from pathlib import Path
@@ -30,6 +30,22 @@ from pipeline.steps.step_17_add_other_income_and_expenses import (
 )
 
 GROUPS = ['не_указано', '3 лица', 'Прочие ГАП', 'ГСК', 'ГСК']
+
+PASSED = 0
+FAILED = 0
+_failed_messages: list[str] = []
+
+
+def check(condition: bool, message: str) -> None:
+    """Одна проверка с прогрессом (зелёная — счётчик, красная — счётчик)."""
+    global PASSED, FAILED
+    if condition:
+        PASSED += 1
+        print(f"[OK] {message}")
+    else:
+        FAILED += 1
+        _failed_messages.append(message)
+        print(f"[FAIL] {message}")
 
 
 class ProbeStep(Step):
@@ -73,14 +89,20 @@ EXPECTED = [
 def test_rule_from_segment_column() -> None:
     """Режим шагов 14/15/16: эталон берётся из колонки 'сегмент'."""
     result = make_step()._calculate_connection_type(make_df())
-    assert list(result) == EXPECTED, list(result)
-    assert str(result.dtype) == 'string', result.dtype
+    check(
+        list(result) == EXPECTED,
+        f"вид связи по колонке «сегмент» (факт: {list(result)})",
+    )
+    check(str(result.dtype) == 'string', f"dtype результата = string (факт: {result.dtype})")
 
 
 def test_rule_from_scalar_segment() -> None:
     """Режим шага 17: эталон — скалярный сегмент компании."""
     result = make_step()._calculate_connection_type(make_df(), 'Розница')
-    assert list(result) == EXPECTED, list(result)
+    check(
+        list(result) == EXPECTED,
+        f"вид связи по скалярному сегменту (факт: {list(result)})",
+    )
 
 
 def test_scalar_overrides_column() -> None:
@@ -88,7 +110,10 @@ def test_scalar_overrides_column() -> None:
     df = make_df()
     df.loc[3, 'сегмент'] = 'Опт'   # колонка «врёт», сегмент компании — «Розница»
     result = make_step()._calculate_connection_type(df, 'Розница')
-    assert result.iloc[3] == 'ГСК внутрисегмент.', result.iloc[3]
+    check(
+        result.iloc[3] == 'ГСК внутрисегмент.',
+        f"скалярный сегмент важнее колонки (факт: {result.iloc[3]})",
+    )
 
 
 def test_index_preserved() -> None:
@@ -98,16 +123,26 @@ def test_index_preserved() -> None:
     """
     df = make_df(index=pd.Index([10, 20, 30, 40, 50], name='id'))
     result = make_step()._calculate_connection_type(df)
-    assert list(result.index) == [10, 20, 30, 40, 50], list(result.index)
-    assert result.index.name == 'id'
+    check(
+        list(result.index) == [10, 20, 30, 40, 50],
+        f"индекс кадра сохранён (факт: {list(result.index)})",
+    )
+    check(result.index.name == 'id', f"имя индекса сохранено (факт: {result.index.name})")
 
 
 def test_all_steps_share_one_implementation() -> None:
     """Копий метода в шагах больше нет — все используют базовый."""
     for step_class in (StepAddExpensesToOpuBase, Step14BuildOpuFoundationStep,
                        Step17AddOtherIncomeExpensesToOpuStep):
-        assert '_calculate_connection_type' not in vars(step_class), step_class
-        assert step_class._calculate_connection_type is Step._calculate_connection_type, step_class
+        name = step_class.__name__
+        check(
+            '_calculate_connection_type' not in vars(step_class),
+            f"{name}: своей копии метода нет",
+        )
+        check(
+            step_class._calculate_connection_type is Step._calculate_connection_type,
+            f"{name}: использует общий хелпер базового шага",
+        )
 
 
 def test_unknown_group_falls_back() -> None:
@@ -115,7 +150,10 @@ def test_unknown_group_falls_back() -> None:
     df = make_df()
     df.loc[0, 'группа_ка'] = 'Новая группа'
     result = make_step()._calculate_connection_type(df)
-    assert result.iloc[0] == 'не_указано', result.iloc[0]
+    check(
+        result.iloc[0] == 'не_указано',
+        f"неизвестная группа_ка -> «не_указано» (факт: {result.iloc[0]})",
+    )
 
 
 def main() -> None:
@@ -125,7 +163,16 @@ def main() -> None:
     test_index_preserved()
     test_all_steps_share_one_implementation()
     test_unknown_group_falls_back()
-    print('SMOKE_OK 6 scenarios: connection type')
+
+    total = PASSED + FAILED
+    label = 'вид связи (общий хелпер шагов 14/15/16/17)'
+    if FAILED:
+        print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        sys.exit(1)
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == '__main__':

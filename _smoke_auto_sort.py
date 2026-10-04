@@ -37,6 +37,9 @@ from io_module.auto_sort import (
     sort_all,
 )
 
+PASSED = 0
+failures: list[str] = []
+
 configure_run()
 run_dir = get_run_dir()
 tmp_dir = Path(tempfile.mkdtemp(prefix="_smoke_auto_sort_"))
@@ -44,7 +47,9 @@ failures: list = []
 
 
 def check(condition: bool, message: str) -> None:
+    global PASSED
     if condition:
+        PASSED += 1
         print(f"[OK] {message}")
     else:
         failures.append(message)
@@ -226,13 +231,15 @@ check((run_dir / "sort_report.xlsx").is_file(), "Отчёт sort_report.xlsx з�
 # Итог
 # ═════════════════════════════════════════════════════════════════════════
 print("\n=== ИТОГ ===")
+total = PASSED + len(failures)
+label = "автосортировка выгрузок (обе волны)"
 if failures:
-    print(f"Провалено проверок: {len(failures)}")
+    print(f"SMOKE_FAIL ({len(failures)}/{total}) — {label}")
     for f in failures:
-        print(f"  - {f}")
+        print(f"  [FAIL] {f}")
     exit_code = 1
 else:
-    print("Все проверки пройдены [OK]")
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
     exit_code = 0
 
 shutil.rmtree(run_dir, ignore_errors=True)

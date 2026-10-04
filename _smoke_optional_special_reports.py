@@ -46,11 +46,14 @@ run_dir = get_run_dir()
 tmp_dir = Path(tempfile.mkdtemp(prefix="_smoke_optional_reports_"))
 
 failures: list = []
+PASSED = 0
 
 
 def check(condition: bool, message: str) -> None:
     """Мини-ассерт с накоплением результата."""
+    global PASSED
     if condition:
+        PASSED += 1
         print(f"[OK] {message}")
     else:
         failures.append(message)
@@ -235,13 +238,15 @@ check(
 logger.remove(_sink_id)
 
 print("\n=== ИТОГ ===")
+total = PASSED + len(failures)
+label = "необязательные спецотчёты: мягкий режим и жёсткий"
 if failures:
-    print(f"Провалено проверок: {len(failures)}")
+    print(f"SMOKE_FAIL ({len(failures)}/{total}) — {label}")
     for f in failures:
-        print(f"  - {f}")
+        print(f"  [FAIL] {f}")
     exit_code = 1
 else:
-    print("Все проверки пройдены [OK]")
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
     exit_code = 0
 
 # Уборка: папка запуска и временные файлы

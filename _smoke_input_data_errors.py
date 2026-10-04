@@ -25,7 +25,7 @@
   - в шаге конвейера ошибка структуры данных даёт ProcessingStepError
     с PipelineError-причиной — именно это отличает [STOP] от CRITICAL.
 
-Запуск: python _smoke_input_data_errors.py
+Запуск: python -u _smoke_input_data_errors.py
 """
 import sys
 import tempfile
@@ -41,16 +41,36 @@ from pipeline.errors import InputDataError, PipelineError
 
 TMP = Path(tempfile.mkdtemp(prefix='smoke_input_data_'))
 
+PASSED = 0
+FAILED = 0
+_failed_messages: list[str] = []
+
+
+def check(condition: bool, message: str) -> None:
+    """Одна проверка с прогрессом (зелёная — счётчик, красная — счётчик)."""
+    global PASSED, FAILED
+    if condition:
+        PASSED += 1
+        print(f"[OK] {message}")
+    else:
+        FAILED += 1
+        _failed_messages.append(message)
+        print(f"[FAIL] {message}")
+
 
 def _expect_input_data_error(func, *args, **kwargs) -> InputDataError:
     """Вызывает func и требует InputDataError с сохранённой первопричиной."""
     try:
         func(*args, **kwargs)
     except InputDataError as exc:
-        assert isinstance(exc, PipelineError), 'InputDataError должен быть PipelineError'
-        assert not isinstance(exc, ValueError), (
-            'InputDataError не должен быть ValueError: иначе старые '
-            'обработчики except ValueError продолжат ловить его'
+        check(
+            isinstance(exc, PipelineError),
+            'InputDataError остаётся подклассом PipelineError (иначе [STOP] не сработает)',
+        )
+        check(
+            not isinstance(exc, ValueError),
+            'InputDataError не выводится из ValueError: старые except ValueError '
+            'продолжили бы его ловить',
         )
         return exc
     raise AssertionError(f'{func} не выбросил InputDataError')
@@ -61,7 +81,7 @@ def test_wrong_extension() -> None:
     path = TMP / 'выгрузка.txt'
     path.write_text('не Excel', encoding='utf-8')
     exc = _expect_input_data_error(DataLoader._validate_file, path)
-    assert 'выгрузка.txt' in str(exc), exc
+    check('выгрузка.txt' in str(exc), f"в тексте ошибки назван файл: {exc}")
 
 
 def test_missing_file_stays_file_not_found() -> None:
@@ -70,6 +90,7 @@ def test_missing_file_stays_file_not_found() -> None:
     try:
         DataLoader._validate_file(missing)
     except FileNotFoundError:
+        check(True, 'отсутствующий файл даёт FileNotFoundError, а не InputDataError')
         return
     except InputDataError as exc:
         raise AssertionError('отсутствие файла не должно давать InputDataError') from exc
@@ -81,8 +102,11 @@ def test_corrupt_xlsx_keeps_cause() -> None:
     path = TMP / 'битый.xlsx'
     path.write_bytes(b'PK\x03\x04' + b'\x00' * 64)
     exc = _expect_input_data_error(DataLoader._load_raw_excel, path)
-    assert exc.__cause__ is not None, 'первопричина потеряна — в логе будет только обёртка'
-    assert 'битый.xlsx' in str(exc), exc
+    check(
+        exc.__cause__ is not None,
+        'первопричина pandas сохранена в __cause__ (иначе в логе будет только обёртка)',
+    )
+    check('битый.xlsx' in str(exc), f"в тексте ошибки назван файл: {exc}")
 
 
 def test_reference_sheet_error_keeps_cause() -> None:
@@ -95,11 +119,11 @@ def test_reference_sheet_error_keeps_cause() -> None:
     data_io.REFERENCE_DATA_FILE = ref
     try:
         exc = _expect_input_data_error(DataLoader.load_reference_data, 'НетТакогоЛиста')
-        assert exc.__cause__ is not None, 'первопричина pandas потеряна'
-        assert 'НетТакогоЛиста' in str(exc), exc
+        check(exc.__cause__ is not None, 'первопричина pandas сохранена в __cause__')
+        check('НетТакогоЛиста' in str(exc), f"в тексте ошибки назван лист: {exc}")
 
         df = DataLoader.load_reference_data('НетТакогоЛиста', required=False)
-        assert df.empty, 'required=False должен вернуть пустой DataFrame'
+        check(bool(df.empty), 'required=False вернул пустой DataFrame, а не упал')
     finally:
         data_io.REFERENCE_DATA_FILE = saved
 
@@ -109,8 +133,11 @@ def test_empty_frame_branches_are_input_data_errors() -> None:
     path = TMP / 'пустая_выгрузка.xlsx'
     pd.DataFrame().to_excel(path, index=False)
     exc = _expect_input_data_error(DataLoader.process_depreciation_statement_decoding, path)
-    assert 'пустая_выгрузка.xlsx' in str(exc), exc
-    assert not isinstance(exc, FileNotFoundError), exc
+    check(
+        'пустая_выгрузка.xlsx' in str(exc),
+        f"в тексте ошибки назван файл: {exc}",
+    )
+    check(not isinstance(exc, FileNotFoundError), 'ошибка не подменена FileNotFoundError')
 
 
 def test_parser_layer_raises_input_data_error() -> None:
@@ -120,7 +147,7 @@ def test_parser_layer_raises_input_data_error() -> None:
     path = TMP / 'проводки_без_шапки.txt'
     path.write_bytes('колонки\tсумма\n1\t2\n'.encode('cp1251'))
     exc = _expect_input_data_error(Posting_UPPFileProcessor._find_header_row, path, 'период')
-    assert 'период' in str(exc), exc
+    check('период' in str(exc), f"в тексте ошибки назван искомый столбец: {exc}")
 
 
 def test_parsers_keep_no_stray_valueerror() -> None:
@@ -157,11 +184,15 @@ def test_parsers_keep_no_stray_valueerror() -> None:
                 continue
             called = getattr(node.exc, 'func', None)
             name = getattr(called, 'id', None) or getattr(called, 'attr', None)
-            assert name != 'ValueError', f'{module.__name__}:{node.lineno} — остался builtin ValueError'
+            check(
+                name != 'ValueError',
+                f'{module.__name__}:{node.lineno} — builtin ValueError не остался',
+            )
             if name == 'InputDataError' and node in in_except:
-                assert node.cause is not None, (
+                check(
+                    node.cause is not None,
                     f'{module.__name__}:{node.lineno} — InputDataError внутри except '
-                    'без `from e`: в логе пропадёт первопричина'
+                    'с `from e`: без него в логе пропадёт первопричина',
                 )
 
 
@@ -179,10 +210,14 @@ def test_step_boundary_is_input_data_error() -> None:
     try:
         Step3AddAccountColumnStep().execute(context)
     except ProcessingStepError as exc:
-        assert isinstance(exc.__cause__, InputDataError), exc.__cause__
-        assert isinstance(exc.__cause__, PipelineError), (
-            'причина должна быть PipelineError — иначе cli/main.py напечатает '
-            'CRITICAL [!!] Неожиданная ошибка'
+        check(
+            isinstance(exc.__cause__, InputDataError),
+            f"причина в цепочке — InputDataError (факт: {exc.__cause__!r})",
+        )
+        check(
+            isinstance(exc.__cause__, PipelineError),
+            'причина — PipelineError, иначе cli/main.py напечатал бы '
+            'CRITICAL [!!] Неожиданная ошибка',
         )
     else:
         raise AssertionError('Ожидался ProcessingStepError')
@@ -197,7 +232,16 @@ def main() -> None:
     test_parser_layer_raises_input_data_error()
     test_parsers_keep_no_stray_valueerror()
     test_step_boundary_is_input_data_error()
-    print('SMOKE_OK 8 scenarios: InputDataError на границе загрузки (INC-5a/5b/6b)')
+
+    total = PASSED + FAILED
+    label = 'InputDataError на границе загрузки (INC-5a/5b/6b)'
+    if FAILED:
+        print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        sys.exit(1)
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == '__main__':

@@ -13,7 +13,7 @@
      из python-списка понижал весь concat до object, и валидация выхода
      шага падала (регрессия 14.09.2026).
 
-Запуск: python _smoke_phase3_refactor.py
+Запуск: python -u _smoke_phase3_refactor.py
 """
 import sys
 from pathlib import Path
@@ -27,6 +27,22 @@ from pipeline.steps.step_17_add_other_income_and_expenses import (
     Step17AddOtherIncomeExpensesToOpuStep,
 )
 
+PASSED = 0
+FAILED = 0
+_failed_messages: list[str] = []
+
+
+def check(condition: bool, message: str) -> None:
+    """Одна проверка с прогрессом (зелёная — счётчик, красная — счётчик)."""
+    global PASSED, FAILED
+    if condition:
+        PASSED += 1
+        print(f"[OK] {message}")
+    else:
+        FAILED += 1
+        _failed_messages.append(message)
+        print(f"[FAIL] {message}")
+
 
 def test_composite_key_without_truncation() -> None:
     """Шаг 14: счет + '_' + ном_группа, счёт обрезается до 5 знаков в маппинге."""
@@ -34,7 +50,10 @@ def test_composite_key_without_truncation() -> None:
         'счет': ['90.01', '90.02'],
         'ном_группа': ['Гр-1', 'Гр-2'],
     })
-    assert list(build_composite_key(df, 'счет', 'ном_группа')) == ['90.01_Гр-1', '90.02_Гр-2']
+    check(
+        list(build_composite_key(df, 'счет', 'ном_группа')) == ['90.01_Гр-1', '90.02_Гр-2'],
+        "ключ без обрезки: счёт + '_' + ном_группа",
+    )
 
 
 def test_composite_key_with_truncation() -> None:
@@ -44,27 +63,39 @@ def test_composite_key_with_truncation() -> None:
         'доход_расход': ['Аренда', 'Аренда'],
     })
     result = build_composite_key(df, 'счет', 'доход_расход', truncate_a=5)
-    assert list(result) == ['91.02_Аренда', '91.01_Аренда'], list(result)
+    check(
+        list(result) == ['91.02_Аренда', '91.01_Аренда'],
+        f"счёт обрезан до 5 знаков, вторая часть целиком (факт: {list(result)})",
+    )
 
 
 def test_composite_key_truncation_is_not_silent() -> None:
     """Без truncate счёт остаётся полным — регрессия среза."""
     df = pd.DataFrame({'счет': ['91.0200001'], 'доход_расход': ['Аренда']})
     result = build_composite_key(df, 'счет', 'доход_расход')
-    assert list(result) == ['91.0200001_Аренда'], list(result)
+    check(
+        list(result) == ['91.0200001_Аренда'],
+        f"без truncate счёт остаётся полным (факт: {list(result)})",
+    )
 
 
 def test_composite_key_truncates_second_part_too() -> None:
     """truncate_b применяется ко второй части."""
     df = pd.DataFrame({'счет': ['90.01'], 'доход_расход': ['Длинный тип']})
     result = build_composite_key(df, 'счет', 'доход_расход', truncate_b=3)
-    assert list(result) == ['90.01_Дли'], list(result)
+    check(
+        list(result) == ['90.01_Дли'],
+        f"truncate_b применяется ко второй части (факт: {list(result)})",
+    )
 
 
 def test_composite_key_custom_separator() -> None:
     """Разделитель настраивается."""
     df = pd.DataFrame({'счет': ['90.01'], 'ном_группа': ['Гр-1']})
-    assert list(build_composite_key(df, 'счет', 'ном_группа', sep='|')) == ['90.01|Гр-1']
+    check(
+        list(build_composite_key(df, 'счет', 'ном_группа', sep='|')) == ['90.01|Гр-1'],
+        'разделитель настраивается (sep="|")',
+    )
 
 
 def test_resolve_uses_caller_key() -> None:
@@ -93,9 +124,11 @@ def test_resolve_uses_caller_key() -> None:
 
     step._resolve_income_expense_mapping(df, reference, step.ACCOUNT_OTHER_EXPENSE)
 
-    assert list(df['вид_дохода_расхода']) == ['Расходы по аренде'] * 2, df[
-        'вид_дохода_расхода'
-    ].tolist()
+    check(
+        list(df['вид_дохода_расхода']) == ['Расходы по аренде'] * 2,
+        "при одном кандидате на ключ тип проставлен всем строкам "
+        f"(факт: {df['вид_дохода_расхода'].tolist()})",
+    )
 
 
 def test_align_dtypes_before_concat() -> None:
@@ -115,14 +148,26 @@ def test_align_dtypes_before_concat() -> None:
         'ном_группа': pd.Series(['Гр-9'], dtype=object),
         'сумма': [0.0],
     })
-    assert orphans['контрагент'].dtype == object, orphans['контрагент'].dtype
+    check(
+        orphans['контрагент'].dtype == object,
+        f"исходная сборка из list/numpy даёт object (факт: {orphans['контрагент'].dtype})",
+    )
 
     aligned = align_dtypes_to_reference(orphans, main, columns=['контрагент', 'ном_группа'])
     result = pd.concat([main, aligned], ignore_index=True)
 
-    assert str(result['контрагент'].dtype) == 'string', result['контрагент'].dtype
-    assert str(result['ном_группа'].dtype) == 'string', result['ном_группа'].dtype
-    assert list(result['контрагент']) == ['ООО Альфа', '3 лица']
+    check(
+        str(result['контрагент'].dtype) == 'string',
+        f"после concat контрагент остался string (факт: {result['контрагент'].dtype})",
+    )
+    check(
+        str(result['ном_группа'].dtype) == 'string',
+        f"после concat ном_группа остался string (факт: {result['ном_группа'].dtype})",
+    )
+    check(
+        list(result['контрагент']) == ['ООО Альфа', '3 лица'],
+        f"значения не потеряны при выравнивании ({list(result['контрагент'])})",
+    )
 
 
 def test_align_dtypes_without_helper_downgrades() -> None:
@@ -133,7 +178,11 @@ def test_align_dtypes_without_helper_downgrades() -> None:
     main = pd.DataFrame({'контрагент': pd.Series(['ООО Альфа'], dtype='string')})
     orphans = pd.DataFrame({'контрагент': pd.Series(['3 лица'], dtype=object)})
     naive = pd.concat([main, orphans], ignore_index=True)
-    assert str(naive['контрагент'].dtype) != 'string', naive['контрагент'].dtype
+    check(
+        str(naive['контрагент'].dtype) != 'string',
+        f"без выравнивания concat понижает тип (факт: {naive['контрагент'].dtype}) — "
+        f"иначе проверка выше проходила бы вхолостую",
+    )
 
 
 def test_align_dtypes_keeps_reference_untouched() -> None:
@@ -141,8 +190,14 @@ def test_align_dtypes_keeps_reference_untouched() -> None:
     main = pd.DataFrame({'контрагент': pd.Series(['А'], dtype='string')})
     orphans = pd.DataFrame({'контрагент': pd.Series(['Б'], dtype=object)})
     align_dtypes_to_reference(orphans, main)
-    assert orphans['контрагент'].dtype == object, orphans['контрагент'].dtype
-    assert str(main['контрагент'].dtype) == 'string', main['контрагент'].dtype
+    check(
+        orphans['контрагент'].dtype == object,
+        f"исходный orphans не изменён (факт: {orphans['контрагент'].dtype})",
+    )
+    check(
+        str(main['контрагент'].dtype) == 'string',
+        f"эталон не изменён (факт: {main['контрагент'].dtype})",
+    )
 
 
 def main() -> None:
@@ -155,7 +210,15 @@ def main() -> None:
     test_align_dtypes_before_concat()
     test_align_dtypes_without_helper_downgrades()
     test_align_dtypes_keeps_reference_untouched()
-    print('SMOKE_OK 9 scenarios: phase 3 refactor')
+    total = PASSED + FAILED
+    label = 'фаза 3: составные ключи и выравнивание типов'
+    if FAILED:
+        print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        sys.exit(1)
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == '__main__':

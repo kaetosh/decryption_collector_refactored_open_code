@@ -28,6 +28,22 @@ COL_TYPE = 'вид_дохода_расхода'
 COL_AMOUNT = 'оборот, тыс.ед.'
 COL_AMOUNT_RUB = 'оборот, тыс.руб.'
 
+PASSED = 0
+FAILED = 0
+_failed_messages: list[str] = []
+
+
+def check(condition: bool, message: str) -> None:
+    """Одна проверка с прогрессом (зелёная — счётчик, красная — счётчик)."""
+    global PASSED, FAILED
+    if condition:
+        PASSED += 1
+        print(f"[OK] {message}")
+    else:
+        FAILED += 1
+        _failed_messages.append(message)
+        print(f"[FAIL] {message}")
+
 
 def make_9101() -> pd.DataFrame:
     """Выручка по продаже активов: два контрагента в одном документе."""
@@ -79,10 +95,16 @@ def test_sum_preserved_on_distribution() -> None:
     )
 
     after = result[COL_AMOUNT].sum()
-    assert abs(after - before) < 1e-6, f'Сумма потеряна: было {before}, стало {after}'
+    check(
+        abs(after - before) < 1e-6,
+        f"сумма 91.02 сохранена при распределении (было {before}, стало {after})",
+    )
     # Строки размножились по контрагентам выручки: 2 расхода × 2 контрагента
-    assert len(result) == 4, f'Ожидалось 4 строки, получено {len(result)}'
-    assert set(result['контрагент']) == {'ООО Альфа', 'ООО Бетта'}, set(result['контрагент'])
+    check(len(result) == 4, f"2 расхода × 2 контрагента = 4 строки (факт: {len(result)})")
+    check(
+        set(result['контрагент']) == {'ООО Альфа', 'ООО Бетта'},
+        f"расходы разнесены по контрагентам выручки ({sorted(set(result['контрагент']))})",
+    )
 
 
 def test_no_rollback_on_sum_violation() -> None:
@@ -112,10 +134,19 @@ def test_no_rollback_on_sum_violation() -> None:
     )
 
     after = result[COL_AMOUNT].sum()
-    assert abs(after - before) < 1e-6, f'Сумма потеряна: было {before}, стало {after}'
-    assert len(result) > 4, 'Остаток должен добавить строки, а не откатить распределение'
+    check(
+        abs(after - before) < 1e-6,
+        f"сумма 91.02 сохранена при дописывании остатка (было {before}, стало {after})",
+    )
+    check(
+        len(result) > 4,
+        f"остаток добавил строки, а не откатил распределение (строк: {len(result)})",
+    )
     # Остаток помечен как нераспределённый — виден в отчёте и в ОПУ.
-    assert (result['контрагент'] == 'не_указано').any()
+    check(
+        (result['контрагент'] == 'не_указано').any(),
+        "остаток помечен контрагентом «не_указано»",
+    )
 
 
 def test_remainder_restores_sum() -> None:
@@ -124,19 +155,31 @@ def test_remainder_restores_sum() -> None:
     df_9102 = make_9102()
 
     remainder = step._build_orphan_remainder(df_9102, {COL_AMOUNT: 7.5})
-    assert len(remainder) == 1, len(remainder)
-    assert remainder[COL_AMOUNT].iloc[0] == 7.5
+    check(len(remainder) == 1, f"остаток — одна строка (факт: {len(remainder)})")
+    check(
+        remainder[COL_AMOUNT].iloc[0] == 7.5,
+        f"остаток равен потере 7.5 (факт: {remainder[COL_AMOUNT].iloc[0]})",
+    )
     # Прочие суммовые колонки обнулены — иначе сумма двоилась бы.
-    assert remainder[COL_AMOUNT_RUB].iloc[0] == 0.0
-    assert remainder['контрагент'].iloc[0] == 'не_указано'
+    check(
+        remainder[COL_AMOUNT_RUB].iloc[0] == 0.0,
+        f"прочие суммовые колонки обнулены (факт: {remainder[COL_AMOUNT_RUB].iloc[0]})",
+    )
+    check(
+        remainder['контрагент'].iloc[0] == 'не_указано',
+        f"остаток без контрагента (факт: {remainder['контрагент'].iloc[0]})",
+    )
 
 
 def test_tolerance_from_context() -> None:
     """Допуск берётся из «Параметров», при отсутствии — дефолт 0.01."""
     step = Step17AddOtherIncomeExpensesToOpuStep()
-    assert step._get_orphan_tolerance(make_context(0.5)) == 0.5
-    assert step._get_orphan_tolerance(make_context()) == 0.01
-    assert step._get_orphan_tolerance(None) == 0.01
+    check(
+        step._get_orphan_tolerance(make_context(0.5)) == 0.5,
+        "допуск взят из «Параметров»",
+    )
+    check(step._get_orphan_tolerance(make_context()) == 0.01, "без параметра — дефолт 0.01")
+    check(step._get_orphan_tolerance(None) == 0.01, "без контекста — дефолт 0.01")
 
 
 def test_untouched_when_no_orphans() -> None:
@@ -146,7 +189,10 @@ def test_untouched_when_no_orphans() -> None:
     result = step._distribute_orphan_expenses(
         df_9101, df_9102, asset_sale_types=[ASSET_SALE_TYPE], context=make_context(),
     )
-    assert len(result) == 2, len(result)
+    check(
+        len(result) == 2,
+        f"без «осиротевших» расходов строки не размножаются (факт: {len(result)})",
+    )
 
 
 def main() -> None:
@@ -155,7 +201,16 @@ def main() -> None:
     test_remainder_restores_sum()
     test_tolerance_from_context()
     test_untouched_when_no_orphans()
-    print('SMOKE_OK 5 scenarios: distribution of 91.02')
+
+    total = PASSED + FAILED
+    label = 'распределение расходов 91.02 по выручке продажи активов'
+    if FAILED:
+        print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        sys.exit(1)
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == '__main__':

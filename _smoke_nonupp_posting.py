@@ -7,7 +7,11 @@ _rename_columns_after_pokaz, поэтому колонок 'Дебет'/'Кре�
 существовало, get_loc падал, а 4× `except (KeyError, IndexError): pass`
 молча гасили ошибку — 6 колонок количества/валюты терялись.
 
-Запуск: python _smoke_nonupp_posting.py
+Смоук обязан падать при провале: check() увеличивает счётчик FAILED, финальная
+строка — SMOKE_OK (PASSED/total) либо SMOKE_FAIL со списком провалов и код
+возврата 1.
+
+Запуск: python -u _smoke_nonupp_posting.py
 """
 import sys
 import tempfile
@@ -45,6 +49,23 @@ EXPECTED_COLUMNS = [
 ]
 
 
+PASSED = 0
+FAILED = 0
+_failed_messages: list[str] = []
+
+
+def check(condition: bool, message: str) -> None:
+    """Одна проверка с прогрессом (зелёная — счётчик, красная — счётчик)."""
+    global PASSED, FAILED
+    if condition:
+        PASSED += 1
+        print(f"[OK] {message}")
+    else:
+        FAILED += 1
+        _failed_messages.append(message)
+        print(f"[FAIL] {message}")
+
+
 def build_report(tmp_dir: Path) -> Path:
     path = tmp_dir / 'posting.txt'
     lines = ['Отчёт по проводкам', '']
@@ -60,18 +81,55 @@ def main() -> None:
         result, _ = Posting_NonUPPFileProcessor().process_file(path, path.name)
 
     missing = [col for col in EXPECTED_COLUMNS if col not in result.columns]
-    assert not missing, f'ПОТЕРЯНЫ КОЛОНКИ: {missing}'
+    check(
+        not missing,
+        f"секции «Кол.»/«Вал.» не потеряны: потеряны {missing or 'ни одной'}",
+    )
 
-    assert len(result) == 2, f'Ожидалось 2 строки, получено {len(result)}'
-    assert list(result['Дебет_количество']) == [5.0, 7.0], result['Дебет_количество']
-    assert list(result['Кредит_количество']) == [6.0, 8.0], result['Кредит_количество']
-    assert list(result['Дебет_валюта']) == ['USD', 'EUR'], result['Дебет_валюта']
-    assert list(result['Дебет_валютное_количество']) == [3.0, 9.0]
-    assert list(result['Кредит_валюта']) == ['USD', 'EUR'], result['Кредит_валюта']
-    assert list(result['Кредит_валютное_количество']) == [500.0, 700.0]
-    assert list(result['Сумма']) == [1000.50, 2000.00], result['Сумма']
+    check(
+        len(result) == 2,
+        f"в отчёте 2 строки операций (факт: {len(result)})",
+    )
+    check(
+        list(result['Дебет_количество']) == [5.0, 7.0],
+        f"Дебет_количество = [5.0, 7.0] (факт: {list(result['Дебет_количество'])})",
+    )
+    check(
+        list(result['Кредит_количество']) == [6.0, 8.0],
+        f"Кредит_количество = [6.0, 8.0] (факт: {list(result['Кредит_количество'])})",
+    )
+    check(
+        list(result['Дебет_валюта']) == ['USD', 'EUR'],
+        f"Дебет_валюта = ['USD', 'EUR'] (факт: {list(result['Дебет_валюта'])})",
+    )
+    check(
+        list(result['Дебет_валютное_количество']) == [3.0, 9.0],
+        f"Дебет_валютное_количество = [3.0, 9.0] "
+        f"(факт: {list(result['Дебет_валютное_количество'])})",
+    )
+    check(
+        list(result['Кредит_валюта']) == ['USD', 'EUR'],
+        f"Кредит_валюта = ['USD', 'EUR'] (факт: {list(result['Кредит_валюта'])})",
+    )
+    check(
+        list(result['Кредит_валютное_количество']) == [500.0, 700.0],
+        f"Кредит_валютное_количество = [500.0, 700.0] "
+        f"(факт: {list(result['Кредит_валютное_количество'])})",
+    )
+    check(
+        list(result['Сумма']) == [1000.50, 2000.00],
+        f"Сумма не пострадала = [1000.5, 2000.0] (факт: {list(result['Сумма'])})",
+    )
 
-    print('SMOKE_OK', list(result.columns))
+    total = PASSED + FAILED
+    label = 'отчёт по проводкам не-УПП (секции Кол./Вал.)'
+    if FAILED:
+        print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        sys.exit(1)
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == '__main__':

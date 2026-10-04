@@ -38,7 +38,11 @@
      справочника → диагностика (справочник неполный, запись не теряется молча);
  14. объект не известен ни в 'рбп', ни в ОСВ-наборе → не диагностируется.
 
-Запуск: python _smoke_17_ppa_rbp_contractors.py
+Смоук обязан падать при провале: check() увеличивает счётчик FAILED, финальная
+строка — SMOKE_OK (PASSED/total) либо SMOKE_FAIL со списком провалов и код
+возврата 1 (как в _smoke_98_account_level.py и _smoke_17_type_resolution.py).
+
+Запуск: python -u _smoke_17_ppa_rbp_contractors.py
 """
 import sys
 from pathlib import Path
@@ -53,6 +57,23 @@ from pipeline.step_config import StepConstants
 from pipeline.steps.step_17_add_other_income_and_expenses import (
     Step17AddOtherIncomeExpensesToOpuStep,
 )
+
+PASSED = 0
+FAILED = 0
+_failed_messages: list[str] = []
+
+
+def check(condition: bool, message: str) -> None:
+    """Одна проверка с прогрессом (зелёная — счётчик, красная — счётчик)."""
+    global PASSED, FAILED
+    if condition:
+        PASSED += 1
+        print(f"[OK] {message}")
+    else:
+        FAILED += 1
+        _failed_messages.append(message)
+        print(f"[FAIL] {message}")
+
 
 RBP_IN_DATA = 'Проценты ППА Договор аренды № 020823-49 от 23.08.2003'
 RBP_OTHER = 'Проценты ППА Договор аренды №120621-47 от 21.06.2012'
@@ -123,7 +144,10 @@ def test_contractor_filled_from_ppa() -> None:
     df_9102 = _df_9102(['не_указано'], [RBP_IN_DATA])
 
     step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
-    assert list(df_9102['контрагент']) == [CONTRACTOR], df_9102['контрагент'].tolist()
+    check(
+        list(df_9102['контрагент']) == [CONTRACTOR],
+        f"сценарий 1: контрагент РБП подтянут из 'рбп' ({list(df_9102['контрагент'])})",
+    )
 
 
 def test_existing_contractor_kept() -> None:
@@ -132,7 +156,10 @@ def test_existing_contractor_kept() -> None:
     df_9102 = _df_9102(['ООО Тест'], [RBP_IN_DATA])
 
     step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
-    assert list(df_9102['контрагент']) == ['ООО Тест'], 'свой контрагент важнее'
+    check(
+        list(df_9102['контрагент']) == ['ООО Тест'],
+        f"сценарий 2: свой контрагент важнее, не перезаписан ({list(df_9102['контрагент'])})",
+    )
 
 
 def test_rows_without_marker_untouched() -> None:
@@ -142,7 +169,10 @@ def test_rows_without_marker_untouched() -> None:
     df_9102 = _df_9102(['не_указано'], ['Автомобиль легковой Aydi Q7'])
 
     step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
-    assert list(df_9102['контрагент']) == ['не_указано'], 'не РБП — не трогаем'
+    check(
+        list(df_9102['контрагент']) == ['не_указано'],
+        f"сценарий 3: объект не известен как РБП — не трогаем ({list(df_9102['контрагент'])})",
+    )
 
 
 def test_missing_rbp_strict_and_soft() -> None:
@@ -163,12 +193,27 @@ def test_missing_rbp_strict_and_soft() -> None:
                 osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
             )
         except MissingMappingError as exc:
-            assert exc.problem_data is not None, 'problem_data обязателен для mismatches/'
-            assert 'отсутствующее_значение' in set(exc.problem_data.columns)
-            assert list(exc.problem_data['отсутствующее_значение']) == [RBP_IN_DATA]
-            assert exc.reference_name == 'ППА'
+            problem_data = exc.problem_data
+            columns = set(problem_data.columns) if problem_data is not None else set()
+            values = (
+                list(problem_data['отсутствующее_значение'])
+                if 'отсутствующее_значение' in columns else []
+            )
+            check(problem_data is not None, 'сценарий 4: problem_data обязателен для mismatches/')
+            check(
+                'отсутствующее_значение' in columns,
+                f"сценарий 4: в problem_data есть колонка 'отсутствующее_значение' ({sorted(columns)})",
+            )
+            check(
+                values == [RBP_IN_DATA],
+                f'сценарий 4: в problem_data именно РБП из ОСВ ({values})',
+            )
+            check(
+                exc.reference_name == 'ППА',
+                f"сценарий 4: ошибка называет справочник ('{exc.reference_name}')",
+            )
         else:
-            raise AssertionError('ожидался MissingMappingError в строгом режиме')
+            check(False, 'сценарий 4: ожидался MissingMappingError в строгом режиме')
 
         ppa_module.STRICT_PPA_MAPPING_CHECK = False
         df_9102 = _df_9102(['не_указано'], [RBP_IN_DATA])
@@ -176,7 +221,11 @@ def test_missing_rbp_strict_and_soft() -> None:
             _empty_9101(), df_9102, ppa, 'ГиагКХП',
             osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
         )
-        assert list(df_result['контрагент']) == ['не_указано'], 'мягкий режим не стопует'
+        check(
+            list(df_result['контрагент']) == ['не_указано'],
+            'сценарий 5: мягкий режим не стопует, контрагент остаётся не_указано '
+            f"({list(df_result['контрагент'])})",
+        )
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
 
@@ -200,8 +249,10 @@ def test_amortization_not_rbp() -> None:
         df_9102['Корр.счет'] = ['02.03']
 
         step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ТимПФ')
-        assert list(df_9102['контрагент']) == ['не_указано'], (
-            'амортизация не получает контрагента из рбп'
+        check(
+            list(df_9102['контрагент']) == ['не_указано'],
+            'сценарий 6: амортизация ОС (02.03) не получает контрагента из рбп '
+            f"({list(df_9102['контрагент'])})",
         )
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
@@ -227,8 +278,10 @@ def test_os_object_not_rbp() -> None:
         df_9102 = _df_9102(['не_указано'], [os_object])
 
         step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
-        assert list(df_9102['контрагент']) == ['не_указано'], (
-            'объект ОС не является РБП — контрагент не подтягивается'
+        check(
+            list(df_9102['контрагент']) == ['не_указано'],
+            'сценарий 7: объект ОС на 97.21 не является РБП — контрагент не подтягивается '
+            f"({list(df_9102['контрагент'])})",
         )
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
@@ -290,22 +343,34 @@ def test_build_mapping_drops_service_values() -> None:
     }).astype('string')
 
     mapping_rbp = step._build_ppa_mapping(ppa, 'рбп')
-    assert mapping_rbp.to_dict() == {'РБП А': 'КА 1'}, mapping_rbp.to_dict()
+    check(
+        mapping_rbp.to_dict() == {'РБП А': 'КА 1'},
+        f"сценарий 8: маппинг по 'рбп' — только строка с реальным контрагентом "
+        f"({mapping_rbp.to_dict()})",
+    )
 
     mapping_os = step._build_ppa_mapping(ppa, 'ос_ппа')
-    assert mapping_os.to_dict() == {'ОС 1': 'КА 1', 'ОС 3': 'КА 3'}, mapping_os.to_dict()
+    check(
+        mapping_os.to_dict() == {'ОС 1': 'КА 1', 'ОС 3': 'КА 3'},
+        f"сценарий 8: маппинг по 'ос_ппа' — заглушки в ключе и в значении отброшены "
+        f"({mapping_os.to_dict()})",
+    )
 
     duplicate = pd.DataFrame({
         'рбп': ['РБП Д', 'РБП Д'],
         'контрагент': ['не_указано', 'КА Д'],
     }).astype('string')
-    assert step._build_ppa_mapping(duplicate, 'рбп').to_dict() == {'РБП Д': 'КА Д'}, (
-        'строка с реальным контрагентом выигрывает у строки-заглушки'
+    duplicate_mapping = step._build_ppa_mapping(duplicate, 'рбп').to_dict()
+    check(
+        duplicate_mapping == {'РБП Д': 'КА Д'},
+        f"сценарий 8: строка с реальным контрагентом выигрывает у строки-заглушки "
+        f"({duplicate_mapping})",
     )
 
     no_contractor_column = pd.DataFrame({'рбп': ['РБП Е']}).astype('string')
-    assert step._build_ppa_mapping(no_contractor_column, 'рбп').empty, (
-        'нет колонки контрагента — пустой маппинг и диагностика, а не KeyError'
+    check(
+        step._build_ppa_mapping(no_contractor_column, 'рбп').empty,
+        'сценарий 8: нет колонки контрагента — пустой маппинг и диагностика, а не KeyError',
     )
 
 
@@ -321,20 +386,27 @@ def test_rbp_with_stub_contractor() -> None:
         try:
             step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ГиагКХП')
         except MissingMappingError as exc:
-            assert list(exc.problem_data['отсутствующее_значение']) == [RBP_IN_DATA], (
-                exc.problem_data
+            values = (
+                list(exc.problem_data['отсутствующее_значение'])
+                if exc.problem_data is not None else []
+            )
+            check(
+                values == [RBP_IN_DATA],
+                f"сценарий 9: в problem_data — РБП с незаполненным контрагентом ({values})",
             )
         else:
-            raise AssertionError(
-                'ожидался MissingMappingError: у РБП не заполнен контрагент'
-            )
+            check(False, 'сценарий 9: ожидался MissingMappingError: у РБП не заполнен контрагент')
 
         ppa_module.STRICT_PPA_MAPPING_CHECK = False
         df_9102 = _df_9102(['не_указано'], [RBP_IN_DATA])
         _, df_result = step._pull_contractors_from_ppa_by_rbp(
             _empty_9101(), df_9102, ppa, 'ГиагКХП',
         )
-        assert list(df_result['контрагент']) == ['не_указано'], 'мягкий режим не стопует'
+        check(
+            list(df_result['контрагент']) == ['не_указано'],
+            'сценарий 9: мягкий режим не стопует и оставляет контрагента-заглушку '
+            f"({list(df_result['контрагент'])})",
+        )
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
 
@@ -362,19 +434,24 @@ def test_os_object_with_stub_contractor() -> None:
         try:
             step._process_ppa(_empty_9101_full(), df_9102, ppa, 'ГиагКХП')
         except MissingMappingError as exc:
-            assert list(exc.problem_data['отсутствующее_значение']) == [os_object], (
-                exc.problem_data
+            values = (
+                list(exc.problem_data['отсутствующее_значение'])
+                if exc.problem_data is not None else []
+            )
+            check(
+                values == [os_object],
+                f"сценарий 10: в problem_data — объект ОС с незаполненным контрагентом ({values})",
             )
         else:
-            raise AssertionError(
-                'ожидался MissingMappingError: у объекта ОС не заполнен контрагент'
-            )
+            check(False, 'сценарий 10: ожидался MissingMappingError: у объекта ОС не заполнен контрагент')
 
         ppa_module.STRICT_PPA_MAPPING_CHECK = False
         df_9102 = _df_9102_ppa_object('не_указано', os_object)
         _, df_result = step._process_ppa(_empty_9101_full(), df_9102, ppa, 'ГиагКХП')
-        assert list(df_result['контрагент']) == [StepConstants.THIRD_PARTY], (
-            'мягкий режим заменяет контрагента-заглушку на 3 лица'
+        check(
+            list(df_result['контрагент']) == [StepConstants.THIRD_PARTY],
+            'сценарий 10: мягкий режим заменяет контрагента-заглушку на 3 лица '
+            f"({list(df_result['контрагент'])})",
         )
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
@@ -402,8 +479,10 @@ def test_collision_rbp_equals_os_ppa_filled() -> None:
     df_9102 = _df_9102(['не_указано'], [object_name])
 
     step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ББ')
-    assert list(df_9102['контрагент']) == ['Ставропольский бройлер ООО'], (
-        'коллизия рбп == ос_ппа не должна мешать подстановке контрагента'
+    check(
+        list(df_9102['контрагент']) == ['Ставропольский бройлер ООО'],
+        'сценарий 11: коллизия рбп == ос_ппа не мешает подстановке контрагента '
+        f"({list(df_9102['контрагент'])})",
     )
 
 
@@ -427,21 +506,27 @@ def test_collision_rbp_equals_os_ppa_stub_contractor() -> None:
         try:
             step._pull_contractors_from_ppa_by_rbp(_empty_9101(), df_9102, ppa, 'ББ')
         except MissingMappingError as exc:
-            assert list(exc.problem_data['отсутствующее_значение']) == [object_name], (
-                exc.problem_data
+            values = (
+                list(exc.problem_data['отсутствующее_значение'])
+                if exc.problem_data is not None else []
+            )
+            check(
+                values == [object_name],
+                f"сценарий 12: в problem_data — РБП (рбп == ос_ппа) без контрагента ({values})",
             )
         else:
-            raise AssertionError(
-                'ожидался MissingMappingError: у РБП (рбп == ос_ппа) '
-                'не заполнен контрагент'
-            )
+            check(False, 'сценарий 12: ожидался MissingMappingError: у РБП (рбп == ос_ппа) не заполнен контрагент')
 
         ppa_module.STRICT_PPA_MAPPING_CHECK = False
         df_9102 = _df_9102(['не_указано'], [object_name])
         _, df_result = step._pull_contractors_from_ppa_by_rbp(
             _empty_9101(), df_9102, ppa, 'ББ',
         )
-        assert list(df_result['контрагент']) == ['не_указано'], 'мягкий режим не стопует'
+        check(
+            list(df_result['контрагент']) == ['не_указано'],
+            'сценарий 12: мягкий режим не стопует '
+            f"({list(df_result['контрагент'])})",
+        )
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
 
@@ -466,13 +551,16 @@ def test_osv_rbp_object_missing_in_reference() -> None:
                 osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
             )
         except MissingMappingError as exc:
-            assert list(exc.problem_data['отсутствующее_значение']) == [object_name], (
-                exc.problem_data
+            values = (
+                list(exc.problem_data['отсутствующее_значение'])
+                if exc.problem_data is not None else []
+            )
+            check(
+                values == [object_name],
+                f"сценарий 13: в problem_data — РБП из ОСВ, отсутствующий в 'рбп' ({values})",
             )
         else:
-            raise AssertionError(
-                'ожидался MissingMappingError: РБП из ОСВ отсутствует в справочнике'
-            )
+            check(False, 'сценарий 13: ожидался MissingMappingError: РБП из ОСВ отсутствует в справочнике')
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
 
@@ -492,8 +580,10 @@ def test_object_unknown_in_reference_and_osv() -> None:
             _empty_9101(), df_9102, ppa, 'ГиагКХП',
             osv_df=osv, valid_rbp_types=VALID_RBP_TYPES,
         )
-        assert list(df_9102['контрагент']) == ['не_указано'], (
-            'объект не подтверждён как РБП — не трогаем и не диагностируем'
+        check(
+            list(df_9102['контрагент']) == ['не_указано'],
+            'сценарий 14: объект не подтверждён как РБП — не трогаем и не диагностируем '
+            f"({list(df_9102['контрагент'])})",
         )
     finally:
         ppa_module.STRICT_PPA_MAPPING_CHECK = original
@@ -502,29 +592,51 @@ def test_object_unknown_in_reference_and_osv() -> None:
 def test_collect_helpers_robust_to_missing_columns() -> None:
     """Хелперы сбора РБП-объектов устойчивы к отсутствию колонок и к None."""
     step = _step()
-    assert step._collect_ppa_rbp_objects(pd.DataFrame({'х': [1]})) == set()
-    assert step._collect_osv_rbp_objects(None, VALID_RBP_TYPES) == set()
-    assert step._collect_osv_rbp_objects(
+    check(
+        step._collect_ppa_rbp_objects(pd.DataFrame({'х': [1]})) == set(),
+        '_collect_ppa_rbp_objects: нет колонки «рбп» — пустое множество, не исключение',
+    )
+    check(
+        step._collect_osv_rbp_objects(None, VALID_RBP_TYPES) == set(),
+        '_collect_osv_rbp_objects: ОСВ не передана — пустое множество',
+    )
+    osv_no_subconto = step._collect_osv_rbp_objects(
         pd.DataFrame({'счет': ['97.21']}), VALID_RBP_TYPES
-    ) == set()
+    )
+    check(
+        osv_no_subconto == set(),
+        f'_collect_osv_rbp_objects: нет субконто/допсубконто — пустое множество ({osv_no_subconto})',
+    )
 
     ppa = pd.DataFrame({'рбп': ['РБП А', 'не_указано', None]}).astype('string')
-    assert step._collect_ppa_rbp_objects(ppa) == {'РБП А'}, (
-        step._collect_ppa_rbp_objects(ppa)
+    ppa_objects = step._collect_ppa_rbp_objects(ppa)
+    check(
+        ppa_objects == {'РБП А'},
+        f'_collect_ppa_rbp_objects: из «рбп» берётся только реальный объект ({ppa_objects})',
     )
 
     osv = _osv(['РБП ОСВ', 'не_указано'])
-    assert step._collect_osv_rbp_objects(osv, VALID_RBP_TYPES) == {'РБП ОСВ'}, (
-        step._collect_osv_rbp_objects(osv, VALID_RBP_TYPES)
+    osv_objects = step._collect_osv_rbp_objects(osv, VALID_RBP_TYPES)
+    check(
+        osv_objects == {'РБП ОСВ'},
+        f'_collect_osv_rbp_objects: заглушка «не_указано» отброшена ({osv_objects})',
     )
     # счёт не 97.x — не РБП-строка ОСВ
-    assert step._collect_osv_rbp_objects(
+    not_97 = step._collect_osv_rbp_objects(
         _osv(['Х'], account='26.01'), VALID_RBP_TYPES
-    ) == set()
+    )
+    check(
+        not_97 == set(),
+        f'_collect_osv_rbp_objects: счёт не 97.x — не РБП-строка ОСВ ({not_97})',
+    )
     # вид субконто вне списка аренды/лизинга — не РБП
-    assert step._collect_osv_rbp_objects(
+    not_lease = step._collect_osv_rbp_objects(
         _osv(['Х'], subconto='Страхование'), VALID_RBP_TYPES
-    ) == set()
+    )
+    check(
+        not_lease == set(),
+        f'_collect_osv_rbp_objects: вид субконто вне аренды/лизинга — не РБП ({not_lease})',
+    )
 
 
 def main() -> None:
@@ -542,7 +654,16 @@ def main() -> None:
     test_osv_rbp_object_missing_in_reference()
     test_object_unknown_in_reference_and_osv()
     test_collect_helpers_robust_to_missing_columns()
-    print('SMOKE_OK 14 scenarios: контрагенты ППА по рбп (шаг 17)')
+
+    total = PASSED + FAILED
+    label = 'контрагенты ППА по рбп (шаг 17)'
+    if FAILED:
+        print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        sys.exit(1)
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == '__main__':
