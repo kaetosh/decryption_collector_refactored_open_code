@@ -6,6 +6,7 @@ Mixin с базовыми атрибутами для Шага 17.
     ACCOUNT_OTHER_EXPENSE = '91.02'         # счёт прочих расходов
     NDS_ACCOUNTS = '68.02'                 # счёт НДС
     PPA_ACCOUNTS = счета ППА из AccountConstants: 01.09/02.03/01.03 + 02.01/01.01
+    RBP_ACCOUNT_PREFIX = префикс счёта РБП аренды/лизинга ('97')
     GROUP_COLS = ключи группировки 91.01/91.02
     FX_* = константы курсовых разниц из OpuReportConstants
 """
@@ -28,6 +29,7 @@ class Step17BaseMixin(Step):
     PPA_OPPA_ACCOUNTS = AccountConstants.PPA_OPPA_ACCOUNTS
     PPA_TRANSFER_ACCOUNTS = AccountConstants.PPA_TRANSFER_ACCOUNTS
     PPA_ACCOUNTS = AccountConstants.PPA_ACCOUNTS
+    RBP_ACCOUNT_PREFIX = AccountConstants.RBP_ACCOUNT_PREFIX
 
     GROUP_COLS = (
         'счет',

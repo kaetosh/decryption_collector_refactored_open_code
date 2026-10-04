@@ -27,6 +27,7 @@ from data_processors.file_processor_config import (
     DESIRED_ORDER,
 )
 from pipeline.errors import InputDataError
+from utils.column_utils import is_accounting_code
 
 
 class FileProcessor(ABC):
@@ -54,60 +55,12 @@ class FileProcessor(ABC):
     def _is_accounting_code_vectorized(series: pd.Series) -> pd.Series:
         """
         Векторизованная версия для работы с целыми сериями.
+
+        Совместимая обёртка: тело живёт в utils.column_utils.is_accounting_code,
+        потому что этот же признак нужен шагам пайплайна. Обратная ссылка
+        utils -> data_processors создавала бы цикл импортов.
         """
-        # Конвертируем в строку
-        str_series = series.astype(str)
-
-        # Быстрые проверки
-        result = pd.Series(False, index=series.index)
-
-        # Специальные значения
-        special_mask = str_series.isin(["0", "00", "000"])
-        result[special_mask] = True
-
-        # Проверяем наличие точки
-        has_dot = str_series.str.contains('.', regex=False)
-
-        # Для значений без точки - простые цифровые проверки
-        no_dot_mask = ~has_dot
-
-        # Проверяем значения без точки
-        numeric_no_dot = str_series[no_dot_mask].str.isdigit()
-        valid_length_no_dot = str_series[no_dot_mask].str.len() <= 2
-
-        # Создаем маски для значений без точки
-        valid_numeric_no_dot = pd.Series(False, index=series.index)
-        valid_length_mask = pd.Series(False, index=series.index)
-
-        # Используем .loc для присвоения значений
-        valid_numeric_no_dot.loc[no_dot_mask] = numeric_no_dot
-        valid_length_mask.loc[no_dot_mask] = valid_length_no_dot
-
-        # Объединяем маски
-        valid_no_dot_mask = no_dot_mask & valid_numeric_no_dot & valid_length_mask
-
-        # Обновляем результат для значений без точки
-        result[valid_no_dot_mask] = True
-
-        # Для значений с точкой - сложная проверка
-        dot_values = str_series[has_dot]
-        if not dot_values.empty:
-            # Разделяем на части
-            parts = dot_values.str.split('.')
-
-            # Проверяем каждую часть
-            valid_parts = parts.apply(lambda x: all(
-                (p.isdigit() and len(p) <= 2) or (p.isalpha() and len(p) <= 2)
-                for p in x if p  # Пропускаем пустые части
-            ))
-
-            # Проверяем наличие хотя бы одной цифровой части
-            has_digit = parts.apply(lambda x: any(p.isdigit() for p in x))
-
-            # Приведение к типу bool
-            result[has_dot] = (valid_parts & has_digit).to_numpy().astype(bool)
-
-        return result
+        return is_accounting_code(series)
 
     @staticmethod
     def _preprocessor_openpyxl(file_like_object: BytesIO) -> pd.DataFrame:

@@ -11,6 +11,8 @@ from .column_utils import (
     find_target_column,
     resolve_account_level_column,
     describe_level_columns,
+    level_columns_sorted,
+    is_accounting_code,
     process_account,
     normalize_account,
 )
@@ -38,6 +40,7 @@ from .file_utils import (
 from .reference_scope import (
     ScopeDiagnostics,
     resolve_company_view,
+    individual_scope_mask,
 )
 
 __all__ = [
@@ -51,6 +54,8 @@ __all__ = [
     'find_target_column',
     'resolve_account_level_column',
     'describe_level_columns',
+    'level_columns_sorted',
+    'is_accounting_code',
     'process_account',
     'normalize_account',
     # file_utils
@@ -75,4 +80,5 @@ __all__ = [
     # reference_scope
     'resolve_company_view',
     'ScopeDiagnostics',
+    'individual_scope_mask',
 ]

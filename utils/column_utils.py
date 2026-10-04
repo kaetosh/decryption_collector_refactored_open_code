@@ -20,7 +20,7 @@ ACCOUNT_COLUMN_FALLBACK_RATIO = 0.95
 LEVEL_DIAGNOSTICS_EXAMPLES = 5
 
 
-def _level_columns_sorted(df, column_prefix='Level_'):
+def level_columns_sorted(df, column_prefix='Level_'):
     """Столбцы с префиксом Level_ слева направо (Level_0, Level_1, ...)."""
     cols = [col for col in df.columns if str(col).startswith(column_prefix)]
 
@@ -29,6 +29,72 @@ def _level_columns_sorted(df, column_prefix='Level_'):
         return int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else 0
 
     return sorted(cols, key=_index)
+
+
+def is_accounting_code(series: pd.Series) -> pd.Series:
+    """
+    Векторизованная версия для работы с целыми сериями.
+
+    Единственная точка правды для признака «похоже ли значение на бухгалтерский
+    счёт»: живёт в utils, потому что нужен и обработчикам файлов
+    (data_processors), и шагам пайплайна (поиск столбца со счетами в сводной
+    ОСВ). FileProcessor._is_accounting_code_vectorized — совместимая обёртка
+    вокруг этой функции; обратная ссылка (utils -> data_processors) создавала бы
+    цикл импортов и тянула бы xlwings в шаги 1в/2/3.
+    """
+    # Конвертируем в строку
+    str_series = series.astype(str)
+
+    # Быстрые проверки
+    result = pd.Series(False, index=series.index)
+
+    # Специальные значения
+    special_mask = str_series.isin(["0", "00", "000"])
+    result[special_mask] = True
+
+    # Проверяем наличие точки
+    has_dot = str_series.str.contains('.', regex=False)
+
+    # Для значений без точки - простые цифровые проверки
+    no_dot_mask = ~has_dot
+
+    # Проверяем значения без точки
+    numeric_no_dot = str_series[no_dot_mask].str.isdigit()
+    valid_length_no_dot = str_series[no_dot_mask].str.len() <= 2
+
+    # Создаем маски для значений без точки
+    valid_numeric_no_dot = pd.Series(False, index=series.index)
+    valid_length_mask = pd.Series(False, index=series.index)
+
+    # Используем .loc для присвоения значений
+    valid_numeric_no_dot.loc[no_dot_mask] = numeric_no_dot
+    valid_length_mask.loc[no_dot_mask] = valid_length_no_dot
+
+    # Объединяем маски
+    valid_no_dot_mask = no_dot_mask & valid_numeric_no_dot & valid_length_mask
+
+    # Обновляем результат для значений без точки
+    result[valid_no_dot_mask] = True
+
+    # Для значений с точкой - сложная проверка
+    dot_values = str_series[has_dot]
+    if not dot_values.empty:
+        # Разделяем на части
+        parts = dot_values.str.split('.')
+
+        # Проверяем каждую часть
+        valid_parts = parts.apply(lambda x: all(
+            (p.isdigit() and len(p) <= 2) or (p.isalpha() and len(p) <= 2)
+            for p in x if p  # Пропускаем пустые части
+        ))
+
+        # Проверяем наличие хотя бы одной цифровой части
+        has_digit = parts.apply(lambda x: any(p.isdigit() for p in x))
+
+        # Приведение к типу bool
+        result[has_dot] = (valid_parts & has_digit).to_numpy().astype(bool)
+
+    return result
 
 
 def resolve_account_level_column(df,
@@ -52,21 +118,19 @@ def resolve_account_level_column(df,
     Returns:
         Optional[str]: имя столбца счетов либо None, если не нашёлся.
     """
-    from data_processors.file_processor import FileProcessor
-
-    cols = _level_columns_sorted(df, column_prefix)
+    cols = level_columns_sorted(df, column_prefix)
     if not cols:
         logger.debug("Столбцы с префиксом '{}' не найдены", column_prefix)
         return None
 
     # --- Шаг 1: строгий критерий, справа налево ---
     for col in reversed(cols):
-        if FileProcessor._is_accounting_code_vectorized(df[col]).all():
+        if is_accounting_code(df[col]).all():
             return col
 
     # --- Шаг 2: запасной критерий, слева направо ---
     for col in cols:
-        mask = FileProcessor._is_accounting_code_vectorized(df[col])
+        mask = is_accounting_code(df[col])
         ratio = float(mask.mean()) if len(mask) else 0.0
         if ratio < fallback_ratio:
             continue
@@ -105,11 +169,9 @@ def describe_level_columns(df, column_prefix='Level_'):
     видно, что именно лежит в каждом столбце и сколько значений не являются
     счетами.
     """
-    from data_processors.file_processor import FileProcessor
-
     parts = []
-    for col in _level_columns_sorted(df, column_prefix):
-        mask = FileProcessor._is_accounting_code_vectorized(df[col])
+    for col in level_columns_sorted(df, column_prefix):
+        mask = is_accounting_code(df[col])
         bad = df.loc[~mask, col].dropna().unique().tolist()
         if not bad:
             parts.append(f"{col}: все значения — счета")
@@ -130,8 +192,6 @@ def find_target_column(df,
     """
     Находит столбец с указанным префиксом по заданным условиям и возвращает столбец со сдвигом.
     """
-    from data_processors.file_processor import FileProcessor
-    
     # Получаем все столбцы с указанным префиксом
     columns_with_prefix = [col for col in df.columns if col.startswith(column_prefix)]
     
@@ -154,8 +214,7 @@ def find_target_column(df,
     
     for col in check_order:
         try:
-            # ★ ИСПРАВЛЕНИЕ: используем оригинальный метод из FileProcessor
-            is_all_account = FileProcessor._is_accounting_code_vectorized(df[col])
+            is_all_account = is_accounting_code(df[col])
             
             if account_type == 'all_accounts':
                 condition_met = is_all_account.all()

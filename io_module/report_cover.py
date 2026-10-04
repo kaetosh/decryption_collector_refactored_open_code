@@ -225,28 +225,34 @@ def _reference_scope_text(context: Any) -> str:
     Меппинг_бб) правилось именно для этой компании.
 
     Сводку заполняет pipeline.executors._apply_company_reference_scope
-    (ключ context.data['reference_scope_summary']) до старта конвейера.
+    (ключ и имена полей — OpuReportConstants.REFERENCE_SCOPE_*) до старта
+    конвейера.
     """
-    summary = (context.data or {}).get("reference_scope_summary") or {}
+    summary = (
+        (context.data or {}).get(OpuReportConstants.REFERENCE_SCOPE_SUMMARY_KEY) or {}
+    )
     entries = summary.get("entries") or []
 
     if entries:
         parts = []
         for entry in entries:
-            text = (
-                f"{entry.get('лист', '—')}: {entry.get('индивидуальных_строк', 0)} строк "
-                f"(перекрыто универсальных — {entry.get('перекрыто_универсальных', 0)})"
-            )
+            sheet = entry.get(OpuReportConstants.REFERENCE_SCOPE_ENTRY_SHEET, '—')
+            individual = entry.get(
+                OpuReportConstants.REFERENCE_SCOPE_ENTRY_INDIVIDUAL, 0)
+            overridden = entry.get(
+                OpuReportConstants.REFERENCE_SCOPE_ENTRY_OVERRIDDEN, 0)
+            text = f"{sheet}: {individual} строк (перекрыто универсальных — {overridden})"
             # Строки, отброшенные как чужие, — часть результата, а не пустота:
             # без них получатель видит «правок нет» и не понимает, почему в
             # справочнике статья даёт два типа, а в отчёте — один.
-            dropped = entry.get("отброшено_строк_других_компаний", 0)
+            dropped = entry.get(
+                OpuReportConstants.REFERENCE_SCOPE_ENTRY_DROPPED, 0)
             if dropped:
                 text += f", отброшено строк других компаний — {dropped}"
             parts.append(text)
         return f"применён — {'; '.join(parts)}"
 
-    if summary.get("unknown_scope_values"):
+    if summary.get(OpuReportConstants.REFERENCE_SCOPE_UNKNOWN_VALUES):
         return (
             "не применён — в колонке «компания» есть неизвестные значения "
             "(см. предупреждения и mismatches/)"
@@ -582,23 +588,23 @@ def _diagnostic_rows() -> list[tuple[str, str]]:
     return rows
 
 
+def _is_informational(filename: str) -> bool:
+    """Файл диагностики создан при штатной работе шага, а не из-за ошибки."""
+    return filename.startswith(DIAGNOSTIC_INFORMATIONAL_PREFIXES)
+
+
 def _diagnostic_hint(filename: str, default_hint: str) -> str:
     """
-    Подпись файла диагностики: у штатной информации она своя.
+    Подпись файла диагностики: у штатной информации своя.
 
     Папка `mismatches` на самом деле неоднородна: туда пишутся и настоящие
     проблемные данные (mismatch_*, missing_files_*), и файлы, которые создаются
     при штатной работе шагов (аудит меппинга, отчёты свёртки). Одна подпись на
     всю папку заставляла получателя искать ошибки там, где их нет.
     """
-    if filename.startswith(DIAGNOSTIC_INFORMATIONAL_PREFIXES):
+    if _is_informational(filename):
         return INFORMATIONAL_HINT
     return default_hint
-
-
-def _is_informational(filename: str) -> bool:
-    """Файл диагностики создан при штатной работе шага, а не из-за ошибки."""
-    return filename.startswith(DIAGNOSTIC_INFORMATIONAL_PREFIXES)
 
 
 def _files_in_folder(

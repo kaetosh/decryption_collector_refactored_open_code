@@ -269,7 +269,7 @@ def hold_splash(seconds: float | None = None) -> None:
     (см. ветку «Получен сигнал прерывания»).
     """
     delay = SPLASH_HOLD_SECONDS if seconds is None else seconds
-    if delay is None or delay <= 0:
+    if delay <= 0:
         return
     try:
         interactive_console = sys.stdout is not None and sys.stdout.isatty()

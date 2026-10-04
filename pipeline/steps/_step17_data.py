@@ -12,12 +12,11 @@ Mixin с загрузкой и фильтрацией данных для Шаг
 import pandas as pd
 from loguru import logger
 
-from config.settings import REFERENCE_SCOPE_COL, SCOPE_ALL_VALUE
-from utils import build_composite_key
+from config.settings import REFERENCE_SCOPE_COL
+from utils import build_composite_key, individual_scope_mask
 
 from pipeline.base import ProcessingContext
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
-from pipeline.step_config import StepConstants
 
 
 class Step17DataMixin:
@@ -326,24 +325,20 @@ class Step17DataMixin:
             for key, frame in reference.groupby('_key', sort=False)
         }
 
-    @staticmethod
-    def _build_individual_type_candidates(reference: pd.DataFrame) -> dict[str, list[str]]:
-        """Кандидаты типов из индивидуальных строк компании (scope != 'все')."""
-        if REFERENCE_SCOPE_COL not in reference.columns:
+    def _build_individual_type_candidates(self, reference: pd.DataFrame) -> dict[str, list[str]]:
+        """
+        Кандидаты типов из индивидуальных строк компании (scope != 'все').
+
+        ВНИМАНИЕ: справочник обязан быть уже во «взгляде компании» —
+        resolve_company_view вызывается один раз на прогон в
+        executors.initialize_context(), до старта конвейера, и отбрасывает
+        строки других компаний. Без этого «индивидуальной» считалась бы любая
+        непустая область действия, включая чужую компанию.
+        """
+        mask = individual_scope_mask(reference)
+        if not mask.any():
             return {}
-        individual_mask = (
-            reference[REFERENCE_SCOPE_COL].fillna(SCOPE_ALL_VALUE)
-            .astype('string').str.strip().str.casefold()
-            != SCOPE_ALL_VALUE.casefold()
-        )
-        if not individual_mask.any():
-            return {}
-        individual = reference[individual_mask]
-        grouped = individual.assign(_key=individual['_key']).groupby('_key', sort=False)
-        return {
-            key: frame['вид_дохода_расхода'].dropna().astype(str).drop_duplicates().tolist()
-            for key, frame in grouped
-        }
+        return self._build_type_candidates(reference[mask])
 
     @staticmethod
     def _ambiguity_hint(

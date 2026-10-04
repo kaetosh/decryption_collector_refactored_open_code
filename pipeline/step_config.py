@@ -74,8 +74,13 @@ class AccountConstants:
     PPA_OPPA_ACCOUNTS = ('01.09', '02.03', '01.03')
     # Счета ППА: ветка меппинга 'ос_после_перехода_в_собственность'
     PPA_TRANSFER_ACCOUNTS = ('02.01', '01.01')
-    # Все счета ППА: ворота заполнения 'объект для изм ппа' и классификации неоднозначных ключей Меппинг_опу
+    # Все счета ППА: ворота заполнения 'объект для изм ппа'
     PPA_ACCOUNTS = PPA_OPPA_ACCOUNTS + PPA_TRANSFER_ACCOUNTS
+
+    # Префикс счёта РБП аренды/лизинга (97.x). Признак «строка проводки — РБП»
+    # в шаге 17 проверяется по нему вместе с множеством известных РБП
+    # (колонка 'рбп' листа ППА + объекты РБП из ОСВ).
+    RBP_ACCOUNT_PREFIX = '97'
     
     # Счета для выгрузок в ACCOUNTS_OSV_LEASE_DIR
     ACCOUNTS_OSV_LEASE = ['76.07', '76.05.3']
@@ -122,6 +127,17 @@ class OpuReportConstants:
         "сегмент",
         "вид_связи",
     )
+
+    # Сводка применённого индивидуального меппинга в context.data — её читают
+    # и исполнители (pipeline/executors._apply_company_reference_scope), и
+    # титульный лист (io_module/report_cover._reference_scope_text), поэтому
+    # ключ и имена полей объявлены здесь, а не продублированы строкой.
+    REFERENCE_SCOPE_SUMMARY_KEY = "reference_scope_summary"
+    REFERENCE_SCOPE_ENTRY_SHEET = "лист"
+    REFERENCE_SCOPE_ENTRY_INDIVIDUAL = "индивидуальных_строк"
+    REFERENCE_SCOPE_ENTRY_OVERRIDDEN = "перекрыто_универсальных"
+    REFERENCE_SCOPE_ENTRY_DROPPED = "отброшено_строк_других_компаний"
+    REFERENCE_SCOPE_UNKNOWN_VALUES = "unknown_scope_values"
 
     # Ключи для маппинга ОПУ
     MAPPING_KEY_COLS = (

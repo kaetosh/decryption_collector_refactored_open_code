@@ -41,7 +41,7 @@ from io_module import (
 )
 from io_module.output_manager import get_output_dir, get_run_dir, get_run_id
 from logging_handling.logger_config import format_warnings_summary
-from utils.reference_scope import resolve_company_view
+from utils.reference_scope import ScopeDiagnostics, resolve_company_view
 from utils.currency_utils import (
     needs_conversion,
     get_currency,
@@ -485,17 +485,17 @@ def _apply_company_reference_scope(context: ProcessingContext) -> None:
         diagnostics.append(diag)
         if diag.applied or diag.dropped_foreign_rows:
             entries.append({
-                'лист': sheet_name,
-                'индивидуальных_строк': diag.individual_rows,
-                'перекрыто_универсальных': diag.overridden_rows,
-                'отброшено_строк_других_компаний': diag.dropped_foreign_rows,
+                OpuReportConstants.REFERENCE_SCOPE_ENTRY_SHEET: sheet_name,
+                OpuReportConstants.REFERENCE_SCOPE_ENTRY_INDIVIDUAL: diag.individual_rows,
+                OpuReportConstants.REFERENCE_SCOPE_ENTRY_OVERRIDDEN: diag.overridden_rows,
+                OpuReportConstants.REFERENCE_SCOPE_ENTRY_DROPPED: diag.dropped_foreign_rows,
             })
 
     # Сводка для титульного листа отчёта (io_module/report_cover.py)
-    context.data['reference_scope_summary'] = {
+    context.data[OpuReportConstants.REFERENCE_SCOPE_SUMMARY_KEY] = {
         'company': context.company,
         'entries': entries,
-        'unknown_scope_values': sorted({
+        OpuReportConstants.REFERENCE_SCOPE_UNKNOWN_VALUES: sorted({
             value for diag in diagnostics for value in diag.unknown_scope_values
         }),
     }
@@ -521,7 +521,7 @@ SCOPE_SHEET_COL = 'лист'
 SCOPE_OVERRIDER_COL = 'перекрыто_компанией'
 
 
-def _tag_scope_frame(frame: pd.DataFrame, diag: Any) -> pd.DataFrame:
+def _tag_scope_frame(frame: pd.DataFrame, diag: ScopeDiagnostics) -> pd.DataFrame:
     """Добавляет к кадру служебные колонки «лист» и «перекрыто_компанией»."""
     tagged = frame.copy()
     tagged[SCOPE_SHEET_COL] = diag.reference_name
@@ -580,22 +580,22 @@ def _save_reference_scope_diagnostics(diagnostics: list, context: ProcessingCont
         output_path = get_output_dir('mismatches') / filename
 
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            if applied:
-                pd.concat(applied, ignore_index=True).to_excel(
-                    writer, sheet_name=SCOPE_SHEET_APPLIED, index=False,
+            sheets = (
+                (applied, SCOPE_SHEET_APPLIED),
+                (overridden, SCOPE_SHEET_OVERRIDDEN),
+                (individual_only, SCOPE_SHEET_INDIVIDUAL_ONLY),
+                (unknown, SCOPE_SHEET_UNKNOWN),
+            )
+            for frames, sheet_name in sheets:
+                if not frames:
+                    continue
+                pd.concat(frames, ignore_index=True).to_excel(
+                    writer, sheet_name=sheet_name, index=False,
                 )
-            if overridden:
-                pd.concat(overridden, ignore_index=True).to_excel(
-                    writer, sheet_name=SCOPE_SHEET_OVERRIDDEN, index=False,
-                )
-            if individual_only:
-                pd.concat(individual_only, ignore_index=True).to_excel(
-                    writer, sheet_name=SCOPE_SHEET_INDIVIDUAL_ONLY, index=False,
-                )
-            if unknown:
-                pd.concat(unknown, ignore_index=True).to_excel(
-                    writer, sheet_name=SCOPE_SHEET_UNKNOWN, index=False,
-                )
+                # Как на остальных листах книги: жирная шапка, закрепление,
+                # ширины и автофильтр. В «Применённых строках» лежат тысячи
+                # строк справочника — без фильтра искать свою статью нечем.
+                DataSaver._apply_excel_formatting(writer.sheets[sheet_name])
 
         logger.info(
             "[FOLDER] Диагностика индивидуального меппинга сохранена в: {}",

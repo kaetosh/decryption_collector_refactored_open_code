@@ -39,7 +39,15 @@ class BaseAnalysisProcessor(FileProcessor):
     
     @staticmethod
     def _is_accounting_code_vectorized(series: pd.Series) -> pd.Series:
-        """Проверяет, является ли значение бухгалтерским счетом."""
+        """Проверяет, является ли значение бухгалтерским счетом.
+
+        ВНИМАНИЕ: это НЕ копия utils.column_utils.is_accounting_code (тело
+        базового FileProcessor._is_accounting_code_vectorized), а осознанное
+        переопределение с другими правилами: нет ограничения длины частей,
+        допускается альфа в номере счёта, «0/00/000» счётом не считается.
+        Не унифицировать с базовым без отдельной проверки на выгрузках
+        «Анализ счёта» — правила различаются намеренно.
+        """
         return series.astype(str).str.match(r'^\d+(\.\d+)?$') & series.notna()
     
     def _is_parent(self, acc: str, all_accounts: List[str]) -> bool:

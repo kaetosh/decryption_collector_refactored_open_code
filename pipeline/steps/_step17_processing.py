@@ -188,7 +188,7 @@ class Step17ProcessingMixin:
         reference_ppa_df: pd.DataFrame,
         name_company: str = '',
         osv_df: pd.DataFrame | None = None,
-        valid_rbp_types=None,
+        valid_rbp_types: set[str] | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Подтягивает контрагентов из справочника ППА по колонке 'рбп'.
@@ -274,7 +274,7 @@ class Step17ProcessingMixin:
             # больше не отсекает настоящий РБП).
             rbp_mask = (
                 frame['Корр.счет'].astype('string').fillna('')
-                .str.startswith('97')
+                .str.startswith(self.RBP_ACCOUNT_PREFIX)
                 & objects.fillna('').str.strip().isin(rbp_objects)
             )
             contractors = frame['контрагент'].astype('string')
@@ -427,7 +427,7 @@ class Step17ProcessingMixin:
         return set(values.dropna().str.strip().tolist())
 
     def _collect_osv_rbp_objects(
-        self, osv_df: pd.DataFrame | None, valid_rbp_types
+        self, osv_df: pd.DataFrame | None, valid_rbp_types: set[str] | None
     ) -> set[str]:
         """
         Собирает объекты РБП из ОСВ: счёт 97.x + вид субконто аренды/лизинга.
@@ -446,7 +446,9 @@ class Step17ProcessingMixin:
         if not valid_rbp_types:
             return set()
         mask = (
-            osv_df['счет'].astype('string').str.startswith('97', na=False)
+            osv_df['счет'].astype('string').str.startswith(
+                self.RBP_ACCOUNT_PREFIX, na=False
+            )
             & osv_df['субконто'].astype('string').isin(set(valid_rbp_types))
         )
         values = osv_df.loc[mask, 'допсубконто'].astype('string')
@@ -1184,7 +1186,8 @@ class Step17ProcessingMixin:
 
         mask_credit = (
             (df['вид_дохода_расхода'] == CREDIT_TYPE) &
-            (df['Корр.счет'].astype(str).str.startswith('97', na=False))
+            (df['Корр.счет'].astype(str).str.startswith(
+                self.RBP_ACCOUNT_PREFIX, na=False))
         )
 
         if not mask_credit.any():

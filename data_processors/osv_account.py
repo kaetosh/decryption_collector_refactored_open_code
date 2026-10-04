@@ -12,6 +12,7 @@ from io import BytesIO
 
 from data_processors.file_processor import FileProcessor, exclude_values
 from pipeline.errors import InputDataError
+from utils.column_utils import describe_level_columns, level_columns_sorted
 from utils.dataframe_utils import find_header_index
 
 def find_account_from_text(df: pd.DataFrame, search_text: str = "Оборотно-сальдовая ведомость по счету ") -> Optional[str]:
@@ -261,23 +262,6 @@ class BaseAccountOSVProcessor(FileProcessor):
     # УРОВЕНЬ СЧЁТА В ИЕРАРХИИ ОСВ
     # =========================================================================
 
-    @staticmethod
-    def _sorted_level_columns(df: pd.DataFrame) -> list:
-        """Столбцы Level_* слева направо (Level_0, Level_1, ...)."""
-        cols = [col for col in df.columns if str(col).startswith('Level_')]
-
-        def _index(col):
-            parts = str(col).split('_', 1)
-            return int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else 0
-
-        return sorted(cols, key=_index)
-
-    def _describe_level_columns(self, df: pd.DataFrame) -> str:
-        """Разбор Level_*-столбцов для сообщения об ошибке."""
-        from utils.column_utils import describe_level_columns
-
-        return describe_level_columns(df)
-
     def _dirty_level_columns(self, df: pd.DataFrame) -> list:
         """
         Столбцы Level_*, в которых есть значения, не являющиеся счетами.
@@ -287,7 +271,7 @@ class BaseAccountOSVProcessor(FileProcessor):
         идёт только то, что помещается. Примеры — в DEBUG.
         """
         return [
-            col for col in self._sorted_level_columns(df)
+            col for col in level_columns_sorted(df)
             if not self._is_accounting_code_vectorized(df[col]).all()
         ]
 
@@ -315,7 +299,7 @@ class BaseAccountOSVProcessor(FileProcessor):
         вправо (данные не теряются), а дубли счёта из уровней убираем — он
         теперь представлен в Level_0.
         """
-        level_cols = self._sorted_level_columns(df)
+        level_cols = level_columns_sorted(df)
 
         if not level_cols:
             if account_for_table:
@@ -348,7 +332,7 @@ class BaseAccountOSVProcessor(FileProcessor):
             )
             logger.debug(
                 "Разбор уровней ОСВ '{}': {}", self.file,
-                self._describe_level_columns(df),
+                describe_level_columns(df),
             )
             return df
 
@@ -359,10 +343,18 @@ class BaseAccountOSVProcessor(FileProcessor):
         )
         logger.debug(
             "Разбор уровней ОСВ '{}' до починки: {}", self.file,
-            self._describe_level_columns(df),
+            describe_level_columns(df),
         )
 
-        shifted = {}
+        # Номер счёта идёт первым: Level_0 — верхний уровень иерархии, а не
+        # хвост кадра. Порядок столбцов тут не косметика — find_target_column
+        # ищет столбец по ПОЗИЦИИ, поэтому уровни записываются по возрастанию
+        # номера, начиная с Level_0.
+        shifted = {
+            'Level_0': pd.Series(
+                [account_for_table] * len(df), index=df.index, dtype='string'
+            )
+        }
         for col in level_cols:
             values = df[col].astype('string')
             # Номер счёта теперь живёт в Level_0 — в уровнях аналитики он лишний
@@ -373,9 +365,6 @@ class BaseAccountOSVProcessor(FileProcessor):
         df = df.drop(columns=level_cols)
         for name, values in shifted.items():
             df[name] = values
-        df['Level_0'] = pd.Series(
-            [account_for_table] * len(df), index=df.index, dtype='string'
-        )
 
         return df
 

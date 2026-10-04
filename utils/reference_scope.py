@@ -65,6 +65,24 @@ def _normalized_scope(series: pd.Series) -> pd.Series:
     )
 
 
+def individual_scope_mask(
+    df: pd.DataFrame,
+    scope_col: str = REFERENCE_SCOPE_COL,
+) -> pd.Series:
+    """
+    Маска строк, адресованных конкретным компаниям (scope != 'все').
+
+    Единственная точка правды для признака «строка — индивидуальная»: и
+    resolve_company_view, и шаг 17 (выбор типа ОПУ по индивидуальным строкам)
+    обязаны понимать одинаково. Нет колонки области действия — все строки
+    универсальные (маска из False), обратная совместимость со старыми
+    Справочники.xlsx.
+    """
+    if scope_col not in df.columns:
+        return pd.Series(False, index=df.index)
+    return _normalized_scope(df[scope_col]).ne(SCOPE_ALL_VALUE.casefold())
+
+
 def _row_keys(frame: pd.DataFrame, key_cols: Sequence[str]) -> list[str]:
     """Составные ключи строк (в порядке строк кадра)."""
     if frame.empty:
