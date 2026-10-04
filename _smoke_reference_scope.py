@@ -36,7 +36,11 @@
 компании) и по ключу поиска счёта, а не через contains('сдачей') — такой
 срез ловил обе статьи и требовал от них одного типа.
 
-Запуск: python _smoke_reference_scope.py
+Смоук обязан падать при провале: check() увеличивает счётчик FAILED, финальная
+строка — SMOKE_OK (PASSED/total) либо SMOKE_FAIL со списком провалов и код
+возврата 1 (как в _smoke_98_account_level.py и _smoke_17_type_resolution.py).
+
+Запуск: python -u _smoke_reference_scope.py
 """
 import sys
 from pathlib import Path
@@ -63,18 +67,40 @@ def _load(sheet: str) -> pd.DataFrame:
     return DataLoader.load_reference_data(sheet_name=sheet, **REFERENCE_CONFIGS[sheet])
 
 
+PASSED = 0
+FAILED = 0
+_failed_messages: list[str] = []
+
+
+def check(condition: bool, message: str) -> None:
+    """Одна проверка с прогрессом (зелёная — счётчик, красная — счётчик)."""
+    global PASSED, FAILED
+    if condition:
+        PASSED += 1
+        print(f"[OK] {message}")
+    else:
+        FAILED += 1
+        _failed_messages.append(message)
+        print(f"[FAIL] {message}")
+
+
+def skip(message: str) -> None:
+    """Проверка неприменима (нет данных) — в прогоне её нет, и это не ошибка."""
+    print(f"[SKIP] {message}")
+
+
 def test_load_real_references() -> None:
     """Колонки по именам: счет_фо и детализация_субконто больше не теряются."""
     opu = _load('Меппинг_опу')
     for col in ('счет', 'доход_расход', 'вид_дохода_расхода', 'компания',
                 'сегмент', 'вид_связи', 'счет_фо'):
-        assert col in opu.columns, (col, opu.columns.tolist())
-    assert opu['счет_фо'].notna().any(), 'счет_фо должен читаться'
+        check(col in opu.columns, f"Меппинг_опу: колонка «{col}» на месте")
+    check(opu['счет_фо'].notna().any(), 'счет_фо в Меппинг_опу читается')
 
     bb = _load('Меппинг_бб')
     for col in ('счет', 'субконто', 'компания', 'вид_задолженности',
                 'детализация_субконто', 'счет_фо', 'отчетность'):
-        assert col in bb.columns, (col, bb.columns.tolist())
+        check(col in bb.columns, f"Меппинг_бб: колонка «{col}» на месте")
 
 
 def _make_ref() -> pd.DataFrame:
@@ -98,11 +124,20 @@ def test_override_and_company_isolation() -> None:
         ref, 'ГиагКХП', key_cols, reference_name='Меппинг_опу',
         known_companies=['ГиагКХП', 'Другая'],
     )
-    assert diag.applied and diag.individual_rows == 1, diag
-    assert diag.overridden_rows == 1, diag
-    assert list(view['вид_дохода_расхода']) == ['Расходы по процентам аренда']
-    assert list(view['счет_фо']) == ['1150040103']
-    assert len(view) == 1, view
+    check(
+        diag.applied and diag.individual_rows == 1,
+        f"индивидуальная строка применена (строк: {diag.individual_rows})",
+    )
+    check(diag.overridden_rows == 1, f"вытеснено универсальных: {diag.overridden_rows}")
+    check(
+        list(view['вид_дохода_расхода']) == ['Расходы по процентам аренда'],
+        f"в кадре тип компании, а не универсальный ({list(view['вид_дохода_расхода'])})",
+    )
+    check(
+        list(view['счет_фо']) == ['1150040103'],
+        f"счёт_фо взят из индивидуальной строки ({list(view['счет_фо'])})",
+    )
+    check(len(view) == 1, f"в кадре осталась одна строка (факт: {len(view)})")
 
     # У компании без своих строк индивидуальные строки ЧУЖИХ компаний
     # отбрасываются (регресс кейса «ТимПФ», 29.09.2026): раньше здесь стоял
@@ -112,11 +147,20 @@ def test_override_and_company_isolation() -> None:
         ref, 'Другая', key_cols, reference_name='Меппинг_опу',
         known_companies=['ГиагКХП', 'Другая'],
     )
-    assert not other_diag.applied, other_diag
-    assert other_diag.individual_rows == 0, other_diag
-    assert other_diag.dropped_foreign_rows == 1, other_diag
-    assert list(other_view['вид_дохода_расхода']) == ['Аренда'], other_view
-    assert list(other_view['счет_фо']) == ['600020103'], other_view
+    check(not other_diag.applied, 'у «Другая» своих строк нет')
+    check(other_diag.individual_rows == 0, 'индивидуальных строк у «Другая» 0')
+    check(
+        other_diag.dropped_foreign_rows == 1,
+        f"строка «ГиагКХП» отброшена для «Другая» (факт: {other_diag.dropped_foreign_rows})",
+    )
+    check(
+        list(other_view['вид_дохода_расхода']) == ['Аренда'],
+        f"у «Другая» остался универсальный тип ({list(other_view['вид_дохода_расхода'])})",
+    )
+    check(
+        list(other_view['счет_фо']) == ['600020103'],
+        f"счёт_фо остался универсальным ({list(other_view['счет_фо'])})",
+    )
 
 
 def test_reference_without_individual_rows_is_untouched() -> None:
@@ -125,9 +169,12 @@ def test_reference_without_individual_rows_is_untouched() -> None:
     view, diag = resolve_company_view(
         ref, 'Другая', OpuReportConstants.REFERENCE_ROW_KEY, reference_name='Меппинг_опу',
     )
-    assert not diag.applied, diag
-    assert diag.dropped_foreign_rows == 0, diag
-    assert view is ref, 'индивидуального меппинга нет — кадр не меняется вообще'
+    check(not diag.applied, 'индивидуальный меппинг не применялся')
+    check(
+        diag.dropped_foreign_rows == 0,
+        f"чужих строк нет, отбрасывать нечего (факт: {diag.dropped_foreign_rows})",
+    )
+    check(view is ref, 'индивидуального меппинга нет — кадр не меняется вообще')
 
 
 def test_missing_column_is_backward_compatible() -> None:
@@ -136,8 +183,8 @@ def test_missing_column_is_backward_compatible() -> None:
     view, diag = resolve_company_view(
         ref, 'ГиагКХП', OpuReportConstants.REFERENCE_ROW_KEY, reference_name='Меппинг_опу',
     )
-    assert diag.column_missing, diag
-    assert view is ref, 'кадр не должен изменяться'
+    check(diag.column_missing, 'диагностика сообщает об отсутствии колонки')
+    check(view is ref, 'кадр без колонки «компания» не изменяется')
 
 
 def _build_type_candidates_from_view(view: pd.DataFrame) -> dict:
@@ -167,7 +214,7 @@ def test_company_without_individual_rows_does_not_inherit_foreign() -> None:
     останавливает прогон с «найдено несколько бизнес-типов».
     """
     if not REFERENCE_DATA_FILE.exists():
-        print('  [skip] Справочники.xlsx не найден — сценарий пропущен')
+        skip('Справочники.xlsx не найден — сценарий пропущен')
         return
 
     opu = _load('Меппинг_опу')
@@ -176,7 +223,7 @@ def test_company_without_individual_rows_does_not_inherit_foreign() -> None:
     )
     foreign = opu[is_foreign]
     if foreign.empty:
-        print('  [skip] в справочнике нет индивидуальных строк — сценарий пропущен')
+        skip('в справочнике нет индивидуальных строк — сценарий пропущен')
         return
 
     # Берём компанию из КомпанииГруппы без своих строк, но с тем же
@@ -196,7 +243,7 @@ def test_company_without_individual_rows_does_not_inherit_foreign() -> None:
         & companies[ColumnNames.SEGMENT].astype(str).str.strip().isin(foreign_segments)
     ]
     if candidates.empty:
-        print('  [skip] нет компании с чужим сегментом — сценарий пропущен')
+        skip('нет компании с чужим сегментом — сценарий пропущен')
         return
 
     company = str(candidates[short_name].iloc[0])
@@ -206,13 +253,25 @@ def test_company_without_individual_rows_does_not_inherit_foreign() -> None:
         known_companies=companies[short_name].dropna().astype(str),
     )
 
-    assert diag.individual_rows == 0, (company, diag)
-    assert diag.dropped_foreign_rows == len(foreign), (company, diag)
-    assert len(view) == len(opu) - len(foreign), (len(view), len(opu), len(foreign))
-    assert 'компания' in view.columns
-    assert set(
-        view[REFERENCE_SCOPE_COL].astype('string').str.strip().str.casefold().unique()
-    ) == {SCOPE_ALL_VALUE.casefold()}, 'в кадре остались строки чужих компаний'
+    check(
+        diag.individual_rows == 0,
+        f"у «{company}» нет индивидуальных строк (факт: {diag.individual_rows})",
+    )
+    check(
+        diag.dropped_foreign_rows == len(foreign),
+        f"отброшены все строки чужих компаний: {diag.dropped_foreign_rows} из {len(foreign)}",
+    )
+    check(
+        len(view) == len(opu) - len(foreign),
+        f"кадр уменьшился ровно на число чужих строк ({len(view)} = {len(opu)} - {len(foreign)})",
+    )
+    check('компания' in view.columns, 'колонка «компания» на месте')
+    check(
+        set(
+            view[REFERENCE_SCOPE_COL].astype('string').str.strip().str.casefold().unique()
+        ) == {SCOPE_ALL_VALUE.casefold()},
+        'в кадре остались строки чужих компаний',
+    )
 
     # Ключевой симптом кейса: у статьи аренды остаётся РОВНО один тип.
     rent = view[
@@ -220,7 +279,7 @@ def test_company_without_individual_rows_does_not_inherit_foreign() -> None:
         & view['доход_расход'].astype(str).str.contains('сдачей', na=False)
     ]
     types = set(rent['вид_дохода_расхода'].dropna())
-    assert types == {'Аренда'}, (company, types)
+    check(types == {'Аренда'}, f"у «{company}» статья аренды — только «Аренда»: {sorted(types)}")
 
     # ...и по этому ключу резолвер шага 17 больше не спотыкается о неоднозначность.
     by_key = _build_type_candidates_from_view(view)
@@ -229,9 +288,9 @@ def test_company_without_individual_rows_does_not_inherit_foreign() -> None:
         if key.startswith('91.02' + KEY_SEPARATOR)
         and 'сдачей' in key
     }
-    assert rent_keys, 'статья аренды не найдена в кадре'
-    for key in rent_keys:
-        assert by_key[key] == ['Аренда'], (key, by_key[key])
+    check(bool(rent_keys), 'статья аренды не найдена в кадре')
+    for key in sorted(rent_keys):
+        check(by_key[key] == ['Аренда'], f"на ключе «{key}» один тип: {by_key[key]}")
 
 
 def test_unknown_scope_value_reported() -> None:
@@ -246,14 +305,20 @@ def test_unknown_scope_value_reported() -> None:
         ref, 'ГиагКХП', OpuReportConstants.REFERENCE_ROW_KEY,
         reference_name='Меппинг_опу', known_companies=['ГиагКХП', 'Другая'],
     )
-    assert diag.unknown_scope_values == ['ГиагКХП2'], diag.unknown_scope_values
-    assert 'Тип-X' not in set(view['вид_дохода_расхода']), 'чужие строки отброшены'
+    check(
+        diag.unknown_scope_values == ['ГиагКХП2'],
+        f"опечатка в имени компании попала в диагностику: {diag.unknown_scope_values}",
+    )
+    check(
+        'Тип-X' not in set(view['вид_дохода_расхода']),
+        'строка с неизвестной областью действия в работу не попала',
+    )
 
 
 def test_real_file_company_view() -> None:
     """Реальный кейс ГиагКХП: статья аренды перекрыта на «Расходы по процентам аренда»."""
     if not REFERENCE_DATA_FILE.exists():
-        print('  [skip] Справочники.xlsx не найден — сценарий пропущен')
+        skip('Справочники.xlsx не найден — сценарий пропущен')
         return
 
     opu = _load('Меппинг_опу')
@@ -261,8 +326,15 @@ def test_real_file_company_view() -> None:
         opu, 'ГиагКХП', OpuReportConstants.REFERENCE_ROW_KEY,
         reference_name='Меппинг_опу', known_companies=['ГиагКХП'],
     )
-    assert diag.applied and diag.individual_rows == 32, (diag.individual_rows, diag.overridden_rows)
-    assert diag.overridden_rows >= 4, diag.overridden_rows
+    check(
+        diag.applied and diag.individual_rows == 32,
+        f"индивидуальные строки «ГиагКХП» применены: {diag.individual_rows} "
+        f"(перекрыто {diag.overridden_rows})",
+    )
+    check(
+        diag.overridden_rows >= 4,
+        f"вытеснено минимум 4 универсальные строки (факт: {diag.overridden_rows})",
+    )
 
     # Имя статьи берём из индивидуальных строк самой компании, а не пишем
     # строкой в ассерте: бухгалтерия при вносе новых статей в 1С опечатывается,
@@ -272,12 +344,18 @@ def test_real_file_company_view() -> None:
     # Отличие — пробел, поэтому срез по contains('сдачей') ловит обе, и
     # проверять надо по ключу статьи, а не по подстроке её названия.
     rent_articles = sorted(set(diag.individual_frame['доход_расход']))
-    assert len(rent_articles) == 1, rent_articles
-    rent_article = rent_articles[0]
-    assert set(diag.individual_frame['вид_дохода_расхода']) == {
-        'Расходы по процентам аренда'
-    }, set(diag.individual_frame['вид_дохода_расхода'])
-    assert set(diag.overridden_frame['вид_дохода_расхода']) == {'Аренда'}
+    check(len(rent_articles) == 1, f"индивидуальные строки относятся к одной статье: {rent_articles}")
+    rent_article = rent_articles[0] if rent_articles else None
+    individual_types = set(diag.individual_frame['вид_дохода_расхода'])
+    check(
+        individual_types == {'Расходы по процентам аренда'},
+        f"все индивидуальные строки — проценты ППА (факт: {sorted(individual_types)})",
+    )
+    overridden_types = set(diag.overridden_frame['вид_дохода_расхода'])
+    check(
+        overridden_types == {'Аренда'},
+        f"все вытесненные строки были «Аренда» (факт: {sorted(overridden_types)})",
+    )
 
     # Инвариант, на котором реально стоит шаг 17: на ключ поиска
     # ('счет[:5]' + 'доход_расход') должен быть ровно один вид_дохода_расхода,
@@ -294,7 +372,7 @@ def test_real_file_company_view() -> None:
             diag.individual_frame, 'счет', 'доход_расход', truncate_a=5
         )
     )
-    assert own_keys, 'у компании должны быть индивидуальные строки'
+    check(bool(own_keys), 'ключи поиска индивидуальных строк построены')
     keyed = view.assign(
         _key=build_composite_key(view, 'счет', 'доход_расход', truncate_a=5)
     )
@@ -303,13 +381,21 @@ def test_real_file_company_view() -> None:
         dropna=True
     )
     ambiguous = types_per_key[types_per_key > 1]
-    assert ambiguous.empty, ambiguous.to_dict()
+    check(
+        ambiguous.empty,
+        f"на ключах компании ровно один тип — ступень 1 шага 17 не споткнётся "
+        f"(нарушения: {ambiguous.to_dict()})",
+    )
 
     rent_rows = view[
         (view['доход_расход'] == rent_article)
         & view['счет'].astype(str).str.startswith('91.02')
     ]
-    assert set(rent_rows['вид_дохода_расхода']) == {'Расходы по процентам аренда'}
+    check(
+        set(rent_rows['вид_дохода_расхода']) == {'Расходы по процентам аренда'},
+        f"в кадре статья аренды — проценты ППА "
+        f"(факт: {sorted(set(rent_rows['вид_дохода_расхода']))})",
+    )
 
     universal_view, _ = resolve_company_view(
         opu, 'Другая', OpuReportConstants.REFERENCE_ROW_KEY, reference_name='Меппинг_опу',
@@ -318,16 +404,20 @@ def test_real_file_company_view() -> None:
         (universal_view['доход_расход'] == rent_article)
         & universal_view['счет'].astype(str).str.startswith('91.02')
     ]
-    assert set(universal_rent['вид_дохода_расхода']) == {'Аренда'}, (
-        'универсальный блок цел: у компании без индивидуальных строк статья '
-        f'остаётся «Аренда», получено {sorted(set(universal_rent["вид_дохода_расхода"]))}'
+    check(
+        set(universal_rent['вид_дохода_расхода']) == {'Аренда'},
+        "универсальный блок цел: у компании без индивидуальных строк статья "
+        f"остаётся «Аренда» (факт: {sorted(set(universal_rent['вид_дохода_расхода']))})",
     )
 
     bb = _load('Меппинг_бб')
     bb_view, bb_diag = resolve_company_view(
         bb, 'ГиагКХП', BalanceReportConstants.MAPPING_KEYS, reference_name='Меппинг_бб',
     )
-    assert not bb_diag.applied and bb_view is bb, 'в Меппинг_бб правок пока нет'
+    check(
+        not bb_diag.applied and bb_view is bb,
+        'в Меппинг_бб индивидуальных строк «ГиагКХП» пока нет — кадр не тронут',
+    )
 
 
 def test_wiring_in_executors() -> None:
@@ -355,35 +445,63 @@ def test_wiring_in_executors() -> None:
         opu_entry = next(
             (entry for entry in entries if entry['лист'] == 'Меппинг_опу'), None
         )
-        assert opu_entry is not None, entries
-        assert opu_entry['индивидуальных_строк'] == 32, opu_entry
+        check(opu_entry is not None, f"в сводке есть запись по Меппинг_опу: {entries}")
+        check(
+            opu_entry is not None and opu_entry['индивидуальных_строк'] == 32,
+            f"в сводке 32 индивидуальные строки (факт: {opu_entry})",
+        )
 
         opu = context.references['меппинг_опу']
-        assert 'счет_фо' in opu.columns and 'компания' in opu.columns
+        check(
+            'счет_фо' in opu.columns and 'компания' in opu.columns,
+            'после применения взгляда колонки счет_фо и компания на месте',
+        )
         bb = context.references['меппинг_баланс']
         for col in ('счет_фо', 'детализация_субконто', 'компания'):
-            assert col in bb.columns, col
+            check(col in bb.columns, f"Меппинг_бб: колонка «{col}» на месте")
 
         reports = list((get_run_dir() / 'mismatches').glob('reference_scope_*.xlsx'))
-        assert reports, 'Excel-диагностика индивидуального меппинга должна быть создана'
+        check(bool(reports), 'Excel-диагностика индивидуального меппинга создана')
 
-        sheets = pd.read_excel(reports[0], sheet_name=None, dtype=str)
-        assert 'Применённые строки' in sheets, sorted(sheets)
-        assert 'Перекрытые строки' in sheets, sorted(sheets)
+        if reports:
+            sheets = pd.read_excel(reports[0], sheet_name=None, dtype=str)
+            check('Применённые строки' in sheets, f"лист «Применённые строки»: {sorted(sheets)}")
+            check('Перекрытые строки' in sheets, f"лист «Перекрытые строки»: {sorted(sheets)}")
 
-        applied = sheets['Применённые строки']
-        overridden = sheets['Перекрытые строки']
-        # Обе половины правки: вытеснено столько же, сколько применено
-        assert len(applied) == len(overridden) == 32, (len(applied), len(overridden))
-        # Служебные колонки: лист справочника и кто именно перекрыл строку
-        for frame in (applied, overridden):
-            assert 'перекрыто_компанией' in frame.columns, frame.columns.tolist()
-            assert set(frame['перекрыто_компанией']) == {'ГиагКХП'}
-        assert set(overridden['лист']) == {'Меппинг_опу'}
-        # Подмена видна прямо в файле: вместо «Аренда» — проценты ППА
-        types = set(applied['вид_дохода_расхода'])
-        assert types == {'Расходы по процентам аренда'}, types
-        assert set(overridden['вид_дохода_расхода']) == {'Аренда'}
+            if 'Применённые строки' in sheets and 'Перекрытые строки' in sheets:
+                applied = sheets['Применённые строки']
+                overridden = sheets['Перекрытые строки']
+                # Обе половины правки: вытеснено столько же, сколько применено
+                check(
+                    len(applied) == len(overridden) == 32,
+                    f"вытеснено столько же строк, сколько применено "
+                    f"({len(applied)} / {len(overridden)})",
+                )
+                # Служебные колонки: лист справочника и кто именно перекрыл строку
+                for name, frame in (('применённые', applied), ('перекрытые', overridden)):
+                    check(
+                        'перекрыто_компанией' in frame.columns,
+                        f"лист «{name}»: служебная колонка на месте",
+                    )
+                    check(
+                        set(frame.get('перекрыто_компанией', [])) == {'ГиагКХП'},
+                        f"лист «{name}»: перекрыто компанией «ГиагКХП»",
+                    )
+                check(
+                    set(overridden['лист']) == {'Меппинг_опу'},
+                    f"лист «перекрытые»: источник — Меппинг_опу ({sorted(set(overridden['лист']))})",
+                )
+                # Подмена видна прямо в файле: вместо «Аренда» — проценты ППА
+                applied_types = set(applied['вид_дохода_расхода'])
+                check(
+                    applied_types == {'Расходы по процентам аренда'},
+                    f"в применённых строках проценты ППА (факт: {sorted(applied_types)})",
+                )
+                overridden_types = set(overridden['вид_дохода_расхода'])
+                check(
+                    overridden_types == {'Аренда'},
+                    f"в перекрытых строках «Аренда» (факт: {sorted(overridden_types)})",
+                )
     finally:
         shutil.rmtree(get_run_dir(), ignore_errors=True)
 
@@ -397,7 +515,16 @@ def main() -> None:
     test_real_file_company_view()
     test_company_without_individual_rows_does_not_inherit_foreign()
     test_wiring_in_executors()
-    print('SMOKE_OK 9 scenarios: reference scope (индивидуальный меппинг компаний)')
+
+    total = PASSED + FAILED
+    label = 'reference scope (индивидуальный меппинг компаний)'
+    if FAILED:
+        print(f"SMOKE_FAIL ({FAILED}/{total}) — {label}")
+        for line in _failed_messages:
+            print(f"  [FAIL] {line}")
+        sys.exit(1)
+    print(f"SMOKE_OK ({PASSED}/{total}) — {label}")
+    sys.exit(0)
 
 
 if __name__ == '__main__':
