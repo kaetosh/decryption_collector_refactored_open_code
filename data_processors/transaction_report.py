@@ -89,13 +89,20 @@ class PostingTXTFileProcessor(FileProcessor):
 
         # Нормализация «рваных» строк: склейка табуляций, попавших внутрь
         # свободно-текстовых полей (иначе pd.read_csv падает с ParserError).
+        # Позиция разрыва определяется по данным — см. normalize_ragged_tab_rows.
 
-        df_source, _ = normalize_ragged_tab_rows(
+        df_source, repaired, unresolved = normalize_ragged_tab_rows(
             file_path,
             header_row,
             encoding=encoding,
             errors=encoding_errors,
         )
+        if unresolved > 0:
+            logger.warning(
+                "Отчёт по проводкам {}: {} строк не восстановлены и будут "
+                "отброшены при разборе. Проверьте выгрузку из 1С.",
+                file_path.name, unresolved,
+            )
 
         df = pd.read_csv(
             df_source,
