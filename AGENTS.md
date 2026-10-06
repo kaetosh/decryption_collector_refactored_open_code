@@ -214,7 +214,7 @@
 * Чтение Excel: `engine=\'openpyxl\''
 * Заголовки из 1С: `utils.dataframe_utils.set_header_from_row(df, search_text)`
 * Приведение типов: `utils.dataframe_utils.cast_columns_to_types(df, type_mapping)` (`utils/dataframe_utils.py:13`)
-* Доступ к `context.data`: `self.get_df_from_context(context, key, hint='')` (`base.py:172`, метод экземпляра шага) — единственный корректный способ
+* Доступ к `context.data`: `self.get_df_from_context(context, key, hint='')` (`base.py:200`, метод экземпляра шага) — единственный корректный способ
 * Нормализация счетов: `utils.column_utils.process_account(acc)` / `normalize_account(series)`
 * Признак «похоже ли значение на бухгалтерский счёт»: `utils.column_utils.is_accounting_code(series)` — **единственная точка правды**. `FileProcessor._is_accounting_code_vectorized` — совместимая обёртка; из `utils` в `data_processors` ссылаться нельзя (цикл импортов + xlwings в шагах 1в/2/3). Внимание: `BaseAnalysisProcessor` (`data_processors/analisys_account.py`) переопределяет его **осознанно и с другими правилами** (без ограничения длины частей, альфа допустима, `0/00/000` счётом не считается) — не унифицировать без проверки на выгрузках «Анализ счёта».
 * Столбцы `Level_*` по возрастанию: `utils.column_utils.level_columns_sorted(df, column_prefix='Level_')` — общее правило порядка для обработчиков ОСВ и шагов пайплайна.
