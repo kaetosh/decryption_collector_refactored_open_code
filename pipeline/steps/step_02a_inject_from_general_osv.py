@@ -76,7 +76,13 @@ class Step2aInjectFromGeneralOSVStep(Step):
             
             for col in summary_columns:
                 col_lower = col.lower() if isinstance(col, str) else col
-                if col_lower in ('level_1', 'level_2', 'level_3', 'level_4', 'level_5', 'level_6'):
+                # Счёт пишется во ВСЕ Level_*, включая level_0. Контракт шагов 1в/3:
+                # в сводной ОСВ должен оставаться столбец Level_*, целиком состоящий
+                # из бухгалтерских счетов. Раньше level_0 пропускался и уходил в
+                # ветку-заглушку ('не_указано'), из-за чего синтетические счета
+                # разбавляли столбец счетов и шаг 3 падал (регресс ResourceShanghaiImport
+                # 06.10.2026: ОСВ по 76 — одна строка, доля счетов 33% < порога 95%).
+                if col_lower.startswith('level_'):
                     new_row[col] = account_code
                 elif col == 'допсубконто':
                     new_row[col] = StepConstants.UNSPECIFIED
