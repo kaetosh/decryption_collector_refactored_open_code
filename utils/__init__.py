@@ -29,6 +29,12 @@ from .currency_utils import (
     convert_series,
     refresh_rub_equivalent,
     add_ruble_amount_column,
+    RateCoverage,
+    resolve_rate,
+    warn_stale_rate,
+    format_rate_date,
+    record_balance_rate,
+    record_opu_rate,
 )
 from .file_utils import (
     detect_txt_encoding,
@@ -77,6 +83,12 @@ __all__ = [
     'convert_series',
     'refresh_rub_equivalent',
     'add_ruble_amount_column',
+    'RateCoverage',
+    'resolve_rate',
+    'warn_stale_rate',
+    'format_rate_date',
+    'record_balance_rate',
+    'record_opu_rate',
     # reference_scope
     'resolve_company_view',
     'ScopeDiagnostics',

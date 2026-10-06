@@ -59,6 +59,7 @@ from config.settings import (
 from io_module.auto_sort import EXCEL_TEMP_PREFIX
 from io_module.output_manager import get_run_dir
 from pipeline.step_config import (
+    CurrencyConstants,
     ManualCorrectionsConstants,
     OpuReportConstants,
     ReconciliationConstants,
@@ -227,6 +228,67 @@ def _currency_text(context: Any) -> str:
     return f"{currency} — дата перевода остатков не задана"
 
 
+def _currency_rate_status_text(context: Any) -> str:
+    """Актуальность справочника курса: по каким курсам посчитаны суммы отчёта.
+
+    Отдельная строка статуса, а не часть «Валюта остатков», потому что
+    неактуальность курса — это качество данных, а не параметр заказа, и
+    получателю файла она нужна явно: запрошенную дату перевода он не видит
+    (context.balance_date хранит уже фактическую дату курса), поэтому без
+    этой строки просрочка справочника осталась бы незаметной.
+
+    Сводку заполняет utils/currency_utils (record_balance_rate — при выборе
+    даты перевода, record_opu_rate — при конвертации проводок ОПУ);
+    ключ и имена полей — CurrencyConstants в pipeline/step_config.py.
+    """
+    currency = (context.currency or "RUB").upper()
+    if currency == "RUB":
+        return "не требуется — валюта RUB"
+
+    summary = (context.data or {}).get(CurrencyConstants.SUMMARY_KEY) or {}
+    balance = summary.get(CurrencyConstants.SUMMARY_SECTION_BALANCE) or {}
+    opu = summary.get(CurrencyConstants.SUMMARY_SECTION_OPU) or {}
+
+    parts = []
+    if balance:
+        if balance.get(CurrencyConstants.SUMMARY_COVERED):
+            gap = balance.get(CurrencyConstants.SUMMARY_GAP_DAYS) or 0
+            if gap:
+                # Дата внутри диапазона листа, курс взят с предыдущего дня
+                parts.append(
+                    f"актуален — на запрошенную дату "
+                    f"{balance.get(CurrencyConstants.SUMMARY_REQUESTED_DATE)} курса нет "
+                    f"(выходной), взят курс от "
+                    f"{balance.get(CurrencyConstants.SUMMARY_RATE_DATE)}"
+                )
+            else:
+                parts.append(
+                    f"актуален — курс от "
+                    f"{balance.get(CurrencyConstants.SUMMARY_RATE_DATE)}"
+                )
+        else:
+            parts.append(
+                f"НЕ АКТУАЛЕН — лист заканчивается датой "
+                f"{balance.get(CurrencyConstants.SUMMARY_RATE_DATE)}, запрошено "
+                f"{balance.get(CurrencyConstants.SUMMARY_REQUESTED_DATE)} "
+                f"(отставание {balance.get(CurrencyConstants.SUMMARY_GAP_DAYS)} дн.); "
+                f"остатки переведены по курсу "
+                f"{balance.get(CurrencyConstants.SUMMARY_RATE)}"
+            )
+    if opu:
+        parts.append(
+            f"в ОПУ {opu.get(CurrencyConstants.SUMMARY_TX_DATES_COUNT)} дат операций "
+            f"(с {opu.get(CurrencyConstants.SUMMARY_TX_FIRST_DATE)} по "
+            f"{opu.get(CurrencyConstants.SUMMARY_TX_LAST_DATE)}) переведены по курсу от "
+            f"{opu.get(CurrencyConstants.SUMMARY_RATE_DATE)} — отставание до "
+            f"{opu.get(CurrencyConstants.SUMMARY_GAP_DAYS)} дн."
+        )
+
+    if not parts:
+        return "не проверялся — сведения о курсе не собраны (см. лог прогона)"
+    return "; ".join(parts)
+
+
 def _reference_scope_text(context: Any) -> str:
     """
     Индивидуальный меппинг компании: сколько строк справочника (Меппинг_опу /
@@ -328,6 +390,7 @@ def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str,
     rows.append(("Предупреждений за прогон", warnings_text))
     rows.append(("Индивидуальный меппинг компании", _reference_scope_text(context)))
     rows.append(("Ручные корректировки признаков", _manual_corrections_text(context)))
+    rows.append(("Актуальность курса валюты", _currency_rate_status_text(context)))
 
     for label, df_name in (
         ("Строк в расшифровке баланса", "balance_df"),

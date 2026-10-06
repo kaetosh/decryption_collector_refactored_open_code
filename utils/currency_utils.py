@@ -2,12 +2,15 @@
 """Currency conversion helpers: RUB conversion and rate lookups."""
 
 import warnings
+from dataclasses import dataclass
+from datetime import date as date_cls
 
 import pandas as pd
 from loguru import logger
 
 from config.defaults import DEFAULTS
 from pipeline.errors import MissingCurrencyRateError
+from pipeline.step_config import CurrencyConstants
 
 _RUB = 'RUB'
 
@@ -101,30 +104,186 @@ def _get_rates_df(context):
     return df
 
 
-def get_rate_for_date_with_info(context, target_date, log_miss=True):
-    """Возвращает (курс, фактическая дата курса ДД.ММ.ГГГГ) для ближайшей
-    даты <= target_date. Фактическая дата может отличаться от запрошенной,
-    если курса на запрошенную дату нет (берётся ближайшая предыдущая)."""
-    rates_df = _get_rates_df(context)
+@dataclass(frozen=True)
+class RateCoverage:
+    """Результат поиска курса: какой курс применён и насколько он «отстал».
+
+    Разница между двумя промахами принципиальна, поэтому и вынесена в
+    отдельное поле:
+
+    - ``covered=True``, ``gap_days`` 1–4 — лист курса дотягивается до
+      запрошенной даты, просто на неё выпал выходной или праздник. Это
+      нормальная календарная поправка, WARNING здесь был бы шумом;
+    - ``covered=False`` — лист курса **заканчивается раньше** запрошенной
+      даты: справочник неактуален, и суммы переводятся по курсу месячной
+      (или более) давности.
+
+    Именно по ``covered`` решается уровень сообщения, поэтому проверка
+    актуальности не может быть «молча» зашита в форматирование текста.
+    """
+
+    requested_date: date_cls
+    rate_date: date_cls
+    rate: float
+    gap_days: int
+    covered: bool
+    currency: str
+
+
+def _parse_target_date(target_date) -> pd.Timestamp:
+    """Приводит дату к Timestamp (из строки ДД.ММ.ГГГГ или из Timestamp)."""
     if isinstance(target_date, str):
-        target_ts = pd.to_datetime(target_date, format=_DATE_FORMAT, errors='coerce')
+        parsed = pd.to_datetime(target_date, format=_DATE_FORMAT, errors='coerce')
     else:
-        target_ts = pd.to_datetime(target_date, errors='coerce')
-    if pd.isna(target_ts):
+        parsed = pd.to_datetime(target_date, errors='coerce')
+    if pd.isna(parsed):
         raise ValueError('Invalid target date ' + repr(target_date))
+    return parsed
+
+
+def resolve_rate(context, target_date) -> RateCoverage:
+    """Курс на ближайшую дату <= target_date + признак актуальности листа.
+
+    Логирование здесь намеренно отсутствует: вызывающий код сам решает,
+    что сообщать. Одна и та же находка читается по-разному при выборе
+    даты баланса (pipeline/executors.py, одно сообщение на прогон) и при
+    переводе проводок ОПУ (add_ruble_amount_column, где промахов много
+    и они агрегируются в один WARNING).
+    """
+    rates_df = _get_rates_df(context)
+    target_ts = _parse_target_date(target_date)
+
     earlier = rates_df[rates_df[_RATE_DATE_COL] <= target_ts]
     if earlier.empty:
         raise ValueError('No exchange rate on or before ' + str(target_ts.date()) + ' for currency ' + repr(get_currency(context)))
+
     row = earlier.iloc[-1]
-    if log_miss and row[_RATE_DATE_COL].date() != target_ts.date():
-        logger.info('No exact rate for {}, using nearest PREVIOUS {} (rate={}).', target_ts.date(), row[_RATE_DATE_COL].date(), row[_RATE_VALUE_COL])
-    return float(row[_RATE_VALUE_COL]), row[_RATE_DATE_COL].strftime(_DATE_FORMAT)
+    rate_date = row[_RATE_DATE_COL].date()
+    requested_date = target_ts.date()
+    return RateCoverage(
+        requested_date=requested_date,
+        rate_date=rate_date,
+        rate=float(row[_RATE_VALUE_COL]),
+        gap_days=(requested_date - rate_date).days,
+        # Лист покрывает дату, если он дотягивается хотя бы до неё.
+        # Тогда промах календарный (выходной, праздник, дыра в справочнике),
+        # а если лист заканчивается раньше — это просрочка справочника.
+        covered=requested_date <= rates_df[_RATE_DATE_COL].max().date(),
+        currency=get_currency(context),
+    )
+
+
+def format_rate_date(value) -> str:
+    """Дата в формате листа курса (ДД.ММ.ГГГГ). Принимает str/date/Timestamp."""
+    return pd.Timestamp(value).strftime(_DATE_FORMAT)
+
+
+def warn_stale_rate(coverage: RateCoverage, what: str) -> None:
+    """[!] WARNING: лист курса не дотягивает до запрошенной даты.
+
+    Отдельное предупреждение, а не INFO, потому что суммы отчёта посчитаны
+    по курсу не той даты. Префикс «[!]» не декоративен: он же служит ключом
+    группировки в сводке предупреждений (logging_handling/logger_config.py),
+    поэтому сообщение попадёт и на титульный лист отчёта.
+    """
+    logger.warning(
+        '[!] {}: лист курса {} заканчивается датой {} — на запрошенную дату {} '
+        'курса нет, применён курс {} от {} (отставание {} дн.). Дополните лист '
+        'Курс_{}, иначе суммы переведены по устаревшему курсу.',
+        what,
+        coverage.currency,
+        format_rate_date(coverage.rate_date),
+        format_rate_date(coverage.requested_date),
+        coverage.rate,
+        format_rate_date(coverage.rate_date),
+        coverage.gap_days,
+        coverage.currency,
+    )
+
+
+def get_rate_for_date_with_info(context, target_date, log_miss=True):
+    """Возвращает (курс, фактическая дата курса ДД.ММ.ГГГГ) для ближайшей
+    даты <= target_date. Фактическая дата может отличаться от запрошенной,
+    если курса на запрошенную дату нет (берётся ближайшая предыдущая).
+
+    Уровень сообщения зависит от природы промаха (см. RateCoverage):
+    календарный — INFO, просрочка справочника — [!] WARNING.
+    """
+    coverage = resolve_rate(context, target_date)
+    if log_miss and coverage.gap_days:
+        if coverage.covered:
+            logger.info(
+                'No exact rate for {}, using nearest PREVIOUS {} (rate={}).',
+                coverage.requested_date, coverage.rate_date, coverage.rate,
+            )
+        else:
+            warn_stale_rate(coverage, 'Дата перевода остатков')
+    return coverage.rate, format_rate_date(coverage.rate_date)
 
 
 def get_rate_for_date(context, target_date):
-    """Курс на ближайшую дату <= target_date (см. get_rate_for_date_with_info)."""
-    rate, _ = get_rate_for_date_with_info(context, target_date)
-    return rate
+    """Курс на ближайшую дату <= target_date (см. get_rate_for_date_with_info).
+
+    Молчаливый вариант намеренно: функцию зовут на каждую уникальную дату
+    проводки (шаг 17, курсовые разницы), и INFO на каждый промах превращался
+    бы в десятки строк, которые забьют настоящее предупреждение о
+    неактуальном справочнике. Диагностику собирает вызывающий код.
+    """
+    return resolve_rate(context, target_date).rate
+
+
+def _store_rate_summary(context, section: str, payload: dict) -> None:
+    """Кладёт сведения о применённом курсе в context.data для титульного листа.
+
+    Сводка нужна получателю файла: запрошенную дату он не видит —
+    context.balance_date хранит уже фактическую дату курса, — поэтому без
+    сводки просрочка справочника видна только в логе у оператора.
+    """
+    data = getattr(context, 'data', None)
+    if not isinstance(data, dict):
+        return
+    summary = data.get(CurrencyConstants.SUMMARY_KEY)
+    if not isinstance(summary, dict):
+        summary = {}
+        data[CurrencyConstants.SUMMARY_KEY] = summary
+    summary[section] = payload
+
+
+def record_balance_rate(context, coverage: RateCoverage) -> None:
+    """Сводка по курсу перевода остатков баланса (см. _store_rate_summary)."""
+    _store_rate_summary(context, CurrencyConstants.SUMMARY_SECTION_BALANCE, {
+        CurrencyConstants.SUMMARY_COVERED: coverage.covered,
+        CurrencyConstants.SUMMARY_CURRENCY: coverage.currency,
+        CurrencyConstants.SUMMARY_REQUESTED_DATE: format_rate_date(coverage.requested_date),
+        CurrencyConstants.SUMMARY_RATE_DATE: format_rate_date(coverage.rate_date),
+        CurrencyConstants.SUMMARY_RATE: coverage.rate,
+        CurrencyConstants.SUMMARY_GAP_DAYS: coverage.gap_days,
+    })
+
+
+def record_opu_rate(
+    context,
+    currency: str,
+    dates_count: int,
+    first_date,
+    last_date,
+    rate_date,
+    gap_days: int,
+) -> None:
+    """Сводка по курсу, применённому к проводкам ОПУ.
+
+    Агрегат, а не одна дата: дат операций много, и получателю важно знать,
+    сколько именно сумм посчитано по неактуальному курсу.
+    """
+    _store_rate_summary(context, CurrencyConstants.SUMMARY_SECTION_OPU, {
+        CurrencyConstants.SUMMARY_COVERED: False,
+        CurrencyConstants.SUMMARY_CURRENCY: currency,
+        CurrencyConstants.SUMMARY_TX_DATES_COUNT: int(dates_count),
+        CurrencyConstants.SUMMARY_TX_FIRST_DATE: format_rate_date(first_date),
+        CurrencyConstants.SUMMARY_TX_LAST_DATE: format_rate_date(last_date),
+        CurrencyConstants.SUMMARY_RATE_DATE: format_rate_date(rate_date),
+        CurrencyConstants.SUMMARY_GAP_DAYS: int(gap_days),
+    })
 
 
 def get_earliest_rate(context):
@@ -216,10 +375,22 @@ def add_ruble_amount_column(
     '''Добавляет рублёвый эквивалент сумм проводок по курсу на дату операции.
 
     Для валютных компаний курс берётся из листа Курс_<валюта> на каждую
-    дату операции (ближайшая предшествующая дата, см. get_rate_for_date).
+    дату операции (ближайшая предшествующая дата, см. resolve_rate).
     Если дата операции не парсится — ValueError со списком проблемных строк.
     Для рублёвых компаний столбец равен исходному (курс 1) — единый
     код-путь без ветвлений в бизнес-шагах.
+
+    Две проверки актуальности справочника, симметричные относительно
+    границ листа курса:
+
+    - даты раньше первой даты листа (boundary_dates) — «ближайшей
+      предыдущей» не существует, берётся самый ранний курс;
+    - даты позже последней даты листа (stale_dates) — берётся последний
+      курс, и это уже неактуальный справочник: все проводки месяца
+      молча уезжают по курсу прошлого месяца.
+
+    Вторую проверку медиана курсов не ловит (месяц просрочки — не
+    выброс, а константа), поэтому о ней раньше не было сигнала вовсе.
 
     Автоконтроль: каждый применённый курс сверяется с медианой курсов листа;
     отклонение больше tolerance_rate_deviation (лист «Параметры», дефолт в
@@ -244,10 +415,12 @@ def add_ruble_amount_column(
     earliest_row = rates_df.iloc[0]
     earliest_rate = float(earliest_row[_RATE_VALUE_COL])
     earliest_date = earliest_row[_RATE_DATE_COL]
+    last_date = rates_df[_RATE_DATE_COL].max()
 
     rate_by_date = {}
     rate_date_by_date = {}
     boundary_dates = []
+    stale_dates = []
     nearest_prev_count = 0
     for ts in pd.Series(dates.unique()).sort_values():
         try:
@@ -259,6 +432,9 @@ def add_ruble_amount_column(
             rate = earliest_rate
             actual_date_str = earliest_date.strftime(_DATE_FORMAT)
             boundary_dates.append(ts)
+        else:
+            if ts > last_date:
+                stale_dates.append(ts)
         rate_by_date[ts] = rate
         rate_date_by_date[ts] = actual_date_str
         if pd.to_datetime(actual_date_str, dayfirst=True).date() != ts.date():
@@ -276,6 +452,35 @@ def add_ruble_amount_column(
             boundary_dates[-1].strftime(_DATE_FORMAT),
             earliest_rate,
             earliest_date.strftime(_DATE_FORMAT),
+        )
+    if stale_dates:
+        # Последняя дата листа — единственный курс, которым переводится всё
+        # после неё, поэтому агрегат один: сколько дат и насколько отстал курс.
+        stale_rate = float(rates_df[_RATE_VALUE_COL].iloc[-1])
+        max_gap = max((ts.date() - last_date.date()).days for ts in stale_dates)
+        logger.warning(
+            '[!] Лист курса {} заканчивается датой {} — {} дат операций (с {} по {}) '
+            'переведены по последнему курсу {} от {} (отставание до {} дн.). '
+            'Дополните лист Курс_{} актуальными датами, иначе часть ОПУ посчитана '
+            'по устаревшему курсу.',
+            get_currency(context),
+            last_date.strftime(_DATE_FORMAT),
+            len(stale_dates),
+            stale_dates[0].strftime(_DATE_FORMAT),
+            stale_dates[-1].strftime(_DATE_FORMAT),
+            stale_rate,
+            last_date.strftime(_DATE_FORMAT),
+            max_gap,
+            get_currency(context),
+        )
+        record_opu_rate(
+            context,
+            currency=get_currency(context),
+            dates_count=len(stale_dates),
+            first_date=stale_dates[0],
+            last_date=stale_dates[-1],
+            rate_date=last_date,
+            gap_days=max_gap,
         )
     # ── Автоконтроль курса: отклонение применённого курса от медианы листа ──
     # Ловит ошибочные значения в листе Курс_<валюта> (кейс: курс 92,48 RUB/AED
@@ -307,12 +512,14 @@ def add_ruble_amount_column(
             )
     logger.debug(
         'Конвертация {} -> {} ({}): уникальных дат операций {}; '
-        'точно по справочнику {}; по ближайшей предыдущей {}; по раннему курсу {}. '
+        'точно по справочнику {}; по ближайшей предыдущей (выходной) {}; '
+        'по устаревшему курсу (лист не дотягивает) {}; по раннему курсу {}. '
         'Медиана курса листа: {}; порог отклонения курса: {:.0%}.',
         amount_col, rub_col, get_currency(context),
         len(rate_by_date),
         len(rate_by_date) - nearest_prev_count,
-        nearest_prev_count - len(boundary_dates),
+        nearest_prev_count - len(boundary_dates) - len(stale_dates),
+        len(stale_dates),
         len(boundary_dates),
         median_rate,
         deviation_limit,

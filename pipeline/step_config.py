@@ -181,6 +181,42 @@ class ReconciliationConstants:
     SUMMARY_KEY = "reconciliation_summary"
 
 
+class CurrencyConstants:
+    """Актуальность справочника курса валюты (листы Курс_AED / Курс_CNY).
+
+    Лист курса ежедневный, и «ближайшая предыдущая дата» — нормальная
+    вещь, когда промах на 1–4 дня (выходной, праздник). Но когда лист
+    **заканчивается раньше** запрошенной даты, это уже не календарная
+    поправка, а неактуальный справочник: остатки баланса и все проводки
+    периода молча переводятся по курсу месячной давности.
+
+    Проверка живёт в utils/currency_utils.py (resolve_rate), результат
+    пишется сюда, в context.data, и читается на титульном листе отчёта
+    (io_module/report_cover.py): баланс — из pipeline/executors.py
+    (выбор даты перевода), ОПУ — из add_ruble_amount_column (шаг 14).
+    """
+    # Ключ в context.data: {SUMMARY_SECTION_BALANCE: {...}, SUMMARY_SECTION_OPU: {...}}
+    SUMMARY_KEY = "currency_rate_summary"
+
+    SUMMARY_SECTION_BALANCE = "balance"
+    SUMMARY_SECTION_OPU = "opu"
+
+    # Общие поля секций
+    SUMMARY_COVERED = "covered"        # False — лист курса не дотягивает до запрошенной даты
+    SUMMARY_CURRENCY = "currency"
+    SUMMARY_GAP_DAYS = "gap_days"      # отставание фактической даты курса от запрошенной
+
+    # Секция «balance»: перевод остатков баланса
+    SUMMARY_REQUESTED_DATE = "requested_date"   # дата, которую запросил пользователь
+    SUMMARY_RATE_DATE = "rate_date"             # фактическая дата применённого курса
+    SUMMARY_RATE = "rate"
+
+    # Секция «opu»: перевод проводок ОПУ (агрегат, а не одна дата)
+    SUMMARY_TX_DATES_COUNT = "transaction_dates_count"
+    SUMMARY_TX_FIRST_DATE = "transaction_first_date"
+    SUMMARY_TX_LAST_DATE = "transaction_last_date"
+
+
 class ManualCorrectionsConstants:
     """Ручные корректировки признаков (файл Правки.xlsx, шаги 12а и 18а).
 

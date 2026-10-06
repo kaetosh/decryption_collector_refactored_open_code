@@ -45,8 +45,11 @@ from utils.reference_scope import ScopeDiagnostics, resolve_company_view
 from utils.currency_utils import (
     needs_conversion,
     get_currency,
-    get_rate_for_date_with_info,
     get_last_rate_date,
+    format_rate_date,
+    record_balance_rate,
+    resolve_rate,
+    warn_stale_rate,
 )
 
 # Формат даты перевода валютных остатков баланса (совпадает с форматом
@@ -664,6 +667,82 @@ def initialize_context() -> ProcessingContext:
     return context
 
 
+def _log_balance_rate(context: ProcessingContext, coverage, source_note: str = "") -> None:
+    """
+    Сообщает, каким курсом переводятся остатки, и сохраняет сводку для титула.
+
+    Молчание о неактуальном справочнике здесь опаснее всего: остатки баланса —
+    основа всего отчёта, а запрошенную дату получатель файла уже не видит
+    (context.balance_date хранит фактическую дату курса). Поэтому просрочка
+    уходит и в лог как [!] WARNING, и в context.data -> титульный лист.
+
+    Args:
+        context: Контекст обработки; в нём обновляется balance_date.
+        coverage: RateCoverage из resolve_rate.
+        source_note: Откуда взялась дата — «задано» флагом или введена.
+    """
+    currency = coverage.currency
+    if coverage.gap_days == 0:
+        logger.info(
+            "Остатки будут переведены в рубли по курсу {} на дату {}{}.",
+            currency, format_rate_date(coverage.rate_date),
+            f" ({source_note})" if source_note else "",
+        )
+    elif coverage.covered:
+        # Дата внутри диапазона листа, но на неё выпал выходной/праздник —
+        # нормальная календарная поправка, а не просрочка справочника.
+        logger.info(
+            "Остатки будут переведены в рубли по курсу {} на ближайшую доступную "
+            "в справочнике дату {} (запрошено {}){}.",
+            currency, format_rate_date(coverage.rate_date),
+            format_rate_date(coverage.requested_date),
+            f" ({source_note})" if source_note else "",
+        )
+    else:
+        warn_stale_rate(coverage, "Перевод остатков баланса")
+
+    logger.info("Курс перевода остатков баланса: {}", coverage.rate)
+    context.balance_date = format_rate_date(coverage.rate_date)
+    record_balance_rate(context, coverage)
+
+
+def _ask_continue_stale(context: ProcessingContext, coverage) -> bool:
+    """
+    Переспрашивает при вводе даты, которую справочник не покрывает.
+
+    Единственное место, где пользователь может отменить выбор: молча взять
+    курс месячной давности для целого баланса нельзя, но и останавливать
+    прогон из-за просрочки листа курса тоже нельзя — вопрос снимает
+    противоречие. Пустой ответ и «n» означают отказ (вернуться к вводу даты),
+    чтобы по умолчанию continuation с устаревшим курсом не происходила.
+    """
+    print(
+        f"\n[!] ВНИМАНИЕ: лист курса {coverage.currency} заканчивается датой "
+        f"{format_rate_date(coverage.rate_date)}, а вы ввели "
+        f"{format_rate_date(coverage.requested_date)} — отставание "
+        f"{coverage.gap_days} дн."
+    )
+    print(
+        f"    Применится курс {coverage.rate} от {format_rate_date(coverage.rate_date)}: "
+        f"все остатки баланса будут переведены по нему."
+    )
+    print(
+        "    Если это не то, что нужно, закройте программу, дополните лист "
+        f"Курс_{coverage.currency} и запустите заново."
+    )
+    while True:
+        try:
+            answer = input("    Перевести остатки по этому курсу? (y/N): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return False
+        if answer in ("y", "д", "да"):
+            return True
+        if answer in ("", "n", "н", "нет"):
+            return False
+        print("[!] Ожидается y или n.")
+
+
 def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = True) -> None:
     """
     Запрашивает у пользователя дату перевода валютных остатков в рубли
@@ -671,6 +750,11 @@ def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = T
 
     Дата нужна только компаниям с валютой, отличной от RUB. Если дата
     уже задана заранее (CLI-флаг --balance-date), вопрос не задаётся.
+
+    Актуальность справочника курса проверяется на каждом пути (см.
+    _log_balance_rate): если лист заканчивается раньше запрошенной даты,
+    это WARNING и — в интерактивном режиме — дополнительный вопрос
+    с подтверждением (_ask_continue_stale).
 
     В неинтерактивном режиме (--no-interactive / недоступный stdin),
     а также при EOF/Ctrl+C используется последняя дата из справочника
@@ -690,23 +774,8 @@ def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = T
     currency = get_currency(context)
 
     if context.balance_date:
-        rate, rate_date = get_rate_for_date_with_info(context, context.balance_date)
-        if rate_date == context.balance_date:
-            logger.info(
-                "Остатки будут переведены в рубли по курсу {} на заданную дату {}.",
-                currency,
-                rate_date,
-            )
-        else:
-            logger.info(
-                "Остатки будут переведены в рубли по курсу {} на ближайшую доступную "
-                "в справочнике дату {} (задано {}).",
-                currency,
-                rate_date,
-                context.balance_date,
-            )
-        logger.info("Курс перевода остатков баланса: {}", rate)
-        context.balance_date = rate_date
+        coverage = resolve_rate(context, context.balance_date)
+        _log_balance_rate(context, coverage, source_note="задано")
         return
 
     def _fallback() -> None:
@@ -714,19 +783,22 @@ def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = T
         context.balance_date = last_date
         logger.warning(
             "[!] Дата перевода остатков не задана. Используется последняя дата "
-            "из справочника курса {}: {}. (Задать явно: --balance-date ДД.ММ.ГГГГ)",
+            "из справочника курса {}: {}. (Задать явно: --balance-date ДД.ММ.ГГГ)",
             currency,
             last_date,
         )
 
     if not interactive:
         _fallback()
+        # Сводка для титульного листа: получатель должен видеть и курс,
+        # и то, что дата перевода была выбрана автоматически.
+        record_balance_rate(context, resolve_rate(context, context.balance_date))
         return
 
     prompt = (
         f"\nОстатки по данной компании в валюте {currency}. "
         f"Введите дату, на которую нужно перевести остатки в рубли "
-        f"для расшифровки баланса (ДД.ММ.ГГГГ): "
+        f"для расшифровки баланса (ДД.ММ.ГГГ): "
     )
 
     while True:
@@ -749,27 +821,15 @@ def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = T
         # Сразу проверяем наличие курса на выбранную дату (ближайшую <=)
         # и показываем его пользователю до запуска конвейера
         try:
-            rate, rate_date = get_rate_for_date_with_info(context, raw)
+            coverage = resolve_rate(context, raw)
         except ValueError as e:
             print(f"[!] {e}")
             continue
 
-        context.balance_date = rate_date
-        if rate_date == raw:
-            logger.info(
-                "Остатки будут переведены в рубли по курсу {} на дату {}.",
-                currency,
-                rate_date,
-            )
-        else:
-            logger.info(
-                "Остатки будут переведены в рубли по курсу {} на ближайшую доступную "
-                "в справочнике дату {} (запрошено {}).",
-                currency,
-                rate_date,
-                raw,
-            )
-        logger.info("Курс перевода остатков баланса: {}", rate)
+        if not coverage.covered and not _ask_continue_stale(context, coverage):
+            continue
+
+        _log_balance_rate(context, coverage, source_note="введено вручную")
         return
 
 
