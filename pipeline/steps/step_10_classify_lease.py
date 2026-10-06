@@ -180,12 +180,22 @@ class Step10ClassifyLeaseSourceStep(Step):
                 f"Не удалось найти строку-шапку в файле {input_path.name}. "
                 f"Ожидается строка со значением 'Основное средство'."
             )
-        
-        # 3. Объединение двух строк шапки в единый заголовок
+
+        # 3. Проверяем, что после шапки есть данные (минимум 2 строки: вторая строка шапки + данные)
+        if header_row_idx + 2 >= len(df_raw):
+            raise InputDataError(
+                f"Формат ведомости амортизации не соответствует ожидаемому в файле "
+                f"{input_path.name}: строка 'Основное средство' ({header_row_idx}) "
+                f"находится на последней или предпоследней строке, а для обработки "
+                f"требуется двухстрочная шапка + строки данных. "
+                f"Проверьте целостность выгрузки Ведомости амортизации."
+            )
+
+        # 4. Объединение двух строк шапки в единый заголовок
         header_top = df_raw.iloc[header_row_idx]
         header_bot = df_raw.iloc[header_row_idx + 1]
         combined_header = self._combine_header_rows(header_top, header_bot)
-        
+
         logger.debug(
             "Найдена двухстрочная шапка на строках {} и {}. Объединено в {} столбцов.",
             header_row_idx,
@@ -193,7 +203,7 @@ class Step10ClassifyLeaseSourceStep(Step):
             len(combined_header),
         )
         
-        # 4. Формирование DataFrame: данные начинаются со строки header_row_idx + 2
+        # 5. Формирование DataFrame: данные начинаются со строки header_row_idx + 2
         df = df_raw.iloc[header_row_idx + 2:].copy()
         df.columns = combined_header
         df = df.reset_index(drop=True)
