@@ -18,12 +18,14 @@ from pipeline.steps.step_10_classify_lease import Step10ClassifyLeaseSourceStep
 from pipeline.steps.step_11_split_60 import Step11Split60AccountDebtByOSStatusStep
 from pipeline.steps.step_11a_check_contractor_similarity import Step11aCheckContractorSimilarityStep
 from pipeline.steps.step_12_split_84 import Step12Split84AccountBalanceStep
+from pipeline.steps.step_12a_apply_corrections_balance import Step12aApplyCorrectionsBalanceStep
 from pipeline.steps.step_13_build_balance import Step13BuildBalanceBreakdownStep
 from pipeline.steps.step_14_build_opu_foundation import Step14BuildOpuFoundationStep
 from pipeline.steps.step_15_add_admin_expenses_to_opu import Step15AddAdminExpensesToOpuStep
 from pipeline.steps.step_16_add_comm_expenses_to_opu import Step16AddCommExpensesToOpuStep
 from pipeline.steps.step_17_add_other_income_and_expenses import Step17AddOtherIncomeExpensesToOpuStep
 from pipeline.steps.step_18_add_task_and_other_movements import Step18AddTaskAndOtherMovementsStep
+from pipeline.steps.step_18a_apply_corrections_opu import Step18aApplyCorrectionsOpuStep
 from pipeline.steps.step_19_build_opu import Step19BuildOpuStep
 from pipeline.steps.step_20_collapse_opu import Step20CollapseOtherIncomeExpensesStep
 from pipeline.steps.step_21_collapse_balance import Step21CollapseBalanceArticlesStep
@@ -47,12 +49,14 @@ __all__ = [
     'Step11Split60AccountDebtByOSStatusStep',
     'Step11aCheckContractorSimilarityStep',
     'Step12Split84AccountBalanceStep',
+    'Step12aApplyCorrectionsBalanceStep',
     'Step13BuildBalanceBreakdownStep',
     'Step14BuildOpuFoundationStep',
     'Step15AddAdminExpensesToOpuStep',
     'Step16AddCommExpensesToOpuStep',
     'Step17AddOtherIncomeExpensesToOpuStep',
     'Step18AddTaskAndOtherMovementsStep',
+    'Step18aApplyCorrectionsOpuStep',
     'Step19BuildOpuStep',
     'Step20CollapseOtherIncomeExpensesStep',
     'Step21CollapseBalanceArticlesStep',

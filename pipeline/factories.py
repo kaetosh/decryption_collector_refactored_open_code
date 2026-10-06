@@ -25,12 +25,14 @@ from pipeline.steps import (
     Step11Split60AccountDebtByOSStatusStep,
     Step11aCheckContractorSimilarityStep,
     Step12Split84AccountBalanceStep,
+    Step12aApplyCorrectionsBalanceStep,
     Step13BuildBalanceBreakdownStep,
     Step14BuildOpuFoundationStep,
     Step15AddAdminExpensesToOpuStep,
     Step16AddCommExpensesToOpuStep,
     Step17AddOtherIncomeExpensesToOpuStep,
     Step18AddTaskAndOtherMovementsStep,
+    Step18aApplyCorrectionsOpuStep,
     Step19BuildOpuStep,
     Step20CollapseOtherIncomeExpensesStep,
     Step21CollapseBalanceArticlesStep,
@@ -84,6 +86,9 @@ def create_main_pipeline() -> Pipeline:
     pipeline.add_step(Step11Split60AccountDebtByOSStatusStep())
     pipeline.add_step(Step11aCheckContractorSimilarityStep())
     pipeline.add_step(Step12Split84AccountBalanceStep())
+    # Последний перед маппингом: ручные правки признаков из файла Правки.xlsx
+    # (ошибки выгрузок 1С, из-за которых строки уходят в неверный счёт_фо)
+    pipeline.add_step(Step12aApplyCorrectionsBalanceStep())
     
     # ЭТАП 4: Финальная сборка расшифровки баланса
     pipeline.add_step(Step13BuildBalanceBreakdownStep())
@@ -94,6 +99,10 @@ def create_main_pipeline() -> Pipeline:
     pipeline.add_step(Step16AddCommExpensesToOpuStep())
     pipeline.add_step(Step17AddOtherIncomeExpensesToOpuStep())
     pipeline.add_step(Step18AddTaskAndOtherMovementsStep())
+    # Последний перед маппингом ОПУ: ручные правки признаков из файла Правки.xlsx.
+    # После шага 18, а не раньше: он безусловно нормализует журнал (вид_связи,
+    # обрезка счёта до 5 знаков) и затёр бы более раннюю правку.
+    pipeline.add_step(Step18aApplyCorrectionsOpuStep())
     
     # ЭТАП 6: Финальная сборка расшифровки опу
     pipeline.add_step(Step19BuildOpuStep())

@@ -58,7 +58,12 @@ from config.settings import (
 )
 from io_module.auto_sort import EXCEL_TEMP_PREFIX
 from io_module.output_manager import get_run_dir
-from pipeline.step_config import OpuReportConstants, ReconciliationConstants, ReportLayoutConstants
+from pipeline.step_config import (
+    ManualCorrectionsConstants,
+    OpuReportConstants,
+    ReconciliationConstants,
+    ReportLayoutConstants,
+)
 from utils.currency_utils import needs_conversion
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,9 +106,12 @@ DIAGNOSTIC_SUBFOLDERS: tuple[tuple[str, str], ...] = (
 # и ничего не требуют. Подпись выбирается по имени файла (см. _diagnostic_hint).
 #   reference_scope_*        — аудит применённых индивидуальных правок
 #                              меппинга (pipeline/executors.py);
+#   manual_corrections_*     — аудит применённых ручных правок признаков
+#                              (шаги 12а и 18а);
 #   step20/step21_collapse_* — отчёты свёртки статей ОПУ и баланса.
 DIAGNOSTIC_INFORMATIONAL_PREFIXES: tuple[str, ...] = (
     "reference_scope_",
+    "manual_corrections_",
     "step20_collapse_opu_",
     "step21_collapse_balance_",
 )
@@ -261,6 +269,42 @@ def _reference_scope_text(context: Any) -> str:
     return "не применялся (правок для компании нет)"
 
 
+def _manual_corrections_text(context: Any) -> str:
+    """Ручные корректировки признаков: что поправили и не осталось ли вопросов.
+
+    Сводку заполняют шаги 12а и 18а (pipeline/steps/_corrections_base.py).
+    Получатель файла должен видеть, что цифры в расшифровке — результат
+    применённых правок, а не чистая выгрузка из 1С: иначе расхождение с
+    учётной системой выглядит как ошибка программы.
+    """
+    MC = ManualCorrectionsConstants
+    summary = (context.data or {}).get(MC.SUMMARY_KEY)
+    if not summary:
+        return "не применялись (файла Правки.xlsx нет или он пуст)"
+
+    applied_rules = int(summary.get(MC.SUMMARY_APPLIED_RULES) or 0)
+    applied_rows = int(summary.get(MC.SUMMARY_APPLIED_ROWS) or 0)
+    skipped = int(summary.get(MC.SUMMARY_SKIPPED_RULES) or 0)
+
+    if not applied_rules and not skipped:
+        return "не применялись (файла Правки.xlsx нет или он пуст)"
+
+    parts = []
+    if applied_rules:
+        areas = "; ".join(
+            f"{entry.get(MC.SUMMARY_ENTRY_AREA)} — правил {entry.get(MC.SUMMARY_ENTRY_RULES)}, "
+            f"строк {entry.get(MC.SUMMARY_ENTRY_ROWS)}"
+            for entry in summary.get(MC.SUMMARY_BY_AREA) or []
+        )
+        parts.append(f"применено — {applied_rules} правил на {applied_rows} строк ({areas})")
+    if skipped:
+        parts.append(
+            f"НЕ ПРИМЕНЕНО {skipped} правил — они не нашли строк или устарели, "
+            f"см. раздел диагностики"
+        )
+    return "; ".join(parts)
+
+
 def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str, str]]:
     """Сводится ли отчёт, прошла ли сверка выгрузок, сколько было предупреждений."""
     rows = [("Увязка ОПУ и баланса (ЧП = НРП)", pnl_balance_status_text(context))]
@@ -283,6 +327,7 @@ def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str,
         warnings_text = "нет"
     rows.append(("Предупреждений за прогон", warnings_text))
     rows.append(("Индивидуальный меппинг компании", _reference_scope_text(context)))
+    rows.append(("Ручные корректировки признаков", _manual_corrections_text(context)))
 
     for label, df_name in (
         ("Строк в расшифровке баланса", "balance_df"),
