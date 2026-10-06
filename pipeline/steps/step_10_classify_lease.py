@@ -134,7 +134,48 @@ class Step10ClassifyLeaseSourceStep(Step):
             diff,
             context.tolerance_params['tolerance_leased_os'],
         )
-    
+
+    @staticmethod
+    def _expected_filename(name_company: str, type_register: str, period: str) -> str:
+        """Имя файла выгрузки спецотчёта, ожидаемое от 1С для компании и периода."""
+        return f"{name_company}_{type_register}_0102_{period}_.xlsx"
+
+    def _detect_leased_os(
+        self,
+        osv_all_df: pd.DataFrame,
+        context: ProcessingContext
+    ) -> dict:
+        """
+        Определяет, есть ли у компании арендованные ОС, по остаткам на счетах
+        ACCOUNTS_01_03 в сводной ОСВ.
+
+        Веедомость амортизации выгружается из 1С только по арендованным объектам,
+        поэтому требовать файл безусловно нельзя: у компании без аренды его не
+        существует. Нужна ли ведомость, решает сама ОСВ — этот метод и есть тот
+        вопрос «есть ли аренда», который задаём ДО чтения файла.
+
+        Порог — tolerance_leased_os, тот же допуск, что у проверки сходимости
+        ОСВ с ведомостью: копеечный остаток от округления не должен требовать
+        выгрузки и не должен ронять конвейер.
+
+        Returns:
+            Словарь: has_lease (bool), rows (int), sum (float), accounts (list).
+        """
+        mask = osv_all_df['счет'].isin(self.ACCOUNTS_01_03)
+        rows = int(mask.sum())
+
+        total = osv_all_df.loc[mask, 'сальдо, тыс.ед.'].sum()
+        total = float(total) if pd.notna(total) else 0.0
+
+        threshold = context.tolerance_params['tolerance_leased_os']
+
+        return {
+            'has_lease': rows > 0 and abs(total) > threshold,
+            'rows': rows,
+            'sum': total,
+            'accounts': list(self.ACCOUNTS_01_03),
+        }
+
     def _process_depreciation_statement_decoding(
         self,
         context: ProcessingContext,
@@ -154,14 +195,13 @@ class Step10ClassifyLeaseSourceStep(Step):
             type_register=type_register
         )
         
-        expected_filename = f"{name_company}_{type_register}_0102_{period}_.xlsx"
-        
+        expected_filename = self._expected_filename(name_company, type_register, period)
+
         if not input_path:
-            logger.warning(
-                "Файл {} не найден. "
-                "Рекласс по виду связи для арендованных ОС не проводим.",
-                expected_filename,
-            )
+            # Причину отсутствия объясняет вызывающий код: когда остатки по
+            # арендованным счетам в ОСВ есть, стоп с диагностикой бросает
+            # _process. Здесь — только техническая отметка для лога.
+            logger.debug("Файл ведомости амортизации не найден: {}", expected_filename)
             return None
         
         logger.debug("Файл {} найден. Проводим рекласс.", expected_filename)
@@ -470,49 +510,73 @@ class Step10ClassifyLeaseSourceStep(Step):
         name_company = context.company
         period = context.period
         
-        # 1. Загрузка ведомости амортизации
+        # 1. Сначала ОСВ: нужна ли ведомость амортизации в принципе?
+        # Порядок важен — раньше файл читался первым, из-за чего ненужный
+        # битый файл (у компании без аренды) ронял конвейер, а нужный
+        # отсутствующий файл терялся молча.
+        lease_info = self._detect_leased_os(osv_all_df, context)
+
+        if not lease_info['has_lease']:
+            logger.info(
+                "[OK] Арендованных ОС не обнаружено (счета {}, сумма {:.2f} тыс.ед.) — "
+                "ведомость амортизации не требуется",
+                ', '.join(lease_info['accounts']),
+                lease_info['sum'],
+            )
+            return context
+
+        # 2. Загрузка ведомости амортизации
         depreciation_df = self._process_depreciation_statement_decoding(
             context=context,  # ★ Передаём контекст для кэширования
             type_register='ведамор',
             name_company=name_company,
             period=period
         )
-        
+
         if depreciation_df is None:
-            logger.debug("Ведомость амортизации не найдена, шаг пропущен")
-            return context
+            expected_filename = self._expected_filename(
+                name_company, 'ведамор', period
+            )
+            raise InputDataError(
+                f"В сводной ОСВ есть остатки по счетам арендованных ОС "
+                f"({', '.join(lease_info['accounts'])}): {lease_info['rows']} строк "
+                f"на сумму {lease_info['sum']:.2f} тыс.ед., но файл ведомости "
+                f"амортизации не выгружен. Без него эти объекты останутся "
+                f"неклассифицированными по группам ОС и видам связи. "
+                f"Выгрузите {expected_filename} из 1С и повторите запуск."
+            )
         
-        # 2. Подготовка данных ведомости
+        # 3. Подготовка данных ведомости
         depreciation_df = self._prepare_depreciation_data(depreciation_df)
         
         # Проверка ВХОДНОЙ сходимости (ДО расшифровки)
         self._validate_input_convergence(osv_all_df, depreciation_df, context)
         
-        # 3. Выравнивание столбцов с osv_all_df
+        # 4. Выравнивание столбцов с osv_all_df
         depreciation_df = self._align_columns(depreciation_df, osv_all_df)
         
-        # 4. Сохраняем исходные типы osv_all_df для восстановления после concat
+        # 5. Сохраняем исходные типы osv_all_df для восстановления после concat
         original_dtypes = osv_all_df.dtypes.to_dict()
         
-        # 5. ★ Вычисляем фильтр ОДИН раз
+        # 6. ★ Вычисляем фильтр ОДИН раз
         mask_accounts = depreciation_df['счет'].isin(self.ACCOUNTS_01_03)
         to_add = depreciation_df[mask_accounts].copy()
         
         # Сумма до объединения
         sum_before = to_add['сальдо, тыс.ед.'].sum()
         
-        # 6. Замена строк с счетами 01.03 и 02.03
+        # 7. Замена строк с счетами 01.03 и 02.03
         osv_all_df = osv_all_df[~osv_all_df['счет'].isin(self.ACCOUNTS_01_03)].copy()
         osv_all_df = pd.concat([osv_all_df, to_add], ignore_index=True)
         
-        # 7. Восстанавливаем ВСЕ типы
+        # 8. Восстанавливаем ВСЕ типы
         osv_all_df = self._restore_dtypes(osv_all_df, original_dtypes)
         
-        # 7а. Валютная компания: строки 01.03/02.03 заменены данными
+        # 8а. Валютная компания: строки 01.03/02.03 заменены данными
         # ведомости амортизации — рублёвый эквивалент нужно пересчитать
         osv_all_df = refresh_rub_equivalent(osv_all_df, context)
         
-        # 8. Проверка сходимости сумм
+        # 9. Проверка сходимости сумм
         sum_after = osv_all_df[osv_all_df['счет'].isin(self.ACCOUNTS_01_03)]['сальдо, тыс.ед.'].sum()
         diff = abs(sum_before - sum_after)
         
