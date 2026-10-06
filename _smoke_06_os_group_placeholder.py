@@ -28,6 +28,13 @@
 8. Строгий режим: строки аренды/лизинга с заглушкой -> MissingOSGroupError
    (76.07.2 — промежуточная сумма, не-арендные счета — не обязательные).
 9. Мягкий режим: тот же кейс — WARNING без исключения, шаг продолжается.
+# 10. Регресс 06.10.2026: в основной ОСВ нет 76.07/76.05.3 — _merge_with_76_lease_detail
+#     раньше возвращал кадр БЕЗ колонки 'договор', и _process падал KeyError (этап 4).
+#     Теперь колонка добавляется со значением не_указано, этап 4 — no-op.
+# 11. Тот же кадр: ветка РБП (97.21, Аренда/Лизинг) продолжает работать — группа ОС
+#     проставляется по РБП, _require_lease_os_group проходит.
+# 12. Регресс: при наличии 76.07 в основной ОСВ merge работает как раньше —
+#     колонка 'договор' заполняется реальными договорами из детализации.
 
 Запуск: conda run -n fl_acc_card python -u _smoke_06_os_group_placeholder.py
 '''
@@ -242,6 +249,94 @@ finally:
     step6_module.STRICT_OS_GROUP_CHECK = original_strict
 check(soft_ok, 'мягкий режим: тот же кейс — WARNING без исключения, шаг продолжается')
 
+# ======================================================================
+# 10-12. Регресс 06.10.2026: в основной ОСВ нет 76.07/76.05.3
+# ======================================================================
+# Детализация 76 (из файла) есть, но в сводной ОСВ остатков 76.07 нет.
+# Раньше _merge_with_76_lease_detail молча отдавал кадр БЕЗ колонки 'договор',
+# и _process падал KeyError на этапе 4 (классификация по договорам).
+osv_no_76 = pd.DataFrame({
+    'счет': pd.Series(['97.21', '60.01'], dtype='string'),
+    'субконто': pd.Series(['Арендные платежи', 'Контрагент'], dtype='string'),
+    'допсубконто': pd.Series(['РБП Аренда 1', 'ООО КА'], dtype='string'),
+    'сальдо, тыс.ед.': [12.5, -3.2],
+})
+detail_76_stub = pd.DataFrame({
+    'счет': pd.Series(['76.07.1'], dtype='string'),
+    'вид взаиморасчетов': pd.Series(['Аренда'], dtype='string'),
+    'контрагент': pd.Series(['ООО Арендодатель'], dtype='string'),
+    'сальдо, тыс.ед.': [10.0],
+    'договор': pd.Series(['Договор А'], dtype='string'),
+})
+
+# 10. Merge без 76.07: колонка 'договор' обязана появиться со значением не_указано
+merged_no_76 = step._merge_with_76_lease_detail(osv_no_76.copy(), detail_76_stub)
+check('договор' in merged_no_76.columns, 'нет 76.07: колонка договор добавлена в кадр')
+check(
+    merged_no_76['договор'].tolist() == [UNSPEC, UNSPEC],
+    'нет 76.07: все значения договора — не_указано',
+)
+check(
+    merged_no_76['договор'].dtype != object,
+    'нет 76.07: колонка договор не object (валидация выхода проходит)',
+)
+
+# Этап 4 на таком кадре — безопасный no-op: договоры не собираются, ошибок нет
+contracts_no_76 = merged_no_76.loc[
+    merged_no_76['договор'] != UNSPEC, 'договор'
+].unique()
+step._validate_mapping(
+    values=pd.Series(contracts_no_76),
+    mapping=os_group_by_contract,
+    value_type='договоры',
+    mapping_name='справочнике ППА',
+    df=merged_no_76,
+    column_name='договор',
+)
+check(len(contracts_no_76) == 0, 'нет 76.07: этап 4 — no-op, договоры не собираются')
+
+# 11. Ветка РБП (97.21) продолжает работать: группа по РБП + _require_lease_os_group
+osv_rbp_only = merged_no_76.copy()
+osv_rbp_only['подвид_задолженности'] = pd.Series(['Аренда', UNSPEC], dtype='string')
+osv_rbp_only['группа_ос_аренды_лизинга'] = osv_rbp_only['договор'].map(os_group_by_contract)
+mask_97_rbp = (
+    osv_rbp_only['подвид_задолженности'].isin(['Аренда', 'Лизинг'])
+    & (osv_rbp_only['счет'] == '97.21')
+)
+os_groups_97_rbp = step._map_os_groups_by_rbp(osv_rbp_only, os_group_by_rbp)
+osv_rbp_only['группа_ос_аренды_лизинга'] = (
+    osv_rbp_only['группа_ос_аренды_лизинга'].fillna(os_groups_97_rbp)
+)
+check(
+    osv_rbp_only.loc[osv_rbp_only['счет'] == '97.21', 'группа_ос_аренды_лизинга'].iloc[0]
+    == 'Здания',
+    'нет 76.07: группа ОС для 97.21 проставлена по РБП (Аренда)',
+)
+rbp_require_ok = True
+step6_module.STRICT_OS_GROUP_CHECK = True
+try:
+    step._require_lease_os_group(osv_rbp_only, mask_97_rbp)
+except MissingOSGroupError:
+    rbp_require_ok = False
+finally:
+    step6_module.STRICT_OS_GROUP_CHECK = original_strict
+check(rbp_require_ok, 'нет 76.07: _require_lease_os_group проходит (группы заполнены)')
+
+# 12. Регресс: 76.07 в основной ОСВ есть — merge работает как раньше
+osv_with_76 = pd.DataFrame({
+    'счет': pd.Series(['76.07.1', '60.01'], dtype='string'),
+    'субконто': pd.Series(['Аренда', 'Контрагент'], dtype='string'),
+    'допсубконто': pd.Series(['ООО Арендодатель', 'ООО КА'], dtype='string'),
+    'сальдо, тыс.ед.': [10.0, -3.2],
+})
+merged_with_76 = step._merge_with_76_lease_detail(osv_with_76.copy(), detail_76_stub)
+check(
+    merged_with_76.loc[merged_with_76['счет'] == '76.07.1', 'договор'].iloc[0]
+    == 'Договор А',
+    'есть 76.07: договор из детализации попадает в сводную ОСВ (штатный путь не сломан)',
+)
+
+# ======================================================================
 # ======================================================================
 print('-' * 60)
 label = "заглушка не_указано в ППА — не ключ и не значение (шаг 6)"

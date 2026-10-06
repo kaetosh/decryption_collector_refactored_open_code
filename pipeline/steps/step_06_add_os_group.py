@@ -157,6 +157,15 @@ class Step6AddOSGroupColumnStep(Step):
         
         if df_76.empty:
             logger.warning("В основной ОСВ нет счетов 76.07")
+            # Колонка 'договор' в штатном пути появляется именно здесь (merge с
+            # детализацией). Без неё этап 4 в _process падал бы KeyError: 'договор',
+            # хотя договоров нет вовсе. Заполняем заглушкой — этап 4 станет no-op,
+            # а ветка РБП (97.21) продолжит работать как обычно. Если колонка уже
+            # есть — не трогаем её содержимое.
+            if 'договор' not in osv_all_df.columns:
+                osv_all_df = osv_all_df.copy()
+                osv_all_df['договор'] = self.UNSPECIFIED
+                osv_all_df['договор'] = osv_all_df['договор'].astype('string')
             return osv_all_df
         
         # 2. Подготовка детализации
@@ -368,12 +377,14 @@ class Step6AddOSGroupColumnStep(Step):
         )
 
         if not contracts and not rbps:
+            # Список компаний справочника здесь не нужен: шаг продолжается,
+            # актуализировать нечего, а полное перечисление (17+ компаний)
+            # лишь растягивает лог. Подсказка остаётся в тексте MissingOSGroupError.
             logger.warning(
                 "[!] В справочнике ППА нет ни одной записи по компании '{}', "
                 "но в ОСВ нет строк аренды/лизинга (76.07/76.05.3, 97.21), "
-                "требующих меппинга, — шаг продолжается. {}",
+                "требующих меппинга, — шаг продолжается.",
                 name_company,
-                hint,
             )
             return
 
@@ -567,21 +578,30 @@ class Step6AddOSGroupColumnStep(Step):
 
         # 4. Проставление групп ОС по договору (ОСВ 76.07/76.05.3)
         logger.debug("Этап 4: Классификация по договорам (ОСВ 76.07/76.05.3)")
-        contracts = osv_all_df.loc[osv_all_df['договор'] != self.UNSPECIFIED, 'договор'].unique()
-        self._validate_mapping(
-                                values=pd.Series(contracts),
-                                mapping=os_group_by_contract,
-                                value_type="договоры",
-                                mapping_name="справочнике ППА",
-                                df=osv_all_df,
-                                column_name='договор'
-                            )
+        if 'договор' in osv_all_df.columns:
+            contracts = osv_all_df.loc[osv_all_df['договор'] != self.UNSPECIFIED, 'договор'].unique()
+            self._validate_mapping(
+                                    values=pd.Series(contracts),
+                                    mapping=os_group_by_contract,
+                                    value_type="договоры",
+                                    mapping_name="справочнике ППА",
+                                    df=osv_all_df,
+                                    column_name='договор'
+                                )
 
-        osv_all_df['группа_ос_аренды_лизинга'] = osv_all_df['договор'].map(os_group_by_contract)
-        logger.debug(
-            "Группы ОС по договорам: {} заполнено",
-            osv_all_df['группа_ос_аренды_лизинга'].notna().sum(),
-        )
+            osv_all_df['группа_ос_аренды_лизинга'] = osv_all_df['договор'].map(os_group_by_contract)
+            logger.debug(
+                "Группы ОС по договорам: {} заполнено",
+                osv_all_df['группа_ос_аренды_лизинга'].notna().sum(),
+            )
+        else:
+            # Страховка: колонки нет (например, merge вернул кадр без 76.07 и
+            # без добавления признака) — договорной классификации нет, группа
+            # заполнится ниже по РБП или заглушкой.
+            osv_all_df['группа_ос_аренды_лизинга'] = np.nan
+            logger.debug(
+                "Договорная классификация пропущена: в основной ОСВ нет счетов 76.07/76.05.3"
+            )
 
         # 5. Проставление групп ОС по РБП (97.21)
         logger.debug("Этап 5: Классификация по РБП (97.21)")

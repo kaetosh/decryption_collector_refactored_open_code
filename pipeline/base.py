@@ -792,6 +792,7 @@ class Step(ABC):
     def hint_companies_in_reference(
         reference_df: pd.DataFrame,
         company_column: str,
+        limit: int = 10,
     ) -> str:
         """
         Формирует подсказку со списком компаний, имеющихся в справочнике.
@@ -799,6 +800,10 @@ class Step(ABC):
         Используется в сообщениях ReferenceMismatchError, когда по текущей
         компании в справочнике нет ни одной записи: бухгалтер сразу видит,
         какие компании заведены и в каком формате записано наименование.
+
+        Перечисление обрезается до `limit` позиций: справочник растёт
+        (17+ компаний), и полный список в логе/тексте ошибки становится
+        длиннее самого сообщения. Общее количество компаний показывается.
         """
         if company_column not in reference_df.columns:
             return ""
@@ -811,10 +816,12 @@ class Step(ABC):
         companies = sorted(c for c in companies.unique() if c)
         if not companies:
             return "Справочник пуст (нет ни одной компании)."
+        listed = ", ".join(f"'{c}'" for c in companies[:limit])
+        if len(companies) <= limit:
+            return f"Компании, имеющиеся в справочнике: {listed}."
         return (
-            "Компании, имеющиеся в справочнике: "
-            + ", ".join(f"'{c}'" for c in companies)
-            + "."
+            f"Компании, имеющиеся в справочнике (всего {len(companies)}): "
+            f"{listed}, …"
         )
     
     # =========================================================================
