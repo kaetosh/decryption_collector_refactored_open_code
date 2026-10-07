@@ -35,6 +35,14 @@ from pipeline.errors import InputDataError, ReferenceMismatchError
 from pipeline.step_config import ManualCorrectionsConstants as MC
 from pipeline.steps.step_12a_apply_corrections_balance import Step12aApplyCorrectionsBalanceStep
 from pipeline.steps.step_18a_apply_corrections_opu import Step18aApplyCorrectionsOpuStep
+from loguru import logger
+
+# Ловушка WARNING: раздел 12 проверяет, что пустой автошаблон НЕ предупреждает
+# о старом файле, а файл с правилами — предупреждает ровно двумя сообщениями.
+warn_capture: list[str] = []
+_warn_sink_id = logger.add(
+    lambda m: warn_capture.append(str(m)), level="WARNING", format="{message}"
+)
 
 PASSED = 0
 FAILED = 0
@@ -695,8 +703,17 @@ existing_dir = write_rules(
 )
 # load_corrections логирует _warn_stale_file и _warn_universal_rules; проверяем,
 # что файл читается, а предупреждения не ломают загрузку
+warn_capture.clear()
 rules = corrections_io.load_corrections(existing_dir)
 check(len(rules) == 1, f"файл с устаревшим правилом загружается, правило цело: {len(rules)}")
+check(
+    sum(1 for m in warn_capture if "используем существующий файл" in m) == 1,
+    "файл с правилами: первое предупреждение — используем существующий файл",
+)
+check(
+    sum(1 for m in warn_capture if "остался от прошлого прогона" in m) == 1,
+    "файл с правилами: второе предупреждение — что делать со старым файлом",
+)
 check(
     corrections_io._warn_universal_rules(rules, existing_dir / CORRECTIONS_FILE_NAME) is None,
     "_warn_universal_rules не возвращает ничего (только пишет в лог)",
@@ -718,6 +735,28 @@ full_rules = pd.DataFrame([
 ])
 blank_full = full_rules[MC.COL_COMPANY].isna() & full_rules[MC.COL_PERIOD].isna()
 check(not blank_full.any(), "правило с компанией и периодом — привязка полная")
+
+# 12.4 Пустой файл (автосозданный шаблон без правил) НЕ предупреждает о старом
+# файле: правил нет, нечему «примениться к прогону», а лишний WARNING пугает
+# бухгалтера на каждом чистом прогоне.
+warn_capture.clear()
+empty_corr_dir = write_rules(
+    [],
+    folder=TMP_ROOT / "empty_like_template",
+    columns=["счет", "признак", "новое_значение"],
+)
+empty_rules = corrections_io.load_corrections(empty_corr_dir)
+check(empty_rules.empty, "пустой файл без правил загружается как пустой кадр")
+check(
+    not any("используем существующий файл" in m for m in warn_capture),
+    "пустой файл без правил не предупреждает о существующем файле",
+)
+check(
+    not any("остался от прошлого прогона" in m for m in warn_capture),
+    "пустой файл без правил не даёт инструкции по переносу файла",
+)
+
+logger.remove(_warn_sink_id)
 
 print()
 if FAILED:

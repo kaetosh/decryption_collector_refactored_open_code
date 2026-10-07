@@ -184,12 +184,14 @@ def warn_stale_rate(coverage: RateCoverage, what: str) -> None:
     Отдельное предупреждение, а не INFO, потому что суммы отчёта посчитаны
     по курсу не той даты. Префикс «[!]» не декоративен: он же служит ключом
     группировки в сводке предупреждений (logging_handling/logger_config.py),
-    поэтому сообщение попадёт и на титульный лист отчёта.
+    поэтому сообщения попадут и на титульный лист отчёта.
+
+    Два сообщения, а не одно: консольный формат логгера режет строки, а сводка
+    предупреждений — до 200 символов. Первое — факт, второе — что делать.
     """
     logger.warning(
         '[!] {}: лист курса {} заканчивается датой {} — на запрошенную дату {} '
-        'курса нет, применён курс {} от {} (отставание {} дн.). Дополните лист '
-        'Курс_{}, иначе суммы переведены по устаревшему курсу.',
+        'курса нет, применён курс {} от {} (отставание {} дн.).',
         what,
         coverage.currency,
         format_rate_date(coverage.rate_date),
@@ -197,6 +199,10 @@ def warn_stale_rate(coverage: RateCoverage, what: str) -> None:
         coverage.rate,
         format_rate_date(coverage.rate_date),
         coverage.gap_days,
+    )
+    logger.warning(
+        '[!] Дополните лист Курс_{} актуальными датами, иначе суммы переведены '
+        'по устаревшему курсу.',
         coverage.currency,
     )
 
@@ -433,7 +439,11 @@ def add_ruble_amount_column(
             actual_date_str = earliest_date.strftime(_DATE_FORMAT)
             boundary_dates.append(ts)
         else:
-            if ts > last_date:
+            # Сравниваем по календарной дате, а не по полному Timestamp:
+            # даты операций могут нести время (31.08.2026 12:00), и тогда
+            # «31.08.2026 12:00 > 31.08.2026 00:00» ложно считало бы операцию
+            # последнего дня листа просроченной (отставание 0 дн.).
+            if ts.date() > last_date.date():
                 stale_dates.append(ts)
         rate_by_date[ts] = rate
         rate_date_by_date[ts] = actual_date_str
@@ -443,14 +453,19 @@ def add_ruble_amount_column(
     if boundary_dates:
         logger.warning(
             '[!] Для валюты {} в справочнике нет курсов на даты раньше {}: '
-            '{} дат операций (с {} по {}) переведены по курсу {} от {}. '
-            'Дополните лист курса, чтобы перевод ОПУ был точным.',
+            '{} дат операций (с {} по {}) переведены по курсу {} от {}.',
             get_currency(context),
             earliest_date.strftime(_DATE_FORMAT),
             len(boundary_dates),
             boundary_dates[0].strftime(_DATE_FORMAT),
             boundary_dates[-1].strftime(_DATE_FORMAT),
             earliest_rate,
+            earliest_date.strftime(_DATE_FORMAT),
+        )
+        logger.warning(
+            '[!] Дополните лист Курс_{} датами, предшествующими {}, чтобы перевод '
+            'ОПУ был точным.',
+            get_currency(context),
             earliest_date.strftime(_DATE_FORMAT),
         )
     if stale_dates:
@@ -460,9 +475,7 @@ def add_ruble_amount_column(
         max_gap = max((ts.date() - last_date.date()).days for ts in stale_dates)
         logger.warning(
             '[!] Лист курса {} заканчивается датой {} — {} дат операций (с {} по {}) '
-            'переведены по последнему курсу {} от {} (отставание до {} дн.). '
-            'Дополните лист Курс_{} актуальными датами, иначе часть ОПУ посчитана '
-            'по устаревшему курсу.',
+            'переведены по последнему курсу {} от {} (отставание до {} дн.).',
             get_currency(context),
             last_date.strftime(_DATE_FORMAT),
             len(stale_dates),
@@ -471,6 +484,10 @@ def add_ruble_amount_column(
             stale_rate,
             last_date.strftime(_DATE_FORMAT),
             max_gap,
+        )
+        logger.warning(
+            '[!] Дополните лист Курс_{} актуальными датами, иначе часть ОПУ '
+            'посчитана по устаревшему курсу.',
             get_currency(context),
         )
         record_opu_rate(

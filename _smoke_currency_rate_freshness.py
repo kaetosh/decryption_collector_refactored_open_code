@@ -166,13 +166,15 @@ def main() -> int:
     reset_logs()
     rate, rate_date = cu.get_rate_for_date_with_info(ctx, "30.09.2026")
     joined = "\n".join(warnings_text)
-    check(len(warnings_text) == 1, f"просрочка: ровно один WARNING (было {len(warnings_text)})")
+    check(len(warnings_text) == 2, f"просрочка: два WARNING (факт + инструкция), было {len(warnings_text)}")
     check(warnings_text and warnings_text[0].startswith("[!]"),
           "просрочка: WARNING с префиксом [!] (попадёт в сводку и на титул)")
     check("31.08.2026" in joined and "30.09.2026" in joined,
           "просрочка: в тексте обе даты")
     check("30 дн." in joined, "просрочка: указано отставание в днях")
     check("Курс_AED" in joined, "просрочка: подсказка, какой лист дополнять")
+    check(any("Дополните лист Курс_AED" in m for m in warnings_text),
+          "просрочка: инструкция дополнить лист — отдельное сообщение")
     check(rate == 23.3086 and rate_date == "31.08.2026",
           "просрочка: курс и дата на месте (регресс значений)")
 
@@ -196,6 +198,8 @@ def main() -> int:
     check("2 дат операций" in joined, "в тексте — число дат операций")
     check("01.09.2026" in joined and "30.09.2026" in joined, "в тексте — диапазон дат")
     check("23.3086" in joined, "в тексте — применённый курс")
+    check(any("Дополните лист Курс_AED" in m for m in warnings_text),
+          "второе сообщение: инструкция дополнить лист")
 
     # Ожидание берём из resolve_rate — того же поиска курса, которым пользуется
     # шаг 14. Свой набор значений здесь означал бы вторую правду о курсах.
@@ -237,6 +241,23 @@ def main() -> int:
           "дата раньше листа: прежний WARNING на месте (регресс)")
     check(abs(out_old.loc[0, "Сумма_руб"] - 100.0 * 23.0000) < 1e-9,
           "дата раньше листа: взят самый ранний курс")
+
+    # Случай из вопроса 07.10.2026: операция в ПОСЛЕДНИЙ день листа с ненулевым
+    # временем (31.08.2026 12:00). Раньше сравнение ts > last_date по полному
+    # Timestamp ложно считало её просроченной («отставание до 0 дн.»): ложные
+    # WARNING и сводка «НЕ АКТУАЛЕН» на титульном листе.
+    ctx3e = make_context()
+    df_last_day = pd.DataFrame(
+        {"Дата": ["31.08.2026 12:00:00", "20.08.2026"], "Сумма": [10.0, 20.0]},
+    )
+    reset_logs()
+    out_last_day = cu.add_ruble_amount_column(df_last_day.copy(), ctx3e)
+    check(not any("заканчивается датой" in m for m in warnings_text),
+          "операция в последний день листа (с временем): просрочки нет")
+    check(not (ctx3e.data.get(CurrencyConstants.SUMMARY_KEY) or {}),
+          "операция в последний день листа: сводка ОПУ не пишется (нет ложного НЕ АКТУАЛЕН)")
+    check(abs(out_last_day.loc[0, "Сумма_руб"] - 10.0 * 23.3086) < 1e-9,
+          "операция в последний день листа: применён курс 31.08.2026")
 
     # Регресс: рублёвая компания — без курсовых сообщений и сводок.
     ctx3d = make_context(currency="RUB", references={})
