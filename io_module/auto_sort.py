@@ -6,7 +6,9 @@
 _INPUT_DATA/00_inbox (config.settings.INBOX_DIR), не разбираясь, что куда.
 Скрипт раскладывает файлы по целевым папкам согласно списку выгрузок
 «Выгрузить_<компания>_<период>.xlsx» (листы «Обязательные выгрузки» и
-«Спецотчеты», колонки «Имя файла для сохранения» -> «Куда класть»).
+«Спецотчеты»): цель берётся из колонки «Куда разложит программа»
+(настоящая папка), колонка «Куда класть» — инструкция бухгалтеру
+(выгружать всё в 00_inbox) и как цель не используется.
 
 Классификация детерминированная — по имени файла (формат
 Компания_регистр_счет_Период_.ext). Содержимое файлов не читается.
@@ -25,7 +27,7 @@ _INPUT_DATA/00_inbox (config.settings.INBOX_DIR), не разбираясь, ч�
    - файлы целевых папок, которых нет в списке выгрузок (хвосты прошлых
      сессий), архивируются; файлы из «чужой» целевой папки перекладываются
      по назначению;
-   - файлы inbox раскладываются по «куда класть»;
+   - файлы inbox раскладываются по колонке «Куда разложит программа»;
    - «кривые» имена (лишние пробелы, регистр, без хвостового '_') при
      совпадении со списком приводятся к эталонному имени из списка —
      иначе последующий поиск по имени (find_register_file) не распарсит
@@ -83,7 +85,12 @@ EXPECTED_FILE_SHEETS = ("Обязательные выгрузки", "Спецо
 
 # Колонки списка выгрузок, по которым строится карта раскладки
 EXPECTED_FILENAME_COL = "Имя файла для сохранения"
-EXPECTED_TARGET_COL = "Куда класть"
+# Машинная целевая папка — отсюда build_expected_map берёт назначение файла
+EXPECTED_TARGET_COL = "Куда разложит программа"
+# Инструкция бухгалтеру (сейчас — «выгружать всё в 00_inbox»). Как цель
+# используется только в файле старого формата, где в этой колонке лежит
+# настоящая папка; значение 00_inbox отбрасывается (это не назначение)
+EXPECTED_INSTRUCTION_COL = "Куда класть"
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -130,9 +137,16 @@ def build_expected_map(company: str, period: str, run_dir: Path) -> dict[str, tu
     при раскладке переименовываются к эталону, иначе последующий поиск
     по имени (find_register_file) их не распарсит.
 
+    Целевая папка — колонка «Куда разложит программа». Колонка
+    «Куда класть» — инструкция бухгалтеру (выгружать всё в 00_inbox)
+    и как цель не используется: подмена ей цели сломала бы ревизию
+    целевых папок (шаг 1 sort_all итерирует по значениям карты) и
+    привела к удалению файлов при раскладке (dest == src в _move_to_dir).
+    Fallback на «Куда класть» — только для файла старого формата, где
+    в ней лежит настоящая папка; значение 00_inbox отбрасывается.
+
     Чтение устойчиво к формату шага 1a: колонки ищутся без учёта
-    регистра ('Куда класть' vs 'куда класть' из справочника «Выгрузки»),
-    строка заголовка таблицы — в первых 10 строках листа (лист
+    регистра, строка заголовка таблицы — в первых 10 строках листа (лист
     «Спецотчеты» отформатирован с двумя служебными строками сверху).
 
     Файл списка формирует шаг 1a в папке текущего запуска — к моменту
@@ -162,30 +176,56 @@ def build_expected_map(company: str, period: str, run_dir: Path) -> dict[str, tu
         if raw.empty:
             continue
 
-        # Поиск строки заголовка: обе колонки в одной строке, без учёта регистра
-        fname_lc, target_lc = EXPECTED_FILENAME_COL.lower(), EXPECTED_TARGET_COL.lower()
+        # Поиск строки заголовка: имя файла + хотя бы одна из колонок
+        # назначения, без учёта регистра
+        fname_lc = EXPECTED_FILENAME_COL.lower()
+        target_lc = EXPECTED_TARGET_COL.lower()
+        instr_lc = EXPECTED_INSTRUCTION_COL.lower()
         header_idx = None
         for i in range(min(10, len(raw))):
             vals = {str(v).strip().lower() for v in raw.iloc[i].tolist()}
-            if fname_lc in vals and target_lc in vals:
+            if fname_lc in vals and (target_lc in vals or instr_lc in vals):
                 header_idx = i
                 break
         if header_idx is None:
             logger.warning(
-                "[SORT] В листе '{}' нет колонок '{}'/'{}' — лист пропущен",
+                "[SORT] В листе '{}' нет колонок '{}'/'{}'/'{}' — лист пропущен",
                 sheet_name, EXPECTED_FILENAME_COL, EXPECTED_TARGET_COL,
+                EXPECTED_INSTRUCTION_COL,
             )
             continue
 
         df = raw.iloc[header_idx + 1:].copy()
         df.columns = [str(c).strip().lower() for c in raw.iloc[header_idx]]
         for _, row in df.iterrows():
-            filename, target = row.get(fname_lc), row.get(target_lc)
-            if pd.isna(filename) or pd.isna(target):
+            filename = row.get(fname_lc)
+            if pd.isna(filename):
                 continue
             filename = str(filename).strip()
             if not filename or filename.startswith(EXCEL_TEMP_PREFIX):
                 continue
+
+            target = row.get(target_lc)
+            if pd.isna(target) or not str(target).strip():
+                # Fallback: файл старого формата — цель в «Куда класть»
+                alt = row.get(instr_lc)
+                if pd.isna(alt) or not str(alt).strip():
+                    continue
+                if resolve_target_dir(alt) == INBOX_DIR:
+                    # Новый формат: «Куда класть» = 00_inbox — это
+                    # инструкция бухгалтеру, а не назначение файла
+                    logger.debug(
+                        "[SORT] У '{}' не заполнена колонка '{}', "
+                        "«{}» — инструкция (00_inbox) — строка пропущена",
+                        filename, EXPECTED_TARGET_COL, EXPECTED_INSTRUCTION_COL,
+                    )
+                    continue
+                logger.debug(
+                    "[SORT] '{}' цель из колонки '{}' (старый формат списка): {}",
+                    filename, EXPECTED_INSTRUCTION_COL, alt,
+                )
+                target = alt
+
             key = normalize_name(filename)
             target_dir = resolve_target_dir(target)
             if key in expected_map and expected_map[key][0] != target_dir:

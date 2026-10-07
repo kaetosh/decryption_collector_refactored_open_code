@@ -13,7 +13,7 @@ from loguru import logger
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
 from utils import process_account, format_filename_vectorized
-from config.settings import OPU_ACCOUNTS_PREFIXES, to_relative
+from config.settings import OPU_ACCOUNTS_PREFIXES, INBOX_DIR, to_relative
 from io_module.output_manager import get_output_dir
 
 
@@ -153,10 +153,12 @@ class Step1aListExpectedRegistersStep(Step):
                 'шаблон': f'{name_company}_ведамор_0102_{period}_.xlsx',
                 'описание': (
                     'Ведомость амортизации ОС — '
-                    'разделяет арендованное имущество на "у третьих лиц" и "у компаний группы".'
+                    'разделяет арендованное имущество на "у третьих лиц" и "у компаний группы". '
+                    'Порядок столбцов в выгрузке: ОС, договор аренды, группа ОС, '
+                    'вид взаиморасчетов, контрагент. '
                     'В случае отсутствия отчета - все имущество отнесено на третьи лица.'
                 ),
-                'Обязательность': 'да',
+                'Обязательность': 'да - при остатках 01.03/02.03 в Общей ОСВ',
             },
             {
                 'шаблон': f'{name_company}_осв_60инвест_{period}_.xlsx',
@@ -182,12 +184,18 @@ class Step1aListExpectedRegistersStep(Step):
         df = pd.DataFrame(reports)
         df = df.rename(columns={'шаблон': 'Имя файла для сохранения'})
 
-        df['Куда класть'] = '_INPUT_DATA/special_reports/'
+        # «Куда разложит программа» — настоящая целевая папка (её читает
+        # io_module/auto_sort.build_expected_map при раскладке 00_inbox);
+        # «Куда класть» — инструкция бухгалтеру: выгружать всё одним
+        # движением в 00_inbox, дальше файлы разложит программа.
+        df['Куда разложит программа'] = '_INPUT_DATA/special_reports/'
+        df['Куда класть'] = f'{to_relative(INBOX_DIR)}/'.replace('\\', '/')
         
         # Переупорядочиваем колонки для удобства бухгалтера
         df = df[[
             'Имя файла для сохранения',
             'Куда класть',
+            'Куда разложит программа',
             'Обязательность',
             'описание',
         ]]
@@ -461,6 +469,33 @@ class Step1aListExpectedRegistersStep(Step):
         # 9. ФОРМИРОВАНИЕ СПИСКА СПЕЦОТЧЕТОВ
         # =========================================================================
         special_reports_df = self._build_special_reports_list(context.company, context.period)
+        
+        # =========================================================================
+        # 9а. КОЛОНКИ «КУДА КЛАСТЬ» / «КУДА РАЗЛОЖИТ ПРОГРАММА»
+        # =========================================================================
+        # «Куда класть» — инструкция бухгалтеру: выгружать всё одним движением
+        # в 00_inbox, дальше файлы разложит программа. Исходная колонка
+        # «куда класть» из справочника «Выгрузки» хранит настоящую целевую
+        # папку — переименовываем её, а не подменяем: build_expected_map
+        # берёт цель из «Куда разложит программа»; если целью сделать
+        # 00_inbox, ревизия целевых папок перестанет работать, а раскладка
+        # inbox удалит файлы как «дубликаты» (dest == src в _move_to_dir).
+        target_cols = [
+            c for c in filtered_loads.columns
+            if str(c).strip().lower() == 'куда класть'
+        ]
+        if target_cols:
+            filtered_loads = filtered_loads.rename(
+                columns={target_cols[0]: 'Куда разложит программа'}
+            )
+        else:
+            logger.warning(
+                "В справочнике «Выгрузки» нет колонки «куда класть» — "
+                "колонка «Куда разложит программа» пуста, автосортировка "
+                "файлов из 00_inbox не сработает"
+            )
+            filtered_loads['Куда разложит программа'] = pd.NA
+        filtered_loads['Куда класть'] = f'{to_relative(INBOX_DIR)}/'.replace('\\', '/')
         
         # =========================================================================
         # 10. СОХРАНЕНИЕ В EXCEL (один лист для ОСВ + карточек + спецотчёты)

@@ -18,6 +18,11 @@
    - хвост прошлой сессии в целевой папке — в архив;
    - файл из списка в неверной папке — перекладывается по назначению.
 4. Отчёт sort_report.xlsx записан в папку запуска.
+5. Колонки назначения списка выгрузок: цель — «Куда разложит программа»;
+   «Куда класть» (= 00_inbox) — инструкция бухгалтеру и целью не становится
+   (иначе ревизия целевых папок перестаёт работать, а раскладка inbox
+   удаляет файлы как «дубликаты» — dest == src в _move_to_dir);
+   fallback на «Куда класть» работает только для файла старого формата.
 
 Запуск: conda run -n fl_acc_card python -u _smoke_auto_sort.py
 """
@@ -126,28 +131,34 @@ archive = base / "_archive"
 for d in (inbox, accounts, lease, special, cards):
     d.mkdir(parents=True)
 
-# Список выгрузок в ФАКТИЧЕСКОМ формате шага 1a: на листе 1 колонка
-# 'куда класть' с маленькой буквы (приходит из справочника «Выгрузки»),
-# на листе 2 — две служебные строки сверху, шапка в строке 3
+# Список выгрузок в ФАКТИЧЕСКОМ формате шага 1a: на листе 1 машинная
+# «Куда разложит программа» (бывшая «куда класть» из справочника
+# «Выгрузки») + инструкция «Куда класть» = 00_inbox, на листе 2 —
+# две служебные строки сверху, шапка в строке 3
+INSTRUCTION_TARGET = "_INPUT_DATA/00_inbox/"
 expected_rows = [
-    ("СМПК_осв_01_6мес2026_.xlsx", str(accounts)),
-    ("СМПК_осв_02_6мес2026_.xlsx", str(accounts)),
-    ("СМПК_осв_04_6мес2026_.xlsx", str(accounts)),
-    ("СМПК_осв_60_6мес2026_.xlsx", str(accounts)),
-    ("СМПК_осв_76.07_6мес2026_.xlsx", str(lease)),
-    ("СМПК_отчпровод_26_6мес2026_.txt", str(cards)),
-    ("СМПК_отчпровод_44_6мес2026_.txt", str(cards)),
+    ("СМПК_осв_01_6мес2026_.xlsx", INSTRUCTION_TARGET, str(accounts)),
+    ("СМПК_осв_02_6мес2026_.xlsx", INSTRUCTION_TARGET, str(accounts)),
+    ("СМПК_осв_04_6мес2026_.xlsx", INSTRUCTION_TARGET, str(accounts)),
+    ("СМПК_осв_60_6мес2026_.xlsx", INSTRUCTION_TARGET, str(accounts)),
+    ("СМПК_осв_76.07_6мес2026_.xlsx", INSTRUCTION_TARGET, str(lease)),
+    ("СМПК_отчпровод_26_6мес2026_.txt", INSTRUCTION_TARGET, str(cards)),
+    ("СМПК_отчпровод_44_6мес2026_.txt", INSTRUCTION_TARGET, str(cards)),
 ]
 special_rows = [
-    ("СМПК_ведамор_0102_6мес2026_.xlsx", str(special)),
-    ("СМПК_реклассдолгкорт_97_6мес2026_.xlsx", str(special)),
+    ("СМПК_ведамор_0102_6мес2026_.xlsx", INSTRUCTION_TARGET, str(special)),
+    ("СМПК_реклассдолгкорт_97_6мес2026_.xlsx", INSTRUCTION_TARGET, str(special)),
 ]
 expected_path = run_dir / "Выгрузить_СМПК_6мес2026.xlsx"
 with pd.ExcelWriter(expected_path, engine="openpyxl") as writer:
-    pd.DataFrame(expected_rows, columns=["Имя файла для сохранения", "куда класть"]).to_excel(
-        writer, sheet_name="Обязательные выгрузки", index=False,
+    pd.DataFrame(
+        expected_rows,
+        columns=["Имя файла для сохранения", "Куда класть", "Куда разложит программа"],
+    ).to_excel(writer, sheet_name="Обязательные выгрузки", index=False)
+    spec_df = pd.DataFrame(
+        special_rows,
+        columns=["Имя файла для сохранения", "Куда класть", "Куда разложит программа"],
     )
-    spec_df = pd.DataFrame(special_rows, columns=["Имя файла для сохранения", "Куда класть"])
     spec_df.to_excel(writer, sheet_name="Спецотчеты", index=False, startrow=2)
 
 expected_map = build_expected_map("СМПК", "6мес2026", run_dir)
@@ -226,6 +237,49 @@ check(
     "Inbox после сортировки содержит только файл списка выгрузок",
 )
 check((run_dir / "sort_report.xlsx").is_file(), "Отчёт sort_report.xlsx записан в папку запуска")
+
+# ═════════════════════════════════════════════════════════════════════════
+# Тест 3: колонки назначения — цель из «Куда разложит программа»
+# ═════════════════════════════════════════════════════════════════════════
+print("\n--- Тест 3: колонки назначения списка выгрузок ---")
+# 3.1 Файл старого формата: только «куда класть» с настоящей папкой —
+# fallback строит карту как раньше
+legacy_path = run_dir / "Выгрузить_ТестСтарый_6мес2026.xlsx"
+pd.DataFrame(
+    [("ТестСтарый_осв_01_6мес2026_.xlsx", str(accounts))],
+    columns=["Имя файла для сохранения", "куда класть"],
+).to_excel(legacy_path, sheet_name="Обязательные выгрузки", index=False)
+legacy_map = build_expected_map("ТестСтарый", "6мес2026", run_dir)
+check(
+    len(legacy_map) == 1
+    and next(iter(legacy_map.values()))[0] == accounts,
+    "Старый формат списка: цель берётся из «куда класть» (fallback)",
+)
+# 3.2 Новый формат, но машинная колонка пуста, а «Куда класть» = 00_inbox —
+# строка НЕ становится целью (иначе раскладка inbox удалила бы файлы:
+# dest == src в _move_to_dir) и карта остаётся пустой
+instr_path = run_dir / "Выгрузить_ТестИнстр_6мес2026.xlsx"
+pd.DataFrame(
+    [("ТестИнстр_осв_01_6мес2026_.xlsx", INSTRUCTION_TARGET)],
+    columns=["Имя файла для сохранения", "Куда класть"],
+).to_excel(instr_path, sheet_name="Обязательные выгрузки", index=False)
+instr_map = build_expected_map("ТестИнстр", "6мес2026", run_dir)
+check(
+    len(instr_map) == 0,
+    "«Куда класть» = 00_inbox без машинной колонки — не цель (регресс: "
+    "иначе файлы удалялись бы при раскладке)",
+)
+# 3.3 Обе колонки: машинная главнее инструкции даже при «неудачном» значении
+both_path = run_dir / "Выгрузить_ТестОбе_6мес2026.xlsx"
+pd.DataFrame(
+    [("ТестОбе_осв_01_6мес2026_.xlsx", str(inbox), str(lease))],
+    columns=["Имя файла для сохранения", "Куда класть", "Куда разложит программа"],
+).to_excel(both_path, sheet_name="Обязательные выгрузки", index=False)
+both_map = build_expected_map("ТестОбе", "6мес2026", run_dir)
+check(
+    len(both_map) == 1 and next(iter(both_map.values()))[0] == lease,
+    "Обе колонки заполнены: цель — «Куда разложит программа», «Куда класть» игнорируется",
+)
 
 # ═════════════════════════════════════════════════════════════════════════
 # Итог

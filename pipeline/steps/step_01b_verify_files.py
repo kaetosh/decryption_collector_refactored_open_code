@@ -5,6 +5,8 @@ from loguru import logger
 import pandas as pd
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import MissingFilesError
+from pipeline.step_config import LeaseConstants
+from config.defaults import DEFAULTS
 from config.settings import (
     ACCOUNT_CARDS_DIR,
     REQUIRED_OSV_DIRS,
@@ -78,11 +80,27 @@ class Step1bVerifyFilesStep(Step):
             # ведомость амортизации арендованных ОС в разбивке по арендодателям, чтобы исключить ВГО
             # остальные - спецотчеты для УПП выгрузок, если их нет, скрипт заполняет значениями по умолчанию
         # =========================================================================
+        # =========================================================================
+        # Ведомость амортизации выгружается из 1С только по арендованным
+        # объектам — у компании без аренды файла не существует. Поэтому она
+        # условно обязательна (п. «Обязательность ведомости амортизации»):
+        # необходимость решает общая ОСВ, авторитетная проверка — шаг 10.
+        obligatory_list = []
         if context.type_period == 'год':
-            context.data['special_reports_obligatory_list'] = [f'{context.company}_анализ_84_{context.period}_.xlsx',
-                                           f'{context.company}_ведамор_0102_{context.period}_.xlsx']
+            obligatory_list.append(
+                f'{context.company}_анализ_84_{context.period}_.xlsx'
+            )
+
+        vedamor_filename = f'{context.company}_ведамор_0102_{context.period}_.xlsx'
+        if self._is_lease_present(context):
+            obligatory_list.append(vedamor_filename)
         else:
-            context.data['special_reports_obligatory_list'] = [f'{context.company}_ведамор_0102_{context.period}_.xlsx']
+            logger.info(
+                "Остатков по счетам арендованных ОС (01.03/02.03) в общей ОСВ нет — "
+                "ведомость амортизации не обязательна, файл '{}' не проверяется",
+                vedamor_filename,
+            )
+        context.data['special_reports_obligatory_list'] = obligatory_list
         
         special_reports_filenames = context.data.get('special_reports_obligatory_list', [])
         
@@ -150,6 +168,72 @@ class Step1bVerifyFilesStep(Step):
         
         logger.info("[OK] Все обязательные файлы выгрузок найдены")
         return context
+
+    def _is_lease_present(self, context: ProcessingContext) -> bool:
+        """
+        Есть ли у компании арендованные ОС — по остаткам 01.03/02.03
+        в общей ОСВ.
+
+        Ведомость амортизации выгружается из 1С только по арендованным
+        объектам (п. «Обязательность ведомости амортизации»), поэтому
+        требовать её безусловно нельзя: у компании без аренды файла не
+        существует. Здесь — быстрый предпросмотр на шаге 1б, чтобы не
+        останавливать конвейер раньше времени; авторитетная проверка
+        остаётся в шаге 10 (`_detect_leased_os` по сводной ОСВ).
+
+        Порог — `tolerance_leased_os`, тот же допуск, что у сверки ОСВ
+        с ведомостью: копеечный остаток от округления выгрузки не требует
+        выгрузки и не должен останавливать прогон.
+
+        Консервативно возвращает True (требуем файл), если данные для
+        решения недоступны: точнее решить не можем, а лишний запрос файла
+        лучше пропущенного стопа.
+
+        Returns:
+            bool: True — ведомость амортизации обязательна.
+        """
+        df = getattr(context, 'common_osv_df', None)
+        if df is None or df.empty:
+            return True
+
+        required_cols = {'Счет', 'Дебет_конец', 'Кредит_конец'}
+        if not required_cols.issubset(df.columns):
+            logger.debug(
+                "Не найдены колонки {} в общей ОСВ — ведомость амортизации "
+                "считается обязательной (консервативное допущение)",
+                sorted(required_cols - set(df.columns)),
+            )
+            return True
+
+        # Префиксное сравнение: в общей ОСВ возможна детализация ниже
+        # синтетического уровня ('01.03.1') — не хотим пропустить остаток.
+        codes = df['Счет'].astype(str)
+        mask = codes.str.startswith(tuple(LeaseConstants.ACCOUNTS_01_03))
+
+        # Сальдо в общей ОСВ — в рублях (Дебет_конец - Кредит_конец),
+        # допуск — в тыс.ед. (как в колонке «сальдо, тыс.ед.» сводной ОСВ).
+        balance = (
+            pd.to_numeric(df['Дебет_конец'], errors='coerce').fillna(0)
+            - pd.to_numeric(df['Кредит_конец'], errors='coerce').fillna(0)
+        )
+        total_th = float(balance[mask].sum()) / 1000.0
+
+        tolerance = (getattr(context, 'tolerance_params', None) or {}).get(
+            'tolerance_leased_os',
+            DEFAULTS['tolerance_leased_os'],
+        )
+        has_lease = bool(mask.any()) and abs(total_th) > tolerance
+
+        logger.debug(
+            "Арендованные ОС по общей ОСВ: счета {} — {} строк, "
+            "сальдо={:.2f} тыс.ед., допуск={} -> ведомость {}",
+            '/'.join(LeaseConstants.ACCOUNTS_01_03),
+            int(mask.sum()),
+            total_th,
+            tolerance,
+            'нужна' if has_lease else 'не нужна',
+        )
+        return has_lease
 
     def _filter_filenames_for_dir(
         self,
