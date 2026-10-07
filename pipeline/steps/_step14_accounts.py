@@ -3,21 +3,21 @@ Mixin с обработкой счетов 90.01/90.02 для Шага 14.
 
 Методы:
     _process_revenue_9001: обработка выручки (90.01)
+    _extract_vat_9003: сбор НДС по продажам из отчёта по проводкам 90.03
+    _subtract_vat_from_revenue: вычитание НДС документа из строк 90.01
+    _warn_unmatched_vat: диагностика НДС, не сопоставленного с выручкой
     _validate_revenue_against_osv: сверка выручки с ОСВ
     _process_cost_9002: обработка себестоимости (90.02)
     _process_reassessment: обработка переоценки (Дт 90.02 Кт 16)
     _validate_cost_against_osv: сверка себестоимости с ОСВ
     _distribute_cost_to_buyers: распределение себестоимости пропорционально выручке
 """
-from collections import Counter
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from io_module import DataSaver
-from config.defaults import DEFAULTS
 from pipeline.errors import ConvergenceError, MissingMappingError, ReferenceMismatchError
 from utils import align_dtypes_to_reference
 
@@ -46,32 +46,22 @@ class Step14AccountsMixin:
 
         df9001.loc[df9001['Дт'].str.startswith('76.15'), 'контрагент'] = 'пайщики'
 
-        # Исходное значение субконто ставки НДС — для аудита пропущенных
-        # ставок и распознавания явного «Без НДС» (текстовые маркеры).
-        df9001['ндс_ставка_исх'] = df9001['Субконто Кт_2'].astype(str).str.strip()
-
-        df9001['ндс_ставка'] = (
-            df9001['Субконто Кт_2']
-            .astype(str)
-            .str.replace('%', '', regex=False)
-            .str.strip()
-            .replace('', pd.NA)
-        )
-        df9001['ндс_ставка'] = pd.to_numeric(df9001['ндс_ставка'], errors='coerce') / 100
-
-        # Защитный механизм: строки с пропущенной ставкой НДС НЕ удаляются
-        # (раньше NaN молча «сгорал» в groupby().sum(), завышая выручку ОПУ).
-        # Ставка восстанавливается по аналогичным строкам («ном_группа»),
-        # иначе берётся дефолт из листа «Параметры» (nds_missing_values).
-        default_vat_rate = context.tolerance_params.get(
-            'nds_missing_values', DEFAULTS['nds_missing_values']
-        )
-        df9001, _vat_audit_df = self._restore_missing_vat_rates(
-            df9001, default_vat_rate, context
+        # Выручка 90.01 валовая (с НДС), а в ОПУ идёт без НДС. Сумму НДС берём
+        # из отчёта по проводкам 90.03 — готовую сумму по каждому документу, а
+        # не ставку из субконто: у иностранных компаний ставка текстовая
+        # («Exempt from Tax», «Без НДС») или пустая, а одна номенклатурная
+        # группа может облагаться разными ставками одновременно, и любое
+        # восстановление ставки по «аналогам» здесь ошибается.
+        df9001, unmatched_vat_df = self._subtract_vat_from_revenue(
+            df9001, self._extract_vat_9003(transactions_all_df)
         )
 
-        df9001['выручка_без_ндс_тыс_ед'] = (df9001['Сумма'] / 1000) / (1 + df9001['ндс_ставка'])
-        df9001['выручка_без_ндс_тыс_руб'] = (df9001['Сумма_руб'] / 1000) / (1 + df9001['ндс_ставка'])
+        df9001['выручка_без_ндс_тыс_ед'] = (
+            df9001['Сумма'] / 1000 - df9001['ндс_тыс_ед']
+        )
+        df9001['выручка_без_ндс_тыс_руб'] = (
+            df9001['Сумма_руб'] / 1000 - df9001['ндс_тыс_руб']
+        )
 
         df9001 = df9001.loc[:, ['Документ', 'контрагент', 'ном_группа', 'выручка_без_ндс_тыс_ед', 'выручка_без_ндс_тыс_руб']]
         df9001 = df9001.groupby(
@@ -79,178 +69,143 @@ class Step14AccountsMixin:
             as_index=False
         )[['выручка_без_ндс_тыс_ед', 'выручка_без_ндс_тыс_руб']].sum()
 
-        self._validate_revenue_against_osv(df9001, osv_df, context)
+        self._validate_revenue_against_osv(
+            df9001, osv_df, context, unmatched_vat_df
+        )
 
         logger.debug("Выручка обработана: {} строк", len(df9001))
 
         return df9001
 
-    def _restore_missing_vat_rates(
+    def _extract_vat_9003(
+        self,
+        transactions_all_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Собирает НДС по продажам из отчёта по проводкам 90.03.
+
+        Источник НДС — весь дебетовый оборот счёта 90.03 в сводном отчёте по
+        проводкам, агрегированный по 'Документ'. Фильтр по корр.счёту (68.02)
+        НЕ ставится намеренно: сверка выручки с ОСВ тоже опирается на весь
+        дебетовый оборот 90.03, а НДС по экспорту (Кт 68.07/68.11) сидит в
+        валовой выручке 90.01 и тоже должен быть вычтен.
+
+        Returns:
+            DataFrame с колонками 'Документ', 'ндс_тыс_ед', 'ндс_тыс_руб'
+            (пустой, если оборотов по 90.03 нет).
+        """
+        mask_account = transactions_all_df['Дт'].str.startswith(
+            self.ACCOUNT_VAT, na=False
+        )
+        mask_file = transactions_all_df['Имя_файла'].str.contains(
+            f"_{self.ACCOUNT_VAT}_", na=False
+        )
+        df9003 = transactions_all_df.loc[mask_account & mask_file]
+
+        if df9003.empty:
+            logger.info(
+                "НДС 90.03: оборотов по счёту {} в отчёте по проводкам нет — "
+                "выручка 90.01 остаётся валовой (НДС не начислялся)",
+                self.ACCOUNT_VAT,
+            )
+            return pd.DataFrame(columns=['Документ', 'ндс_тыс_ед', 'ндс_тыс_руб'])
+
+        vat_df = df9003.groupby('Документ', as_index=False)[
+            ['Сумма', 'Сумма_руб']
+        ].sum()
+        vat_df['ндс_тыс_ед'] = vat_df['Сумма'] / 1000
+        vat_df['ндс_тыс_руб'] = vat_df['Сумма_руб'] / 1000
+
+        logger.debug(
+            "НДС 90.03: {} документов, сумма {:.2f} тыс.ед.",
+            len(vat_df), float(vat_df['ндс_тыс_ед'].sum()),
+        )
+
+        return vat_df[['Документ', 'ндс_тыс_ед', 'ндс_тыс_руб']]
+
+    def _subtract_vat_from_revenue(
         self,
         df9001: pd.DataFrame,
-        default_rate: float,
-        context,
+        vat_df: pd.DataFrame,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Восстанавливает пропущенные ставки НДС для строк 90.01.
+        Вычитает НДС документа из строк выручки 90.01.
 
-        Раньше строки с пустой ставкой («не_указано» в «Субконто Кт_2») молча
-        «сгорали» в groupby().sum() из-за NaN, что завышало выручку ОПУ
-        (характерный кейс — «Корректировка записей регистров» 1С без субконто
-        ставки НДС). Теперь такие строки НЕ удаляются:
+        НДС документа распределяется по его строкам РОВНО ОДИН РАЗ
+        (Step._distribute_vat_by_rows — тот же хелпер, что и в шаге 17 для
+        91.01): у документа бывает несколько строк 90.01, и прямое вычитание
+        НДС из каждой многократно завышало бы выручку. Документы без НДС в
+        90.03 получают нулевой НДС — так сама собой получается нулевая ставка
+        (освобождение, «Без НДС», «Exempt from Tax»), ничего распознавать
+        не нужно.
 
-        1. ставка восстанавливается по аналогичным строкам (одинаковая
-           номенклатурная группа «ном_группа» = «Субконто Кт_1»); при
-           нескольких ставках берётся наиболее частая, при равенстве частот —
-           дефолт;
-        2. если аналогов нет — берётся дефолт из листа «Параметры»
-           (параметр nds_missing_values);
-        3. явные текстовые маркеры нулевой ставки («Без НДС» и т.п.)
-           трактуются как ставка 0 и дефолтом не заменяются.
-
-        Возвращает (df9001 с заполненными ставками, audit_df). При наличии
-        затронутых строк аудит сохраняется в
-        warnings/nds_missing_rows_<компания>_<период>.xlsx папки запуска.
+        Returns:
+            Tuple[df9001 с колонками 'ндс_тыс_ед'/'ндс_тыс_руб',
+                  DataFrame с НДС, не сопоставленным ни одной строкой 90.01].
         """
-        rate = df9001['ндс_ставка']
-        missing = rate.isna()
-
-        if not missing.any():
-            return df9001, pd.DataFrame()
-
-        raw = df9001['ндс_ставка_исх'].astype(str).str.strip().str.lower()
-        zero_marker = raw.str.contains('без', na=False) | raw.isin(
-            ['0%', '0 %', '0', 'ноль']
-        )
-        zero_idx = missing & zero_marker
-        missing_idx = missing & ~zero_marker
-
         df9001 = df9001.copy()
-        audit_records: list = []
 
-        if zero_idx.any():
-            df9001.loc[zero_idx, 'ндс_ставка'] = 0.0
-            for idx in df9001.index[zero_idx]:
-                audit_records.append(self._build_vat_audit_row(
-                    df9001, idx, 0.0, 'явная_0%',
-                    'текстовый маркер нулевой ставки («без НДС»)',
-                ))
-            logger.warning(
-                "НДС 90.01: {} строк помечены как «без НДС» (текстовый маркер) — "
-                "использована ставка 0%. Строки не удалены. Детали: "
-                "warnings/nds_missing_rows_*.xlsx",
-                int(zero_idx.sum()),
-            )
-
-        if missing_idx.any():
-            known = df9001.loc[rate.notna(), ['ном_группа', 'ндс_ставка']]
-            # Список значений с повторами: нужен и для проверки «одна уникальная
-            # ставка», и для подсчёта моды (Counter).
-            group_rates = known.groupby('ном_группа')['ндс_ставка'].agg(
-                lambda s: [float(x) for x in s.dropna()]
-            )
-
-            restored_n = 0
-            default_n = 0
-            for idx in df9001.index[missing_idx]:
-                group_key = df9001.loc[idx, 'ном_группа']
-                candidates = group_rates.get(group_key, None)
-
-                rate_val = default_rate
-                source = 'дефолт'
-                note = 'нет аналогичных строк с известной ставкой'
-                if candidates:
-                    unique_rates = sorted({float(x) for x in candidates})
-                    if len(unique_rates) == 1:
-                        rate_val = unique_rates[0]
-                        source = 'аналоги'
-                        note = ''
-                    else:
-                        top1, top2 = Counter(candidates).most_common(2)
-                        if top1[1] == top2[1]:
-                            note = (
-                                'неоднозначные аналоги ({}), взят дефолт'
-                                .format(', '.join('{:.1%}'.format(x) for x in unique_rates))
-                            )
-                        else:
-                            rate_val = top1[0]
-                            source = 'аналоги'
-                            note = 'по наиболее частой ставке аналогов'
-                if not (0.0 < rate_val <= 1.0):
-                    rate_val = default_rate
-                    source = 'дефолт'
-                    note = 'восстановленная ставка вне (0;1], взят дефолт'
-                df9001.loc[idx, 'ндс_ставка'] = rate_val
-                if source == 'аналоги':
-                    restored_n += 1
-                else:
-                    default_n += 1
-                audit_records.append(self._build_vat_audit_row(
-                    df9001, idx, rate_val, source, note,
-                ))
-
-            logger.warning(
-                "НДС 90.01: обнаружено {} строк с пропущенной ставкой "
-                "(«Субконто Кт_2» пусто): восстановлено по аналогам {}, "
-                "дефолтом ({:.1%}) — {}",
-                int(missing_idx.sum()), restored_n, default_rate, default_n,
-            )
-            logger.warning(
-                "Строки не удаляются, выручка пересчитана. "
-                "Детали: warnings/nds_missing_rows_*.xlsx"
-            )
-
-        if not audit_records:
+        if vat_df.empty:
+            df9001['ндс_тыс_ед'] = 0.0
+            df9001['ндс_тыс_руб'] = 0.0
             return df9001, pd.DataFrame()
 
-        audit_df = pd.DataFrame(audit_records)
-        company = getattr(context, 'company', None) or 'unknown'
-        period = (
-            getattr(context, 'period', None)
-            or getattr(context, 'run_id', None)
-            or 'run'
+        vat_by_doc = vat_df.set_index('Документ')
+        df9001['ндс_тыс_ед'] = self._distribute_vat_by_rows(
+            df9001, vat_by_doc['ндс_тыс_ед'], 'Сумма'
         )
-        try:
-            DataSaver.save_to_excel(
-                audit_df,
-                f'nds_missing_rows_{company}_{period}.xlsx',
-                subfolder='warnings',
-            )
-        except Exception as e:  # прагматично: аудит не должен ронять шаг
-            logger.warning("Не удалось сохранить аудит НДС в Excel: {}", e)
+        df9001['ндс_тыс_руб'] = self._distribute_vat_by_rows(
+            df9001, vat_by_doc['ндс_тыс_руб'], 'Сумма_руб'
+        )
 
-        return df9001, audit_df
+        unmatched = vat_df.loc[
+            ~vat_df['Документ'].isin(df9001['Документ'].unique())
+        ].copy()
 
-    @staticmethod
-    def _build_vat_audit_row(
+        self._warn_unmatched_vat(unmatched, df9001)
+
+        return df9001, unmatched
+
+    def _warn_unmatched_vat(
+        self,
+        unmatched: pd.DataFrame,
         df9001: pd.DataFrame,
-        idx,
-        restored_rate: float,
-        source: str,
-        note: str,
-    ) -> dict:
-        """Формирует строку аудита для проводки с восстановленной ставкой НДС."""
-        row = df9001.loc[idx]
-        return {
-            'Имя_файла': row['Имя_файла'],
-            'Документ': row['Документ'],
-            'контрагент': row['контрагент'],
-            'ном_группа': row['ном_группа'],
-            'Сумма': row['Сумма'],
-            'Сумма_руб': row['Сумма_руб'],
-            'исходная_ставка': row['ндс_ставка_исх'],
-            'восстановленная_ставка': restored_rate,
-            'источник': source,
-            'примечание': note,
-        }
+    ) -> None:
+        """
+        Сообщает о НДС 90.03, которому не нашлось строки выручки 90.01.
+
+        Такой НДС вычесть некуда: он остался бы в выручке, а сверка с ОСВ
+        показала бы расхождение без указания причины. Поэтому WARNING уходит
+        ДО остановки, а сами строки попадают в problem_data того же
+        ConvergenceError (см. _validate_revenue_against_osv) — получатель видит
+        не «расхождение 12 705», а конкретные документы.
+        """
+        if unmatched.empty:
+            return
+
+        logger.warning(
+            "НДС 90.03: {} на {:.2f} тыс.ед. не сопоставлено ни с одним "
+            "документом выручки 90.01 (документов выручки: {}) — НДС не вычтен. "
+            "Проверьте, что отчёты по проводкам 90.01 и 90.03 выгружены "
+            "за один период.",
+            len(unmatched), float(unmatched['ндс_тыс_ед'].sum()),
+            int(df9001['Документ'].nunique()),
+        )
 
     def _validate_revenue_against_osv(
         self,
         df9001: pd.DataFrame,
         osv_df: pd.DataFrame,
         context,
+        unmatched_vat_df: Optional[pd.DataFrame] = None,
     ) -> None:
-        """Проверяет сходимость выручки с общей ОСВ."""
+        """Проверяет сходимость выручки с общей ОСВ.
+
+        unmatched_vat_df — НДС 90.03, которому не нашлось строки выручки 90.01
+        (см. _warn_unmatched_vat). Добавляется в problem_data: без него
+        получатель видит только цифру расхождения и не понимает, что именно
+        не сошлось.
+        """
         revenue_osv_9001 = osv_df.loc[
             osv_df['Счет'].str.startswith('90.01'), 'Кредит_оборот'
         ].sum()
@@ -264,17 +219,22 @@ class Step14AccountsMixin:
         difference = abs(revenue_without_vat - revenue_from_df9001)
 
         if difference > context.tolerance_params['tolerance_reconciliation']:
+            problem_data = pd.DataFrame([{
+                'проверка': 'выручка_против_ОСВ',
+                'из_проводок, тыс.ед.': round(revenue_from_df9001, 2),
+                'из_ОСВ, тыс.ед.': round(revenue_without_vat, 2),
+                'разница, тыс.ед.': round(difference, 2),
+                'допуск, тыс.ед.': context.tolerance_params['tolerance_reconciliation'],
+            }])
+            if unmatched_vat_df is not None and not unmatched_vat_df.empty:
+                problem_data = pd.concat(
+                    [problem_data, unmatched_vat_df], ignore_index=True
+                )
             raise ConvergenceError(
                 f"Выручка из отчёта по проводкам ({revenue_from_df9001:,.2f} тыс.ед.) "
                 f"отличается от общей ОСВ ({revenue_without_vat:,.2f} тыс.ед.) "
                 f"на {difference:,.2f} тыс.ед. (допуск: {context.tolerance_params['tolerance_reconciliation']})",
-                problem_data=pd.DataFrame([{
-                    'проверка': 'выручка_против_ОСВ',
-                    'из_проводок, тыс.ед.': round(revenue_from_df9001, 2),
-                    'из_ОСВ, тыс.ед.': round(revenue_without_vat, 2),
-                    'разница, тыс.ед.': round(difference, 2),
-                    'допуск, тыс.ед.': context.tolerance_params['tolerance_reconciliation'],
-                }]),
+                problem_data=problem_data,
                 reference_name='выручка_против_ОСВ',
             )
 

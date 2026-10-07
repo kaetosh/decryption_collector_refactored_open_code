@@ -65,7 +65,6 @@ def make_context(**overrides) -> SimpleNamespace:
             'tolerance_balance': 3000.0,
             'tolerance_pnl_balance': 1050.0,
             'tolerance_rate_deviation': 0.3,
-            'nds_missing_values': 0.22,
             'tolerance_orphan_distribution': 0.01,
         },
     )
@@ -98,7 +97,7 @@ def main() -> int:
     (tmp_dir / 'mismatches' / 'reference_scope_РЗК.xlsx').write_bytes(b'x')
     (tmp_dir / 'mismatches' / 'step20_collapse_opu_РЗК.xlsx').write_bytes(b'x')
     (tmp_dir / 'mismatches' / 'step21_collapse_balance_РЗК.xlsx').write_bytes(b'x')
-    (tmp_dir / 'warnings' / 'nds_missing_rows_РЗК.xlsx').write_bytes(b'x')
+    (tmp_dir / 'warnings' / 'WARNING_similar_contractors_РЗК.xlsx').write_bytes(b'x')
     (tmp_dir / 'sort_report.xlsx').write_bytes(b'x')
 
     # Папка запуска не нужна — подменяем на временную
@@ -114,7 +113,7 @@ def main() -> int:
     check(find_row(rows, 'Строк в расшифровке баланса') == '2', 'счётчик строк баланса')
     check('мягкий режим' in find_row(rows, 'Неизвестные контрагенты'), 'режим контрагентов из config')
     check(find_row(rows, 'Сходимость баланса') == '3 000 тыс.ед.', 'допуск баланса с единицей')
-    check(find_row(rows, 'Ставка НДС') == '22%', 'ставка НДС в процентах')
+    check(find_row(rows, 'Отклонение курса') == '30%', 'доля курса в процентах')
     check(find_row(rows, 'Допуск на потерю суммы') == '1%', 'допуск распределения в процентах')
     check(find_row(rows, 'О отчёте').startswith('этот лист'), 'легенда описывает титульный лист')
 
@@ -176,7 +175,7 @@ def main() -> int:
 
     print('\n4. Формат допусков')
     check(format_tolerance_value('tolerance_rate_deviation', 0.3) == '30%', 'доля -> проценты')
-    check(format_tolerance_value('nds_missing_values', 0.22) == '22%', 'ставка НДС -> проценты')
+    check(format_tolerance_value('tolerance_orphan_distribution', 0.015) == '2%', 'доля -> проценты с округлением')
     check(format_tolerance_value('tolerance_balance', 5000) == '5 000 тыс.ед.', 'сумма -> разряды + единица')
 
     print('\n5. Запись в xlsx')
@@ -218,7 +217,7 @@ def main() -> int:
             f'{name} — штатная информация, а не расхождение',
         )
     check(
-        hints['warnings/nds_missing_rows_РЗК.xlsx'].startswith('данные, восстановленные'),
+        hints['warnings/WARNING_similar_contractors_РЗК.xlsx'].startswith('данные, восстановленные'),
         'папка warnings сохранила прежнюю подпись',
     )
     # Порядок читается как приоритет: сначала то, что требует разбора.

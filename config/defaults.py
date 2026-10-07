@@ -15,10 +15,6 @@ DEFAULTS = {
     "tolerance_leased_os": 3000.0,
     "tolerance_pnl_balance": 1050.0,
     "tolerance_rate_deviation": 0.3,
-    # Ставка НДС для проводок с пропущенным значением субконто ставки
-    # (доля; 0.22 = 22%). Fallback — если параметра нет в листе «Параметры».
-    # Стандартная ставка РФ — 0.20; конкретная книга задаёт своё значение.
-    "nds_missing_values": 0.20,
     # Допуск на потерю суммы при распределении расходов 91.02 без парной
     # выручки 91.01 (шаг 17): за превышение расход дописывается отдельной
     # строкой-остатком вместо отката всего распределения.
@@ -32,7 +28,6 @@ SCHEMA = {
     "tolerance_leased_os": (float, 0.0, 10000.0, False),
     "tolerance_pnl_balance": (float, 0.0, 10000.0, False),
     "tolerance_rate_deviation": (float, 0.0, 10.0, False),
-    "nds_missing_values": (float, 0.0, 1.0, False),
     "tolerance_orphan_distribution": (float, 0.0, 10000.0, False),
 }
 
@@ -42,7 +37,6 @@ TOLERANCE_DESCRIPTIONS: dict[str, str] = {
     "tolerance_leased_os": "Расхождение по арендованным ОС (ОСВ 01.03/02.03 = Ведомость аморизации)",
     "tolerance_pnl_balance": "Взаимоувязка ОПУ и Баланса (Чистая прибыль = НРП периода)",
     "tolerance_rate_deviation": "Отклонение курса от медианы листа Курс_<валюта> при конвертации проводок ОПУ (доля; 0.35 = 35%)",
-    "nds_missing_values": "Ставка НДС для проводок с пропущенным субконто ставки (доля; 0.22 = 22%). Используется в шаге 14 (выручка 90.01)",
     "tolerance_orphan_distribution": "Допуск на потерю суммы при распределении расходов 91.02 по выручке 91.01 (шаг 17). Превышение = нераспределённый остаток, сохраняется отдельной строкой",
 }
 
@@ -50,7 +44,6 @@ TOLERANCE_DESCRIPTIONS: dict[str, str] = {
 # Остальные параметры — суммы в тысячах единиц.
 FRACTION_PARAMS = frozenset({
     "tolerance_rate_deviation",
-    "nds_missing_values",
     "tolerance_orphan_distribution",
 })
 

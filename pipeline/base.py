@@ -653,6 +653,58 @@ class Step(ABC):
         return series.isna() | cleaned.fillna('').isin(['', unspecified])
 
     @staticmethod
+    def _distribute_vat_by_rows(
+        rows: pd.DataFrame,
+        vat_map: pd.Series,
+        amount_col: str,
+    ) -> pd.Series:
+        """
+        Распределяет НДС документа по его строкам ровно один раз на документ.
+
+        НДС агрегирован по 'Документ' (vat_map), но строк выручки у документа
+        может быть несколько (типично для «Аренда» 91.01 или для документа с
+        корректировкой 90.01). Прямое вычитание НДС из каждой строки
+        многократно завышает выручку. Правило распределения:
+        - пропорционально доле |оборот| строки в документе;
+        - при нулевом итоге документа — поровну между строками;
+        - остаток от округления добавляется последней строке документа, чтобы
+          сумма распределённого НДС сошлась с НДС документа точно (без дрейфа).
+
+        Единая точка для шага 14 (выручка 90.01 минус НДС 90.03) и шага 17
+        (выручка от реализации активов 91.01 плюс НДС 91.02).
+
+        Args:
+            rows: строки выручки с колонками 'Документ' и amount_col.
+            vat_map: Series {Документ -> сумма НДС документа}.
+            amount_col: колонка оборота, по которой считаются доли.
+
+        Returns:
+            Series (index = rows.index) — величина НДС для каждой строки.
+        """
+        nds_doc = rows['Документ'].map(vat_map).fillna(0).astype(float)
+
+        doc_key = rows['Документ'].astype(str)
+        row_abs = pd.to_numeric(rows[amount_col], errors='coerce').abs().fillna(0.0)
+        doc_total = row_abs.groupby(doc_key).transform('sum').astype(float)
+        n_rows = rows.groupby(doc_key)[amount_col].transform('size').astype(float)
+
+        share = np.where(
+            doc_total > 0,
+            row_abs / doc_total.where(doc_total > 0, 1.0),
+            1.0 / n_rows.where(n_rows > 0, 1.0),
+        )
+        share = pd.Series(share, index=rows.index, dtype=float)
+
+        distributed = nds_doc * share
+
+        # Точная сходимость: последняя строка документа получает остаток дрейфа
+        is_last = rows.groupby(doc_key).cumcount(ascending=False).eq(0)
+        residual = nds_doc - distributed.groupby(doc_key).transform('sum')
+        distributed = distributed + residual.where(is_last, 0.0)
+
+        return distributed
+
+    @staticmethod
     def make_missing_values_problem_data(
         missing_by_type: dict,
         company: str,
