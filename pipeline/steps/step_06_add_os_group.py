@@ -11,6 +11,8 @@ from pipeline.errors import (
     ConvergenceError,
     InputDataError,
 )
+from pipeline.step_config import LeaseConstants
+from config.defaults import DEFAULTS
 from io_module import DataLoader
 from utils import find_register_file, find_target_column, refresh_rub_equivalent
 from config.settings import ACCOUNTS_OSV_DIR, CONTRACTOR_KEYWORDS, CALC_TYPE_KEYWORDS, STRICT_OS_GROUP_CHECK
@@ -30,7 +32,17 @@ class Step6AddOSGroupColumnStep(Step):
     ACCOUNT_76_05_3_PREFIX = '76.05.3'
     SUBTYPE_RENT = 'Аренда'
     SUBTYPE_LEASING = 'Лизинг'
-    
+
+    # Счета аренды на балансе (для бизнес-правила «нет ППА, если аренды нет»):
+    # задолженность по аренде (76.07/76.05.3) + ППА на балансе (01.03/02.03).
+    # Источник — _raise_ppa_company_missing: при их отсутствии требование ППА
+    # для РБП 97.21 пропускается (операционная аренда, см. AGENTS.md).
+    LEASE_ON_BALANCE_PREFIXES = (
+        ACCOUNT_76_07_PREFIX,
+        ACCOUNT_76_05_3_PREFIX,
+        *LeaseConstants.ACCOUNTS_01_03,
+    )
+
     # Допуск для сверки ОСВ 76.07 (в единицах, т.к. check_df считается до перевода в тысячи)
     TOLERANCE_76 = 100_000  # 100 тыс. руб в единицах
     
@@ -329,11 +341,78 @@ class Step6AddOSGroupColumnStep(Step):
             self.UNSPECIFIED,
         )
     
+    def _has_lease_on_balance(
+        self,
+        osv_all_df: pd.DataFrame,
+        context: ProcessingContext,
+    ) -> bool:
+        """
+        Есть ли у компании аренда на балансе — остатки по счетам
+        76.07/76.05.3 (задолженность по аренде) или 01.03/02.03 (ППА).
+
+        Служит бизнес-правилу «нет ППА, если аренды на балансе нет»:
+        операционная (краткосрочная) аренда оформляется через РБП 97.21
+        без принятия объектов на баланс, поэтому требовать справочник ППА
+        для РБП нельзя. Если задолженность по аренде (76.07/76.05.3) или
+        сам ППА (01.03/02.03) всё же есть — требование ППА остаётся
+        (штатный стоп: есть объекты, но нет записей справочника).
+
+        Префиксное сравнение ловит субсчета ('01.03.1', '76.07.2', …).
+        Порог — tolerance_leased_os (тот же допуск, что у шагов 1б/10):
+        копеечный остаток от округления не считается аренды.
+
+        Консервативно возвращает True, если данные для решения недоступны
+        (нет колонки/таблицы): точнее решить не можем, а лишний стоп лучше
+        молчаливого пропуска.
+        """
+        if osv_all_df is None or osv_all_df.empty:
+            return True
+
+        if 'счет' not in osv_all_df.columns:
+            logger.debug(
+                "В сводной ОСВ нет колонки 'счет' — считаем, что аренда на "
+                "балансе есть (консервативное допущение)."
+            )
+            return True
+
+        # Префиксное сравнение — ловит детализацию ниже синтетического уровня
+        codes = osv_all_df['счет'].astype(str)
+        mask = codes.str.startswith(self.LEASE_ON_BALANCE_PREFIXES)
+
+        if 'сальдо, тыс.ед.' not in osv_all_df.columns:
+            # Сальдо не посчитано — решить не можем, требуем ППА (True)
+            logger.debug(
+                "В сводной ОСВ нет колонки 'сальдо, тыс.ед.' — считаем, что "
+                "аренда на балансе есть (консервативное допущение)."
+            )
+            return True
+
+        total = osv_all_df.loc[mask, 'сальдо, тыс.ед.'].sum()
+        total = float(total) if pd.notna(total) else 0.0
+
+        threshold = (getattr(context, 'tolerance_params', None) or {}).get(
+            'tolerance_leased_os',
+            DEFAULTS['tolerance_leased_os'],
+        )
+
+        has_lease = bool(mask.any()) and abs(total) > threshold
+        logger.debug(
+            "Аренда на балансе: счета {} — {} строк, сальдо={:.2f} тыс.ед., "
+            "допуск={} -> {}",
+            '/'.join(self.LEASE_ON_BALANCE_PREFIXES),
+            int(mask.sum()),
+            total,
+            threshold,
+            'есть' if has_lease else 'нет',
+        )
+        return has_lease
+
     def _raise_ppa_company_missing(
         self,
         name_company: str,
         ppa_all_df: pd.DataFrame,
         osv_all_df: pd.DataFrame,
+        context: ProcessingContext = None,
     ) -> None:
         """
         Обрабатывает случай «в справочнике ППА нет ни одной записи по компании».
@@ -346,6 +425,13 @@ class Step6AddOSGroupColumnStep(Step):
 
         Если позиций для меппинга нет — WARNING и продолжение шага: маппинг
         не нужен, аренды/лизинга по компании в данных не ожидается.
+
+        Бизнес-правило (операционная аренда, см. AGENTS.md): если договоров
+        76.07/76.05.3 нет И на балансе нет остатков по счетам аренды
+        (76.07/76.05.3/01.03/02.03), требование ППА для РБП 97.21
+        пропускается — WARNING вместо стопа. Такая аренда не капитализирована
+        в ППА, справочник заполнять не нужно; строки 97.21 получат группу
+        'не_указано' и маппятся по строке Меппинг_бб (см. план).
         """
         # Договоры аренды из ОСВ 76.07/76.05.3 (колонка 'договор' заполнена
         # после merge с детализацией; пустые уже заменены на 'не_указано')
@@ -385,6 +471,25 @@ class Step6AddOSGroupColumnStep(Step):
                 "но в ОСВ нет строк аренды/лизинга (76.07/76.05.3, 97.21), "
                 "требующих меппинга, — шаг продолжается.",
                 name_company,
+            )
+            return
+
+        # Бизнес-правило «нет ППА, если аренды на балансе нет» (операционная
+        # аренда): если договоров 76.07/76.05.3 нет и остатков по счетам
+        # аренды (76.07/76.05.3/01.03/02.03) в сводной ОСВ не осталось,
+        # требование ППА для РБП 97.21 пропускается — WARNING вместо стопа.
+        if not contracts and context is not None and not self._has_lease_on_balance(
+            osv_all_df, context
+        ):
+            logger.warning(
+                "[!] В справочнике ППА нет ни одной записи по компании '{}', "
+                "но в ОСВ нет остатков по счетам аренды на балансе "
+                "(76.07/76.05.3/01.03/02.03) — вероятна операционная аренда. "
+                "Требование ППА для {} РБП (97.21) пропущено: строки получат "
+                "группу '{}' и маппятся по отдельной строке в Меппинг_бб.",
+                name_company,
+                len(rbps),
+                self.UNSPECIFIED,
             )
             return
 
@@ -476,7 +581,7 @@ class Step6AddOSGroupColumnStep(Step):
         return groups.where(osv_all_df['допсубконто'] != self.UNSPECIFIED)
 
     def _require_lease_os_group(
-        self, osv_all_df: pd.DataFrame, mask_97: pd.Series
+        self, osv_all_df: pd.DataFrame, mask_97: pd.Series, include_97: bool = True
     ) -> None:
         """
         Контроль обязательного признака: у строк аренды/лизинга группа ОС
@@ -494,6 +599,12 @@ class Step6AddOSGroupColumnStep(Step):
         30.09.2026, прогон «УБ 8мес2026»: шаг 6 молчал, а шаг 13 «меппинг
         баланса» падал на немеппленных 76.07.1 / 97.21.
 
+        include_97=False (бизнес-правило «нет ППА, если аренды на балансе
+        нет», операционная аренда): ветка 97.21 исключается из контроля —
+        группа ОС для РБП не обязательна, строки получают 'не_указано'
+        и маппятся по отдельной строке Меппинг_бб. Счета 76.07/76.05.3
+        остаются под контролем (задолженность по аренде есть → ППА обязателен).
+
         Строгий режим (STRICT_OS_GROUP_CHECK=True) — MissingOSGroupError
         с проблемными строками ОСВ (problem_data сохранит базовый класс);
         мягкий — WARNING, строки остаются с 'не_указано'.
@@ -502,7 +613,9 @@ class Step6AddOSGroupColumnStep(Step):
             (self.ACCOUNT_76_07_PREFIX, self.ACCOUNT_76_05_3_PREFIX)
         )
         mask_76_07_2 = osv_all_df['счет'].astype(str).str.startswith('76.07.2')
-        lease_scope_mask = (mask_76_scope & ~mask_76_07_2) | mask_97
+        lease_scope_mask = mask_76_scope & ~mask_76_07_2
+        if include_97:
+            lease_scope_mask = lease_scope_mask | mask_97
 
         missing_mask = (
             self._is_service_value(osv_all_df['группа_ос_аренды_лизинга'])
@@ -550,14 +663,27 @@ class Step6AddOSGroupColumnStep(Step):
         logger.debug("Этап 2: Загрузка справочника ППА")
         lease_df = context.references['справочник_ппа']
         lease_df = lease_df[lease_df['наименование_компании'] == name_company]
+        # Бизнес-правило «нет ППА, если аренды на балансе нет» (операционная
+        # аренда): если записей по компании нет и остатков по счетам аренды
+        # не осталось — требование ППА для РБП 97.21 снимается целиком
+        # (этап 5 не валидирует РБП, _require_lease_os_group не требует
+        # группу). Считаем ДО вызова _raise_ppa_company_missing (он warning-
+        # идёт и возвращает None).
+        skip_ppa_for_rbp = (
+            lease_df.empty
+            and not self._has_lease_on_balance(osv_all_df, context)
+        )
         if lease_df.empty:
             # ★ Единообразие с другими справочниками (СправочникУФР, КредитОбслуж):
             # вместо списка имеющихся компаний — сразу список недостающих позиций
-            # для меппинга (договоры 76.07/76.05.3 и РБП 97.21 из данных ОСВ)
+            # для меппинга (договоры 76.07/76.05.3 и РБП 97.21 из данных ОСВ).
+            # context нужен для бизнес-правила «нет аренды на балансе → ППА не
+            # требуется» (операционная аренда, см. _has_lease_on_balance).
             self._raise_ppa_company_missing(
                 name_company,
                 context.references['справочник_ппа'],
                 osv_all_df,
+                context,
             )
         logger.debug("Справочник ППА для {}: {} строк", name_company, len(lease_df))
         
@@ -612,14 +738,25 @@ class Step6AddOSGroupColumnStep(Step):
 
         rbps = osv_all_df.loc[mask_97, 'допсубконто'].unique()
         rbps = [r for r in rbps if r != self.UNSPECIFIED]
-        self._validate_mapping(
-                                values=pd.Series(rbps),
-                                mapping=os_group_by_rbp,
-                                value_type="РБП",
-                                mapping_name="справочнике ППА",
-                                df=osv_all_df,
-                                column_name='допсубконто'
-                            )
+        if skip_ppa_for_rbp:
+            # Бизнес-правило: аренда на балансе отсутствует (операционная
+            # аренда), ППА не требуется — РБП не валидируем, группа остаётся
+            # 'не_указано' и маппится по отдельной строке Меппинг_бб.
+            logger.debug(
+                "Этап 5: проверка РБП пропущена (операционная аренда, "
+                "баланс по счетам аренды пуст) — {} РБП остаются с '{}'",
+                len(rbps),
+                self.UNSPECIFIED,
+            )
+        else:
+            self._validate_mapping(
+                                    values=pd.Series(rbps),
+                                    mapping=os_group_by_rbp,
+                                    value_type="РБП",
+                                    mapping_name="справочнике ППА",
+                                    df=osv_all_df,
+                                    column_name='допсубконто'
+                                )
 
         os_groups_97 = self._map_os_groups_by_rbp(osv_all_df, os_group_by_rbp)
 
@@ -630,8 +767,10 @@ class Step6AddOSGroupColumnStep(Step):
         )
         
         # Строки аренды/лизинга, для которых группа ОС обязательна, —
-        # под строгим/мягким контролем (см. _require_lease_os_group)
-        self._require_lease_os_group(osv_all_df, mask_97)
+        # под строгим/мягким контролем (см. _require_lease_os_group).
+        # При операционной аренде (skip_ppa_for_rbp) ветка 97.21 исключается:
+        # группа ОС для РБП не обязательна.
+        self._require_lease_os_group(osv_all_df, mask_97, include_97=not skip_ppa_for_rbp)
 
         # Остальные строки (не аренда/лизинг) — допустимая заглушка 'не_указано'
         osv_all_df['группа_ос_аренды_лизинга'] = (
