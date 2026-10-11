@@ -96,8 +96,15 @@ _COL_KT = _cp(0x41a,0x442)                        # Кт
 _COL_SUM = _cp(0x421,0x443,0x43c,0x43c,0x430)  # Сумма
 
 _NUMERIC_SPACES = re.compile(r'[\s\u00a0\u2009\u202f]')
-_ACCOUNT_RE = re.compile(r'^\d{2}(?:\.\d+)*$')
-_DATE_RE = re.compile(r'^\d{2}\.\d{2}\.\d{4}')
+# Полное совпадение, а не префикс (регресс 12.10.2026, файл СТБ 26_2025).
+# С match() значение «01.03.2025 23:59:59 Поступление товаров…» считалось датой,
+# и неверная позиция склейки проходила структурную проверку наравне с верной.
+# В колонке «Дата» должно быть только дата, в «Дт»/«Кт» — только счёт:
+# всё лишнее означает, что поля съехали.
+_ACCOUNT_RE = re.compile(r'\d{2}(?:\.\d+)*')
+_DATE_RE = re.compile(r'\d{2}\.\d{2}\.\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
+# Часы/минуты в выгрузках 1С встречаются с точкой с запятой и без ведущих нулей
+_DATE_TIME_RE = re.compile(r'^\s*\d{1,2}[.:]\d{2}(?:[.:]\d{2})?\s*$')
 
 
 def _looks_like_amount(value: str) -> bool:
@@ -114,12 +121,23 @@ def _looks_like_amount(value: str) -> bool:
 
 def _looks_like_account(value: str) -> bool:
     v = (value or '').strip()
-    return (not v) or bool(_ACCOUNT_RE.match(v))
+    return (not v) or bool(_ACCOUNT_RE.fullmatch(v))
 
 
 def _looks_like_date(value: str) -> bool:
+    """Дата в формате 1С: ДД.ММ.ГГГГ, возможно с временем.
+
+    Время допускается и через точку с запятой, и с двоеточием, и без ведущих
+    нулей — в выгрузках встречаются все три. Всё остальное после даты
+    (текст проводки, наименование) означает, что поле съехало: это и есть
+    признак неверной позиции склейки.
+    """
     v = (value or '').strip()
-    return (not v) or bool(_DATE_RE.match(v))
+    if not v:
+        return True
+    if _DATE_TIME_RE.match(v):
+        return bool(_DATE_RE.fullmatch(v.replace(';', ':')))
+    return bool(_DATE_RE.fullmatch(v))
 
 
 def _row_validation_spec(hdr_parts: List[str]) -> dict:
@@ -138,6 +156,31 @@ def _row_validation_spec(hdr_parts: List[str]) -> dict:
 
 def _row_is_valid(fields: List[str], spec: dict) -> bool:
     """Строка структурно корректна, если форматированные поля не поехали."""
+    return _formatted_filled(fields, spec) == _expected_filled(spec)
+
+
+def _expected_filled(spec: dict) -> int:
+    """Сколько форматированных колонок вообще есть в строке этого файла."""
+    return len(spec['amount']) + len(spec['account']) + len(spec['date'])
+
+
+def _formatted_filled(fields: List[str], spec: dict) -> int:
+    """Сколько форматированных полей заполнено НЕПУСТЫМ корректным значением.
+
+    Это главный разделитель между верной и неверной позицией склейки на
+    реальных выгрузках. Пустое форматированное поле допустимо само по себе
+    (не у каждой проводки есть сумма), но если соседние кандидаты держат
+    счёт/сумму/дату, а этот — нет, значит склейка сдвинула строку: значения
+    уехали в соседние колонки.
+
+    Регресс 12.10.2026 (файл СТБ 26_2025, строка 126579): разрыв пришёлся на
+    «Содержание», склеивать надо fragments 3..11. Кандидаты 7/9/10 оставляли
+    Дт/Кт/Сумму пустыми, но проходили проверку, потому что пустое значение
+    считается допустимым. Подсчёт непустых форматированных полей отличает
+    их от верного кандидата без обращения к профилю колонок (который для
+    текстовых колонок этого файла бесполезен — см. _collect_column_profile).
+    """
+    filled = 0
     checks = (
         ('amount', _looks_like_amount),
         ('account', _looks_like_account),
@@ -145,9 +188,12 @@ def _row_is_valid(fields: List[str], spec: dict) -> bool:
     )
     for key, checker in checks:
         for i in spec[key]:
-            if i >= len(fields) or not checker(fields[i]):
-                return False
-    return True
+            if i >= len(fields):
+                continue
+            value = fields[i]
+            if value and value.strip() and checker(value):
+                filled += 1
+    return filled
 
 
 def _collect_column_profile(file_path, header_row, expected_tabs, encoding, errors,
@@ -232,9 +278,17 @@ def normalize_ragged_tab_rows(file_path, header_row,
     того самого хардкода и оставлял ловушку — вернуть его можно было бы,
     тихо вернув регрессию ШПФ.
 
+    ВАЖНО: функция ВСЕГДА возвращает буфер, пригодный для чтения. Строка,
+    которую не удалось привести к корректной структуре, не пишется в буфер
+    вообще: оставленная как есть, она роняет разбор ВСЕГО файла
+    (ParserError на строке 126579 из 126579 — теряется весь отчёт по
+    проводкам из-за одной строки). Потеря одной проводки вместо всего
+    файла — меньшее зло, и оно заметно: число исключённых строк пишется
+    в лог вместе с их номерами.
+
     Returns:
         Tuple[StringIO, int, int]: буфер, число исправленных строк,
-        число строк, которые не удалось привести к корректной структуре.
+        число строк, исключённых из разбора.
     """
     file_path = Path(file_path)
 
@@ -271,63 +325,111 @@ def normalize_ragged_tab_rows(file_path, header_row,
             file_path, header_row, expected_tabs, encoding, errors
         )
 
+    approximate = 0
+    unresolved_lines: List[str] = []
+
     with open(file_path,'r',encoding=encoding,errors=errors) as f:
-        for raws in f:
+        for line_no, raws in enumerate(f, start=1):
             if raws.count('\t') > expected_tabs:
-                fixed, ok = _repair_ragged_row(raws, expected_tabs, spec, has_spec,
-                                              profile, wildcard)
-                if ok:
-                    repaired += 1
-                else:
+                fixed, ok, approx = _repair_ragged_row(
+                    raws, expected_tabs, spec, has_spec, profile, wildcard
+                )
+                if not ok:
+                    # Строку НЕ пишем: иначе она роняет разбор всего файла
+                    # (ParserError). Потеряется одна проводка вместо всего
+                    # отчёта по проводкам — и это видно по счётчику в логе.
                     unresolved += 1
+                    if len(unresolved_lines) < 20:
+                        unresolved_lines.append(str(line_no))
+                    continue
+                repaired += 1
+                if approx:
+                    approximate += 1
+                    if len(unresolved_lines) < 20:
+                        unresolved_lines.append(str(line_no))
                 buff.write(fixed if fixed != raws else raws)
             else:
                 buff.write(raws)
 
-
     buff.seek(0)
+    _report_ragged(file_path.name, repaired, approximate, unresolved,
+                   unresolved_lines)
+    return buff, repaired, unresolved
+
+
+def _report_ragged(file_name: str, repaired: int, approximate: int,
+                   unresolved: int, sample_lines: List[str]) -> None:
+    """Сообщает о восстановлении рваных строк — факт и что делать.
+
+    Сообщения разбиты на «что произошло» и «что делать»: консольный формат
+    логгера режет длинные строки, а сводка предупреждений на титульном
+    листе — до 200 символов (см. logging_handling/logger_config.py).
+
+    Префикс «[!]» обязателен для WARNING: он же служит ключом группировки
+    в сводке предупреждений.
+    """
     if repaired > 0:
         logger.warning(
-            "Файл «{}»: строк с лишним символом табуляции исправлено: {}. "
+            "Файл «{}»: исправлено строк с лишней табуляцией: {}. "
             "Данные не потеряны.",
-            file_path.name, repaired,
+            file_name, repaired,
+        )
+    if approximate > 0:
+        lines = ', '.join(sample_lines[:10])
+        logger.warning(
+            "[!] Файл «{}»: {} строк восстановлено ПРИБЛИЗИТЕЛЬНО — позиция "
+            "разрыва не определяется однозначно, проверьте их вручную. "
+            "Строки: {}.",
+            file_name, approximate, lines,
+        )
+        logger.warning(
+            "[!] Выгрузка содержит табуляцию внутри текста. Устраните её в 1С "
+            "(например, убрав табуляцию из наименований) — тогда строки будут "
+            "приведены точно.",
         )
     if unresolved > 0:
+        lines = ', '.join(sample_lines[:10])
         logger.error(
-            "Файл «{}»: {} строк с лишней табуляцией не удалось привести "
-            "к корректной структуре — часть данных может быть потеряна. "
-            "Проверьте выгрузку из 1С.",
-            file_path.name, unresolved,
+            "Файл «{}»: {} строк с лишней табуляцией не удалось привести к "
+            "корректной структуре — они исключены из разбора. Остальные строки "
+            "файла прочитаны. Строки: {}.",
+            file_name, unresolved, lines,
         )
-    return buff, repaired, unresolved
 
 
 def _repair_ragged_row(raw, expected_tabs, spec, has_spec, profile=None,
                        wildcard=None):
     """Склеивает лишние поля строки, подбирая позицию разрыва по данным.
 
-    Позиция выбирается в два шага: сначала отсеиваются варианты, после которых
-    строка структурно некорректна (счёт/сумма/дата поехали); среди оставшихся
-    выигрывает тот, где больше прочих полей совпадает с профилем файла — иначе
-    при нескольких формально подходящих позициях выбиралась первая, а не верная.
+    Позиция выбирается в три уровня, по убыванию надёжности:
 
-    Победитель обязан быть СТРОГИМ: счёт преимущества должен быть хотя бы на
-    единицу больше, чем у второго кандидата (см. _score_candidate). Иначе
-    позиция разрыва по данным не определяется, и такая строка возвращается
-    неразрешённой (unresolved), а не склеивается наугад: профилем колонки
-    не восстановить разрыв, случившийся в текстовой колонке с уникальными
-    значениями (наименование объекта ОС), — там все кандидаты дают одинаковый
-    счёт, и «первый» означал бы склейку как можно раньше, то есть тот же
-    хардкод смещения, только со знаком «+».
+    1. **Сколько форматированных полей заполнено** (`_formatted_filled`).
+       Это главный критерий: у верной склейки счёт/сумма/дата стоят на своих
+       местах и заполнены, у сдвинутой — часть из них пуста или поехала.
+       Работает всегда, даже когда профиль колонок бесполезен (текстовые
+       колонки выгрузки 1С содержат тысячи разных значений).
+    2. **Совпадение с профилем файла** (`_score_candidate`) — различает
+       кандидаты, у которых форматированные поля одинаково заполнены.
+    3. Если уровни 1 и 2 не различают позиции — берём ПЕРВУЮ (склейка как
+       можно раньше) и помечаем строку как восстановленную приблизительно.
+       Почему именно так, а не «в последнюю колонку»: у поздней склейки
+       форматированные поля съезжают вправо и оказываются пустыми. Регресс
+       12.10.2026 (СТБ 26_2025, строка 126579): при склейке в последнюю
+       колонку «Сумма» становилась пустой — терялась сумма проводки, то
+       есть ровно то, из-за чего файл и чинится. Ранняя склейка при
+       неоднозначности портит только текстовые реквизиты (наименование
+       документа, содержание), а сумма/счёт/дата остаются на месте.
+       Отказ от склейки здесь означал бы ParserError и потерю ВСЕГО файла.
 
     Returns:
-        Tuple[str, bool]: исправленная строка и признак успеха.
+        Tuple[str, bool, bool]: строка, признак успеха, признак того, что
+        позиция выбрана приблизительно.
     """
     parts = raw.rstrip('\n\r').split('\t')
     ending = raw[len(raw.rstrip('\n\r')):]
     excess = len(parts) - (expected_tabs + 1)
     if excess <= 0:
-        return raw, True
+        return raw, True, False
 
     if has_spec:
         candidates: List[tuple] = []
@@ -335,21 +437,42 @@ def _repair_ragged_row(raw, expected_tabs, spec, has_spec, profile=None,
             merged = _merge_at(parts, excess, idx)
             if not _row_is_valid(merged, spec):
                 continue
-            candidates.append((_score_candidate(merged, idx, profile, wildcard), idx))
+            candidates.append((
+                _formatted_filled(merged, spec),
+                _score_candidate(merged, idx, profile, wildcard),
+                idx,
+                merged,
+            ))
         if not candidates:
-            return raw, False
-        candidates.sort(key=lambda item: (-item[0], item[1]))
-        best_score, best_idx = candidates[0]
-        runner_up = candidates[1][0] if len(candidates) > 1 else None
-        if runner_up is not None and runner_up >= best_score:
-            # Данные не позволяют отличить позиции разрыва — молча склеивать
-            # значит записать контрагента/объект ОС из чужой колонки и
-            # отчитаться «Данные не потеряны». Честно отдаём строку как есть.
-            return raw, False
-        return '\t'.join(_merge_at(parts, excess, best_idx)) + ending, True
+            return raw, False, False
+
+        # Сначала максимум заполненных форматированных полей, потом — профиль,
+        # потом — более ранняя позиция.
+        candidates.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        best_filled, best_score, best_idx, best_merged = candidates[0]
+
+        tied = [
+            item for item in candidates[1:]
+            if (item[0], item[1]) == (best_filled, best_score)
+        ]
+        if tied:
+            # Если все равнозначные кандидаты дают ОДИНАКОВЫЙ результат,
+            # неоднозначности нет: отличаются лишь пустые фрагменты между
+            # ними, а на выходе строки совпадают (реальный кейс СТБ 91.02,
+            # строка 17101: склейка в 2 и в 3 дают одну и ту же строку).
+            # Предупреждать о «приблизительном» восстановлении здесь не
+            # о чем — строки собираются точно.
+            if all(item[3] == best_merged for item in tied):
+                return '\t'.join(best_merged) + ending, True, False
+            # Данные различают позиции, но не дают преимущества ни одному
+            # кандидату: склеиваем как можно раньше (так форматированные
+            # поля остаются на своих местах) и ПРЕДУПРЕЖДАЕМ.
+            return '\t'.join(best_merged) + ending, True, True
+
+        return '\t'.join(best_merged) + ending, True, False
 
     # Шапка не распознана — склеиваем в последнюю колонку (прежнее поведение).
-    return '\t'.join(_merge_at(parts, excess, max(len(parts) - excess - 1, 0))) + ending, True
+    return '\t'.join(_merge_at(parts, excess, max(len(parts) - excess - 1, 0))) + ending, True, True
 
 
 def _merge_at(parts, excess, idx):

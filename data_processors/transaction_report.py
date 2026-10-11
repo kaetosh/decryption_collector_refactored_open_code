@@ -99,26 +99,46 @@ class PostingTXTFileProcessor(FileProcessor):
         )
         if unresolved > 0:
             logger.warning(
-                "Отчёт по проводкам {}: {} строк не восстановлены и будут "
-                "отброшены при разборе. Проверьте выгрузку из 1С.",
+                "[!] Отчёт по проводкам {}: {} строк исключено из разбора "
+                "(лишняя табуляция, структуру привести не удалось). "
+                "Остальные строки файла прочитаны; суммы за вычетом этих "
+                "проводок будут различаться с ОСВ.",
                 file_path.name, unresolved,
             )
 
-        df = pd.read_csv(
-            df_source,
-            sep='\t',
-            encoding=encoding,
-            encoding_errors=encoding_errors,
-            skiprows=range(header_row),
-            header=0,
-            skip_blank_lines=False,
-            decimal=',',
-            low_memory=False,
-            # thousands='\xa0',
-            # on_bad_lines='skip',
-            # dtype=str,
-            # engine='python',
-        )
+        try:
+            df = pd.read_csv(
+                df_source,
+                sep='\t',
+                encoding=encoding,
+                encoding_errors=encoding_errors,
+                skiprows=range(header_row),
+                header=0,
+                skip_blank_lines=False,
+                decimal=',',
+                low_memory=False,
+                # thousands='\xa0',
+                # on_bad_lines='skip',
+                # dtype=str,
+                # engine='python',
+            )
+        except pd.errors.ParserError as error:
+            # Проблема в самих входных данных, а не в коде: по AGENTS.md это
+            # InputDataError, иначе он уходит в общий except Exception и
+            # выглядит как «[!] Неожиданная ошибка» с трейсбеком.
+            #
+            # normalize_ragged_tab_rows уже приводит каждую «рваную» строку
+            # к числу колонок шапки, поэтому сюда попадают только те выгрузки,
+            # где структура сломана иначе (например, строки шапки отличаются
+            # от последующих по числу колонок). Сообщение называет файл и
+            # причину — бухгалтеру нужно перевыгрузить данные из 1С.
+            raise InputDataError(
+                f"Отчёт по проводкам {file_path.name}: нарушена структура файла "
+                f"— не удалось разобрать строки (ошибка pandas: {error}). "
+                f"Число колонок в строках отличается от шапки. Перевыгрузите "
+                f"отчёт из 1С, не добавляя табуляцию в наименования и "
+                f"содержание проводок."
+            ) from error
 
         return df
 
