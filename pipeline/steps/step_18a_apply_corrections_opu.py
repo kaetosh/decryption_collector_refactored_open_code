@@ -39,9 +39,11 @@ class Step18aApplyCorrectionsOpuStep(ManualCorrectionsMixin, Step):
     CORRECTION_AMOUNT_COLS = (OpuReportConstants.AMOUNT_COL, OpuReportConstants.RUB_AMOUNT_COL)
 
     # «счет» — ключ строки журнала, а не классификация: править его означало бы
-    # переименовать проводку, а не перенести сумму в другую статью
-    CORRECTION_ALLOWED_FEATURES = tuple(
-        key for key in OpuReportConstants.MAPPING_KEY_COLS if key != "счет"
+    # переименовать проводку, а не перенести сумму в другую статью.
+    # Правило объявлено в ManualCorrectionsConstants.allowed_features и
+    # используется также справкой шаблона файла правок — списки не расходятся.
+    CORRECTION_ALLOWED_FEATURES = MC.allowed_features(
+        OpuReportConstants.MAPPING_KEY_COLS, excluded=("счет",)
     )
 
     # «Кто именно задет» в журнале ОПУ: контрагент и номер группы — два

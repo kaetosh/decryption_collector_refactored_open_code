@@ -18,6 +18,12 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Иначе на обычной консоли Windows (cp1251) символ «×» в сообщении о провале
+# роняет прогон UnicodeEncodeError — без финальной строки SMOKE_FAIL.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+
 from pipeline.base import ProcessingContext
 from pipeline.steps.step_17_add_other_income_and_expenses import (
     Step17AddOtherIncomeExpensesToOpuStep,

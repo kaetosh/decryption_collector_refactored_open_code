@@ -38,7 +38,8 @@ refresh_references подменяется, пауза — подменяется
 """
 import sys
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -50,8 +51,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config.settings import REFERENCE_PAUSE_RESOLVED_KEY
 from io_module.output_manager import configure_run, get_run_dir
 from pipeline.base import ProcessingContext, Step
+from pipeline.decorators import _restore_context
 from pipeline.errors import (
     ConvergenceError,
+    MissingContractorError,
     MissingFilesError,
     ProcessingStepError,
     ReferenceMismatchError,
@@ -636,6 +639,112 @@ def test_stop_error_logged_only_on_real_stop() -> None:
     )
 
 
+def test_pause_text_points_at_right_file() -> None:
+    """Инструкция паузы называет тот файл, который на самом деле надо править.
+
+    Шаги ручных корректировок бросают ReferenceMismatchError про
+    Правки.xlsx (reference_name), а не про Справочники.xlsx. Блок паузы,
+    печатавший всегда «Внесите правки в файл Справочники.xlsx», уводил
+    бухгалтера в другой файл — править Правки.xlsx пришлось бы вслепую.
+    """
+    from config.settings import CORRECTIONS_FILE_NAME, REFERENCE_DATA_FILE
+
+    def pause_output(reference_name):
+        buffer = StringIO()
+        with patch("pipeline.executors._stdin_is_tty", return_value=True), \
+                patch("builtins.input", side_effect=EOFError), \
+                redirect_stdout(buffer):
+            wait_for_reference_update(make_context(), "причина",
+                                      reference_name=reference_name)
+        return buffer.getvalue()
+
+    reference_text = pause_output("Меппинг_бб")
+    check(
+        REFERENCE_DATA_FILE.name in reference_text
+        and CORRECTIONS_FILE_NAME not in reference_text,
+        "ошибка справочника — инструкция про Справочники.xlsx, без Правки.xlsx",
+    )
+
+    corrections_text = pause_output("Правки (ручные корректировки)")
+    check(
+        CORRECTIONS_FILE_NAME in corrections_text
+        and f"1. Внесите правки в файл {CORRECTIONS_FILE_NAME}" in corrections_text,
+        "ошибка ручных правок — инструкция называет Правки.xlsx",
+    )
+    check(
+        "ручных корректировок" in corrections_text,
+        "заголовок паузы про ручные корректировки, а не про справочник",
+    )
+
+
+def test_reason_prefix_by_error_type() -> None:
+    """Текст причины паузы различается по типу ошибки, включая подклассы."""
+    from pipeline.decorators import _reason_prefix
+    from pipeline.errors import (
+        MissingMappingError,
+        MissingOSGroupError,
+        ReferenceMismatchError,
+    )
+
+    check(
+        "группы ОС" in _reason_prefix(MissingOSGroupError("x")),
+        "MissingOSGroupError — причина про группы ОС",
+    )
+    check(
+        "контрагент" in _reason_prefix(MissingContractorError("x")),
+        "MissingContractorError — причина про контрагентов",
+    )
+    check(
+        "справочникам" in _reason_prefix(ReferenceMismatchError("x")),
+        "ReferenceMismatchError — причина про несоответствие справочникам",
+    )
+    check(
+        "справочникам" in _reason_prefix(MissingMappingError("x")),
+        "подкласс MissingMappingError находит префикс родителя по MRO",
+    )
+
+
+def test_snapshots_skipped_when_pause_disabled() -> None:
+    """Без паузы шаг не платит за снимки контекста и обход папки mismatches/.
+
+    Снимок нужен только откату перед повтором. Если пауза в этом запуске
+    невозможна (--no-interactive либо PAUSE_ON_REFERENCE_ERROR=False),
+    обход папки и копирование атрибутов на каждом шаге — чистые накладные
+    расходы.
+    """
+    from pipeline.decorators import _snapshot_context
+
+    with patch("pipeline.decorators._snapshot_context") as mock_snapshot, \
+            patch.object(Step, "_snapshot_diagnostics", return_value=frozenset()):
+        step = _FailsNSteps(fails=0)
+        context = make_context()
+
+        context.data[REFERENCE_PAUSE_ENABLED_KEY] = False
+        step.execute(context)
+        check(
+            mock_snapshot.call_count == 0,
+            f"при --no-interactive снимок не снимается (вызовов: {mock_snapshot.call_count})",
+        )
+
+        context.data[REFERENCE_PAUSE_ENABLED_KEY] = True
+        step.execute(context)
+        check(
+            mock_snapshot.call_count == 1,
+            f"при интерактивном запуске снимок снимается (вызовов: {mock_snapshot.call_count})",
+        )
+
+    # Штатный снимок откатывает атрибуты (база поведения не сломалась).
+    ctx = make_context()
+    ctx.summary_osv_df = pd.DataFrame({"счет": ["60.01"], "сумма": [1.0]})
+    snap = _snapshot_context(ctx)
+    ctx.summary_osv_df = ctx.summary_osv_df.assign(метка="стало")
+    _restore_context(ctx, snap)
+    check(
+        "метка" not in ctx.summary_osv_df.columns,
+        "штатный снимок по-прежнему откатывает замену таблицы",
+    )
+
+
 def main() -> None:
     test_pause_and_retry_step()
     test_context_rollback_before_retry()
@@ -654,6 +763,9 @@ def main() -> None:
     test_diagnostics_kept_when_retry_fails_again()
     test_locked_diagnostics_file_survives()
     test_stop_error_logged_only_on_real_stop()
+    test_pause_text_points_at_right_file()
+    test_reason_prefix_by_error_type()
+    test_snapshots_skipped_when_pause_disabled()
 
     total = PASSED + FAILED
     label = "пауза при неактуальном справочнике (PAUSE_ON_REFERENCE_ERROR)"

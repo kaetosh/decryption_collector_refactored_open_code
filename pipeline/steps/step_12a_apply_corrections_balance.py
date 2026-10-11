@@ -39,8 +39,10 @@ class Step12aApplyCorrectionsBalanceStep(ManualCorrectionsMixin, Step):
     # исключены осознанно: это ключ строки ОСВ, а не классификация. Правка
     # «счёта» переименовала бы позицию вместо того, чтобы перенести её
     # в другую статью, — это уже другое действие (и не то, о котором файл).
-    CORRECTION_ALLOWED_FEATURES = tuple(
-        key for key in BalanceReportConstants.MAPPING_KEYS if key not in ("счет", "субконто")
+    # Правило объявлено в ManualCorrectionsConstants.allowed_features и
+    # используется также справкой шаблона файла правок — списки не расходятся.
+    CORRECTION_ALLOWED_FEATURES = MC.allowed_features(
+        BalanceReportConstants.MAPPING_KEYS
     )
 
     # «Кто именно задет»: уровни детализации ОСВ. Считаются не по наличию в

@@ -8,6 +8,7 @@ import pandas as pd
 from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
+from pipeline.step_config import LeaseConstants
 from pipeline.errors import ConvergenceError, InputDataError
 from io_module import DataLoader, DataSaver
 from utils import find_register_file, cast_columns_to_types, get_required_columns_df, refresh_rub_equivalent
@@ -24,7 +25,10 @@ class Step10ClassifyLeaseSourceStep(Step):
     # Константы
     UNSPECIFIED = 'не_указано'
     THIRD_PARTY = '3 лица'
-    ACCOUNTS_01_03 = ['01.03', '02.03']
+    # Счета ППА на балансе. Берутся из LeaseConstants — раньше шаг держал
+    # собственную копию списка, и правка общей константы расходилась с ним
+    # молча (шаг 1б видел новую, шаг 10 — старую).
+    ACCOUNTS_01_03 = LeaseConstants.ACCOUNTS_01_03
     
     # Допуск для проверки сходимости (в тыс.ед.)
     # 1000 тыс.ед. = 1 млн руб — экспертный допуск для остаточной стоимости ОС
@@ -137,8 +141,16 @@ class Step10ClassifyLeaseSourceStep(Step):
 
     @staticmethod
     def _expected_filename(name_company: str, type_register: str, period: str) -> str:
-        """Имя файла выгрузки спецотчёта, ожидаемое от 1С для компании и периода."""
-        return f"{name_company}_{type_register}_0102_{period}_.xlsx"
+        """Имя файла выгрузки спецотчёта, ожидаемое от 1С для компании и периода.
+
+        Для ведомости амортизации формат имени берётся из
+        LeaseConstants.amortization_filename — того же хелпера, что у шагов
+        1а и 1б. Раньше каждый шаг склеивал '_0102_' сам, и при смене формата
+        выгрузки они разъезжались молча: файл выгружен, а шаг его не находит.
+        """
+        if type_register == LeaseConstants.AMORTIZATION_REGISTER:
+            return LeaseConstants.amortization_filename(name_company, period)
+        return f"{name_company}_{type_register}_{period}_.xlsx"
 
     def _detect_leased_os(
         self,
@@ -158,12 +170,35 @@ class Step10ClassifyLeaseSourceStep(Step):
         ОСВ с ведомостью: копеечный остаток от округления не должен требовать
         выгрузки и не должен ронять конвейер.
 
+        Сопоставление счетов — ТОЧНОЕ (isin), в отличие от шагов 1б и 6, где
+        оно префиксное (ловит детализацию '01.03.1'). Это единственное
+        намеренное различие между шагами, и оно задано явно в
+        Step.lease_on_balance_mask. Правка одного из сравнений — это правка
+        одного аргумента, а не поиск «нужного» сравнения по трём шагам.
+
         Returns:
             Словарь: has_lease (bool), rows (int), sum (float), accounts (list).
         """
-        mask = osv_all_df['счет'].isin(self.ACCOUNTS_01_03)
-        rows = int(mask.sum())
+        mask = self.lease_on_balance_mask(
+            osv_all_df, 'счет', self.ACCOUNTS_01_03, prefix_match=False,
+        )
+        # Данных для решения нет — считаем, что аренда есть (консервативно,
+        # как в шагах 1б и 6): лишний запрос ведомости лучше молчаливого
+        # пропуска. Раньше здесь был KeyError, который уходил в общий
+        # except Exception («[!] Неожиданная ошибка») и обрывал прогон.
+        if mask is None:
+            logger.debug(
+                "В сводной ОСВ нет колонки 'счет' — ведомость амортизации "
+                "считается необходимой (консервативное допущение)."
+            )
+            return {
+                'has_lease': True,
+                'rows': 0,
+                'sum': 0.0,
+                'accounts': list(self.ACCOUNTS_01_03),
+            }
 
+        rows = int(mask.sum())
         total = osv_all_df.loc[mask, 'сальдо, тыс.ед.'].sum()
         total = float(total) if pd.notna(total) else 0.0
 
@@ -528,14 +563,14 @@ class Step10ClassifyLeaseSourceStep(Step):
         # 2. Загрузка ведомости амортизации
         depreciation_df = self._process_depreciation_statement_decoding(
             context=context,  # ★ Передаём контекст для кэширования
-            type_register='ведамор',
+            type_register=LeaseConstants.AMORTIZATION_REGISTER,
             name_company=name_company,
             period=period
         )
 
         if depreciation_df is None:
-            expected_filename = self._expected_filename(
-                name_company, 'ведамор', period
+            expected_filename = LeaseConstants.amortization_filename(
+                name_company, period
             )
             raise InputDataError(
                 f"В сводной ОСВ есть остатки по счетам арендованных ОС "

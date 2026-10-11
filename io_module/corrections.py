@@ -77,14 +77,16 @@ REQUIRED_COLUMNS: tuple[str, ...] = (MC.COL_FEATURE, MC.COL_NEW_VALUE)
 UNIVERSAL_PREVIEW = 5
 
 # Признаки, которые править можно, — те же, что у шагов 12а и 18а.
-# Вынесено в константы шагов теми же выражениями, а не вычисляется здесь:
-# список должен совпадать с CORRECTION_ALLOWED_FEATURES шага, иначе справка
-# в шаблоне врёт бухгалтеру.
-BALANCE_FEATURES: tuple[str, ...] = tuple(
-    key for key in BalanceReportConstants.MAPPING_KEYS if key not in ("счет", "субконто")
+# Берутся из ManualCorrectionsConstants.allowed_features — единственного
+# выражения этого правила. Раньше оно было продублировано здесь и в двух
+# шагах, и правка одного списка расходилась с двумя остальными: шаг принимал
+# правку по признаку, которого не было в справке шаблона (или наоборот),
+# и бухгалтер получал ReferenceMismatchError на признак из собственной справки.
+BALANCE_FEATURES: tuple[str, ...] = MC.allowed_features(
+    BalanceReportConstants.MAPPING_KEYS
 )
-OPU_FEATURES: tuple[str, ...] = tuple(
-    key for key in OpuReportConstants.MAPPING_KEY_COLS if key != "счет"
+OPU_FEATURES: tuple[str, ...] = MC.allowed_features(
+    OpuReportConstants.MAPPING_KEY_COLS, excluded=("счет",)
 )
 
 # Порядок колонок в листе «Правки» шаблона. Лишние (не заполненные) колонки

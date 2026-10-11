@@ -952,6 +952,36 @@ class Step(ABC):
         return result
 
     @staticmethod
+    def lease_on_balance_mask(
+        df: pd.DataFrame,
+        account_column: str,
+        accounts: tuple,
+        *,
+        prefix_match: bool = True,
+    ):
+        """Маска строк ОСВ по счетам арендованных ОС (01.03 / 02.03).
+
+        Единая точка для предиката «есть ли аренда на балансе», который
+        спрашивают три шага: 1б (нужна ли ведомость амортизации), 10
+        (разбивка остатков по видам связи) и 6 (нужен ли меппинг ППА).
+
+        `prefix_match` — единственное намеренное различие между шагами, и
+        раньше оно было неявным: шаг 10 сравнивал точно (`isin`), шаги 1б и 6 —
+        по префиксу. Теперь это видно в точке вызова, а не по расхождению
+        двух похожих методов. Правка одного из сравнений затрагивает один
+        аргумент, а не «найти нужное сравнение в соседнем шаге».
+        """
+        if df is None or account_column not in df.columns:
+            return None
+        codes = df[account_column].astype(str)
+        if prefix_match:
+            return codes.str.startswith(tuple(accounts))
+        return codes.isin(list(accounts))
+
+    # @staticmethod обязателен: все вызовы идут как self.hint_companies_in_reference(df, колонка).
+    # Метод не использует состояние шага, но обращается к нему как к методу —
+    # убрать декоратор нельзя (тогда self уедет в reference_df).
+    @staticmethod
     def hint_companies_in_reference(
         reference_df: pd.DataFrame,
         company_column: str,

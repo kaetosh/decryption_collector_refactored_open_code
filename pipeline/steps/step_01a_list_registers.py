@@ -12,6 +12,7 @@ from loguru import logger
 
 from pipeline.base import Step, ProcessingContext
 from pipeline.errors import ReferenceMismatchError
+from pipeline.step_config import LeaseConstants
 from utils import process_account, format_filename_vectorized
 from config.settings import OPU_ACCOUNTS_PREFIXES, INBOX_DIR, to_relative
 from io_module.output_manager import get_output_dir
@@ -150,7 +151,7 @@ class Step1aListExpectedRegistersStep(Step):
                 'Обязательность': 'для УПП - да',
             },
             {
-                'шаблон': f'{name_company}_ведамор_0102_{period}_.xlsx',
+                'шаблон': LeaseConstants.amortization_filename(name_company, period),
                 'описание': (
                     'Ведомость амортизации ОС — '
                     'разделяет арендованное имущество на "у третьих лиц" и "у компаний группы". '

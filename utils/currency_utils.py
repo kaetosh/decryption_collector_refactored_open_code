@@ -255,16 +255,29 @@ def _store_rate_summary(context, section: str, payload: dict) -> None:
     summary[section] = payload
 
 
-def record_balance_rate(context, coverage: RateCoverage) -> None:
-    """Сводка по курсу перевода остатков баланса (см. _store_rate_summary)."""
-    _store_rate_summary(context, CurrencyConstants.SUMMARY_SECTION_BALANCE, {
+def record_balance_rate(
+    context,
+    coverage: RateCoverage,
+    date_source: str = "",
+) -> None:
+    """Сводка по курсу перевода остатков баланса (см. _store_rate_summary).
+
+    `date_source` — как была выбрана дата перевода: «задано» (флаг),
+    «введено вручную», «автовыбор по листу курса». Нужен титульному листу:
+    при автовыборе сравнивать не с чем, и без этой пометки строка выглядела
+    бы как «актуален — курс от …», хотя актуальность никто не проверял.
+    """
+    summary = {
         CurrencyConstants.SUMMARY_COVERED: coverage.covered,
         CurrencyConstants.SUMMARY_CURRENCY: coverage.currency,
         CurrencyConstants.SUMMARY_REQUESTED_DATE: format_rate_date(coverage.requested_date),
         CurrencyConstants.SUMMARY_RATE_DATE: format_rate_date(coverage.rate_date),
         CurrencyConstants.SUMMARY_RATE: coverage.rate,
         CurrencyConstants.SUMMARY_GAP_DAYS: coverage.gap_days,
-    })
+    }
+    if date_source:
+        summary[CurrencyConstants.SUMMARY_DATE_SOURCE] = date_source
+    _store_rate_summary(context, CurrencyConstants.SUMMARY_SECTION_BALANCE, summary)
 
 
 def record_opu_rate(

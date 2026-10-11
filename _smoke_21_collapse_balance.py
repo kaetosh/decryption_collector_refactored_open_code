@@ -16,8 +16,12 @@
 
 Запуск: conda run -n fl_acc_card python -u _smoke_21_collapse_balance.py
 """
+import atexit
+import shutil
 import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from loguru import logger
@@ -26,8 +30,15 @@ from io_module.output_manager import configure_run
 from pipeline.base import ProcessingContext
 from pipeline.steps.step_21_collapse_balance import Step21CollapseBalanceArticlesStep
 
-# Инициализация папки вывода (нужна для mismatches/ отчёта шага)
-configure_run()
+# Инициализация папки вывода (нужна для mismatches/ отчёта шага) — во временном
+# каталоге. Реальная _OUTPUT_DATA не должна получать папку прогона от смоука:
+# cleanup_old_runs удаляет папки за пределами пяти последних ПО ИМЕНИ, и каждый
+# прогон смоука выталкивал бы настоящий отчёт за это окно, а удалял его —
+# вместе с mismatches/ и всем, что в нём было.
+_SMOKE_OUT = tempfile.mkdtemp(prefix="smoke_21_out_")
+with patch("io_module.output_manager.OUTPUT_DATA_DIR", Path(_SMOKE_OUT)):
+    configure_run()
+atexit.register(shutil.rmtree, _SMOKE_OUT, True)
 
 failures: list = []
 PASSED = 0

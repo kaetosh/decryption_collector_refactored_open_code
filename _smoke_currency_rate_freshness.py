@@ -301,6 +301,30 @@ def main() -> int:
     check(any(w.startswith("[!]") for w in warnings_text),
           "неинтерактив: остаётся предупреждение о незаданной дате")
 
+    # 4c-bis. Регресс: титул не врёт «актуален», когда проверять нечего.
+    # Дата перевода не задана и берётся из самого справочника курса, поэтому
+    # промаха не будет по построению: запрос шёл на последний день листа.
+    # Раньше сводка получала gap_days = 0, covered = True, и титул писал
+    # «актуален» — получатель файла не видел, что актуальность не проверялась.
+    from io_module.report_cover import _currency_rate_status_text
+    title_auto = _currency_rate_status_text(ctx4c)
+    check("автоматически" in title_auto,
+          f"титул: автовыбор даты перевода назван прямо, а не «актуален»: {title_auto!r}")
+    check("НЕ АКТУАЛЕН" not in title_auto and "актуален" not in title_auto,
+          f"титул не утверждает актуальность при автовыборе даты: {title_auto!r}")
+    check(any("за более позднюю дату" in m for m in warnings_text),
+          "неинтерактив: лог говорит, что лист не содержит более поздних дат")
+    check(any("заканчивается датой" in m for m in warnings_text) is False,
+          "неинтерактив с автовыбором: не выдаём просрочку листа за проверенный факт")
+
+    # 4c-ter. При ЯВНО заданной непокрытой дате титул, наоборот, честно пишет
+    # «НЕ АКТУАЛЕН» — это проверенный факт, а не отсутствие проверки.
+    ctx_auto_title = make_context(balance_date="30.09.2026")
+    executors.ask_balance_date_if_needed(ctx_auto_title, interactive=False)
+    check("НЕ АКТУАЛЕН" in _currency_rate_status_text(ctx_auto_title),
+          f"титул при заданной непокрытой дате: НЕ АКТУАЛЕН: "
+          f"{_currency_rate_status_text(ctx_auto_title)!r}")
+
     # 4d. Интерактив: ввод непокрытой даты и подтверждение «y».
     ctx4d = make_context()
     reset_logs()

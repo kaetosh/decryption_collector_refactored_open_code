@@ -26,6 +26,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.file_utils import normalize_ragged_tab_rows
 
+# Иначе на обычной консоли Windows (cp1251) символ «№» роняет прогон
+# UnicodeEncodeError — без финальной строки SMOKE_FAIL.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+
 PASSED = 0
 FAILED = 0
 
@@ -219,10 +225,64 @@ def main():
           field_of(text.split(NL)[-2], 2) == '1 500,00',
           f'got={field_of(text.split(NL)[-2], 2)!r}')
 
+    # --- 9. Насыщение профиля: правды не хватает — молчать, а не гадать ---
+    # Регресс на сам алгоритм выбора позиции. В реальных выгрузках 1С текстовые
+    # колонки («Субконто Кт» с наименованием объекта ОС, «Содержание») почти
+    # всегда содержат больше 200 разных значений — порог из
+    # _collect_column_profile. Такие колонки становятся «вольными», и профиль
+    # перестаёт различать кандидатов: ВСЕ дают одинаковый максимум.
+    #
+    # Прежний код при равенстве оставлял первый индекс (`score > best_score`),
+    # то есть склеивал как можно раньше — тот же хардкод смещения, только со
+    # знаком «+». Разрыв в «Субконто Кт» уезжал в «Субконто Дт»: контрагент и
+    # объект ОС менялись местами, сумма/дата/счёт оставались валидными, строка
+    # НЕ отбрасывалась фильтром — и прогон отчитывался «Данные не потеряны».
+    #
+    # Теперь такой строке возвращается unresolved: данные не искажаются, а
+    # normalize_ragged_tab_rows пишет явный WARNING/ERROR.
+    huge_values = [f'Объект ОС № {i:04d}' for i in range(260)]
+    bulk_good = [
+        TAB.join(['', f'{10 + (i % 20):02d}.0{i % 9 + 1}.2026 10:00:00',
+                  f'Документ {i:04d}', f'Операция {i}',
+                  '26.01', '', '02.01', '', f'{100 + i},50',
+                  f'Руководство {i % 7}',
+                  huge_values[i], 'ОС'])
+        for i in range(260)
+    ]
+    ragged_in_hicol = TAB.join(['', '31.01.2026 23:59:59', 'Амортизация ОС 00002',
+                                'Амортизация', '26.01', '', '02.01', '',
+                                '4 367,36', 'Руководство',
+                                'Здание склада инв', '№ 280', 'ОС'])
+    text, repaired, unresolved = run(
+        [HEADER_LINE] + bulk_good + [ragged_in_hicol], tmpdir, 'hicol_отчпровод_26_.txt'
+    )
+    lines = text.split(NL)
+    check('Высококардинальная колонка: строка НЕ объявлена исправленной',
+          repaired == 0, f'repaired={repaired}')
+    check('Высококардинальная колонка: помечена как нерешённая',
+          unresolved == 1, f'unresolved={unresolved}')
+    # Главное: данные не искажены «на всякий случай» — строка осталась как есть,
+    # субконто не переехали в чужую колонку.
+    check('Высококардинальная колонка: строка не искажена',
+          lines[-2] == ragged_in_hicol)
+    check('Высококардинальная колонка: Субконто Дт не захватил чужой фрагмент',
+          field_of(lines[-2], 9) == 'Руководство',
+          f'got={field_of(lines[-2], 9)!r}')
+    # Профиль построен по 260 строкам — порог «вольной колонки» достигнут,
+    # иначе сценарий был бы структурно невоспроизводим (как было в этом смоуке).
+    from utils.file_utils import _collect_column_profile
+    prof, wild = _collect_column_profile(
+        build_file([HEADER_LINE] + bulk_good + [ragged_in_hicol], tmpdir,
+                   'hicol_отчпровод_26_.txt'),
+        0, 11, 'utf-8', 'strict',
+    )
+    check('Высококардинальная колонка: профиль помечает её вольной (порог 200)',
+          10 in wild, f'wildcard={sorted(wild)}')
+
     print()
     total = PASSED + FAILED
     if FAILED:
-        print(f'SMOKE_FAIL ({PASSED}/{total})')
+        print(f'SMOKE_FAIL ({total - FAILED}/{total})')
         return 1
     print(f'SMOKE_OK ({PASSED}/{total})')
     return 0
@@ -230,6 +290,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-    check('Два разрыва: субконто склеено',
-          field_of(lines[2], 10) == 'Здание склада инв № 280',
-          f'got={field_of(lines[2], 10)!r}')

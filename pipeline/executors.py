@@ -29,6 +29,8 @@ from config.loader import load_params
 from config.settings import (
     ACCOUNT_CARDS_DIR,
     ACCOUNTS_OSV_DIR,
+    CORRECTIONS_FILE,
+    CORRECTIONS_FILE_NAME,
     ACCOUNTS_OSV_LEASE_DIR,
     AUTO_SORT_ENABLED,
     INBOX_DIR,
@@ -543,8 +545,9 @@ def _stdin_is_tty() -> bool:
 def wait_for_reference_update(
     context: ProcessingContext,
     reason: Optional[str] = None,
+    reference_name: Optional[str] = None,
 ) -> bool:
-    """Пауза: ждём, пока пользователь обновит Справочники.xlsx.
+    """Пауза: ждём, пока пользователь обновит справочник.
 
     Возвращает True — продолжить (пользователь нажал Enter);
     False — прервать прогон как раньше ([STOP] и код выхода 1).
@@ -568,29 +571,48 @@ def wait_for_reference_update(
             паузы нет: при успешном возобновлении он попал бы в сводку
             предупреждений титульного листа зелёного отчёта. Текст
             обрезается — блок паузы печатается в консоль целиком.
+        reference_name: Имя справочника из ошибки (reference_name). Шаги
+            корректировок правок бросают ReferenceMismatchError про
+            Правки.xlsx, а не про Справочники.xlsx: инструкция «внесите правки
+            в Справочники.xlsx» уводила бы в другой файл. Здесь выбирается
+            тот файл, который на самом деле надо править.
     """
     if not context.data.get(REFERENCE_PAUSE_ENABLED_KEY, True):
         return False
     if not _stdin_is_tty():
         return False
 
+    # Шаги ручных корректировок бросают ReferenceMismatchError с reference_name
+    # из ManualCorrectionsConstants: править надо Правки.xlsx, а не
+    # Справочники.xlsx. Сравнение идёт по константе того же источника, а не
+    # по подстроке в имени файла — иначе переименование файла разъехало бы
+    # инструкцию с источником ошибки.
+    is_corrections = reference_name == ManualCorrectionsConstants.REFERENCE_NAME
+    target_file = CORRECTIONS_FILE_NAME if is_corrections else REFERENCE_DATA_FILE.name
+    title = (
+        "неактуальный файл ручных корректировок"
+        if is_corrections
+        else "неактуальный справочник"
+    )
+    step_label = "правила корректировок исправлены" if is_corrections else "справочник обновлён"
+
     print()
     print("=" * 80)
-    print("[>>] ПРОГОН ПРИОСТАНОВЛЕН: неактуальный справочник.")
+    print(f"[>>] ПРОГОН ПРИОСТАНОВЛЕН: {title}.")
     if reason:
         print(f"     Причина: {reason[:_PAUSE_REASON_MAX_CHARS]}"
               f"{'...' if len(reason) > _PAUSE_REASON_MAX_CHARS else ''}")
     print("     Проблемные значения — в файлах mismatches/ папки запуска, детали — в логе выше.")
-    print(f"     Справочник: {to_relative(REFERENCE_DATA_FILE)}")
+    print(f"     Файл: {to_relative(CORRECTIONS_FILE if is_corrections else REFERENCE_DATA_FILE)}")
     print()
-    print("     1. Внесите правки в файл Справочники.xlsx (закройте его в Excel).")
+    print(f"     1. Внесите правки в файл {target_file} (закройте его в Excel).")
     print("     2. Нажмите Enter — обработка продолжится С ТЕКУЩЕГО ШАГА;")
     print("        выгрузки перечитываться не будут.")
     print("     Чтобы остановить скрипт, введите: стоп")
     print("=" * 80)
     while True:
         try:
-            answer = input("\n[PAUSE] Справочник обновлён? Нажмите Enter для продолжения... ")
+            answer = input(f"\n[PAUSE] {step_label.capitalize()}? Нажмите Enter для продолжения... ")
         except EOFError:
             print()
             return False
@@ -599,7 +621,7 @@ def wait_for_reference_update(
             return False
         if cleaned == "":
             print()
-            print("[i] Проверяю обновлённый справочник и продолжаю с этого же шага...")
+            print(f"[i] Проверяю обновлённый файл и продолжаю с этого же шага...")
             print("     Файлы mismatches/ от прежней попытки будут удалены, если")
             print("     после ваших правок шаг пройдёт — разбирать их будет нечего.")
             return True
@@ -846,7 +868,7 @@ def _log_balance_rate(context: ProcessingContext, coverage, source_note: str = "
 
     logger.info("Курс перевода остатков баланса: {}", coverage.rate)
     context.balance_date = format_rate_date(coverage.rate_date)
-    record_balance_rate(context, coverage)
+    record_balance_rate(context, coverage, date_source=source_note)
 
 
 def _ask_continue_stale(context: ProcessingContext, coverage) -> bool:
@@ -922,20 +944,36 @@ def ask_balance_date_if_needed(context: ProcessingContext, interactive: bool = T
         return
 
     def _fallback() -> None:
+        """
+        Неинтерактивный выбор: последняя дата листа курса.
+
+        Сводка для титульного листа больше НЕ утверждает «актуален», когда
+        актуальность проверить не на чем: дата перевода не задана и взята из
+        самого справочника, поэтому промаха не будет по построению. Раньше
+        сводка считалась отдельным вызовом resolve_rate на последний день
+        листа и получала gap_days = 0, covered = True — то есть титул писал
+        «актуален» даже при отчётности за месяц после конца справочника.
+
+        Что можно сказать честно: дата перевода выбрана автоматически и равна
+        последней дате листа. Фактическую просрочку покажет секция ОПУ титула
+        (record_opu_rate) — она считается по датам проводок и не зависит от
+        выбора даты перевода.
+        """
         last_date = get_last_rate_date(context)
-        context.balance_date = last_date
+        coverage = resolve_rate(context, last_date)
+        context.balance_date = format_rate_date(coverage.rate_date)
         logger.warning(
             "[!] Дата перевода остатков не задана. Используется последняя дата "
-            "из справочника курса {}: {}. (Задать явно: --balance-date ДД.ММ.ГГГ)",
+            "из справочника курса {}: {} (задать явно: --balance-date ДД.ММ.ГГГГ). "
+            "Остатки переведены по курсу этой даты — за более позднюю дату "
+            "справочник не содержит.",
             currency,
-            last_date,
+            coverage.rate_date,
         )
+        record_balance_rate(context, coverage, date_source="автовыбор по листу курса")
 
     if not interactive:
         _fallback()
-        # Сводка для титульного листа: получатель должен видеть и курс,
-        # и то, что дата перевода была выбрана автоматически.
-        record_balance_rate(context, resolve_rate(context, context.balance_date))
         return
 
     prompt = (

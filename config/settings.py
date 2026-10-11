@@ -55,6 +55,11 @@ ARCHIVE_DIR = INPUT_DATA_DIR / "_archive"
 CORRECTIONS_DIR = INPUT_DATA_DIR / "_corrections"
 CORRECTIONS_FILE_NAME = "Правки.xlsx"
 CORRECTIONS_SHEET_NAME = "Правки"
+# Полный путь файла правок. Нужен паузе на неактуальном справочнике
+# (pipeline/executors.wait_for_reference_update), чтобы в инструкции назвать
+# именно тот файл, который надо править: ошибка ручных корректировок
+# приходит из Правки.xlsx, а не из Справочники.xlsx.
+CORRECTIONS_FILE = CORRECTIONS_DIR / CORRECTIONS_FILE_NAME
 
 # Автосортировка выгрузок из 00_inbox (две волны: общая ОСВ до Фазы 0,
 # остальные файлы после шага 1a). False — прежнее поведение: пользователь

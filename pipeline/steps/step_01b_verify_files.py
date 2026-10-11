@@ -91,7 +91,9 @@ class Step1bVerifyFilesStep(Step):
                 f'{context.company}_анализ_84_{context.period}_.xlsx'
             )
 
-        vedamor_filename = f'{context.company}_ведамор_0102_{context.period}_.xlsx'
+        vedamor_filename = LeaseConstants.amortization_filename(
+            context.company, context.period
+        )
         if self._is_lease_present(context):
             obligatory_list.append(vedamor_filename)
         else:
@@ -207,8 +209,16 @@ class Step1bVerifyFilesStep(Step):
 
         # Префиксное сравнение: в общей ОСВ возможна детализация ниже
         # синтетического уровня ('01.03.1') — не хотим пропустить остаток.
-        codes = df['Счет'].astype(str)
-        mask = codes.str.startswith(tuple(LeaseConstants.ACCOUNTS_01_03))
+        # Маска считается общим предикатом Step.lease_on_balance_mask, как у
+        # шагов 6 и 10, — иначе три почти одинаковых метода расходятся
+        # деталями без видимой причины. Наличие колонки 'Счет' уже проверено
+        # выше, поэтому None здесь невозможен; проверка оставлена как
+        # страховка от тихого KeyError на границе данных.
+        mask = self.lease_on_balance_mask(
+            df, 'Счет', LeaseConstants.ACCOUNTS_01_03, prefix_match=True,
+        )
+        if mask is None:
+            return True
 
         # Сальдо в общей ОСВ — в рублях (Дебет_конец - Кредит_конец),
         # допуск — в тыс.ед. (как в колонке «сальдо, тыс.ед.» сводной ОСВ).

@@ -82,14 +82,10 @@ def detect_txt_encoding(
 def _cp(*codes: int) -> str:
     """Собирает кириллическое имя колонки из кодовых точек.
 
-    Модуль намеренно остаётся ASCII-безопасным, поэтому имена колонок 1С
-    задаются кодами, а не литералами.
+    Имена колонок 1С заданы кодами — так имена читаются в любой кодировке
+    исходника файла и не зависят от настроек редактора.
     """
     return ''.join(chr(c) for c in codes)
-
-
-def _merge_col_codepoints():
-    return _cp(0x421,0x43e,0x434,0x435,0x440,0x436,0x430,0x43d,0x438,0x435)
 
 
 # Колонки, по которым проверяется, что строка «сошлась» после склейки.
@@ -185,23 +181,38 @@ def _collect_column_profile(file_path, header_row, expected_tabs, encoding, erro
 
 def _score_candidate(fields: List[str], merged_idx: int, profile: dict,
                      wildcard: set) -> int:
-    """Сколько неизменённых полей строки совпадает с профилем файла.
+    """Сколько неизменённых полей строки согласуется с профилем файла.
 
     Поле, в которое шла склейка, не учитывается: его содержимое заведомо
     новое и в профиле отсутствует.
+
+    Очко даётся только за СВИДЕТЕЛЬСТВО, а не за отсутствие противоречия:
+
+    - значение найдено в профиле этой колонки → согласуется, +1;
+    - значение пустое → не противоречит (в колонке бывают пустые), +1;
+    - колонка вольная (значений больше порога, значения колонки не различаются)
+      → сказать нечего: НЕ даём очко. Раньше вольная колонка давала +1 за любое
+      содержимое, из-за чего осколок разрыва, случайно попавший в неё,
+      перевешивал настоящее совпадение по соседней колонке — склейка уезжала
+      на позицию левее верной;
+    - значения в профиле нет → противоречит, 0.
+
+    Именно поэтому при высококардинальных текстовых колонках (наименования
+    объектов ОС) кандидаты сравниваются по остальным полям строки, а при
+    полном равенстве счёта _repair_ragged_row отдаёт строку как есть.
     """
     score = 0
     for col, value in enumerate(fields):
         if col == merged_idx:
             continue
         if col in wildcard:
-            score += 1
-        elif not value or value in profile.get(col, ()):
+            continue
+        if not value or value in profile.get(col, ()):
             score += 1
     return score
 
 
-def normalize_ragged_tab_rows(file_path, header_row, merge_column=None,
+def normalize_ragged_tab_rows(file_path, header_row,
                                 encoding='cp1251', errors='strict'):
     """Normalize ragged ('рваные') rows in 1C TXT posting exports.
 
@@ -217,12 +228,14 @@ def normalize_ragged_tab_rows(file_path, header_row, merge_column=None,
     сдвигал все поля влево: «Сумма» получала текст вместо числа, строка уходила
     в NaN и молча терялась при разборе.
 
+    Параметра «колонка склейки» здесь намеренно нет: он был мёртвым остатком
+    того самого хардкода и оставлял ловушку — вернуть его можно было бы,
+    тихо вернув регрессию ШПФ.
+
     Returns:
         Tuple[StringIO, int, int]: буфер, число исправленных строк,
         число строк, которые не удалось привести к корректной структуре.
     """
-    if merge_column is None:
-        merge_column = _merge_col_codepoints()
     file_path = Path(file_path)
 
     expected_tabs = None
@@ -261,20 +274,13 @@ def normalize_ragged_tab_rows(file_path, header_row, merge_column=None,
     with open(file_path,'r',encoding=encoding,errors=errors) as f:
         for raws in f:
             if raws.count('\t') > expected_tabs:
-
-
-
-
                 fixed, ok = _repair_ragged_row(raws, expected_tabs, spec, has_spec,
-                                            profile, wildcard)
+                                              profile, wildcard)
                 if ok:
                     repaired += 1
                 else:
                     unresolved += 1
                 buff.write(fixed if fixed != raws else raws)
-
-
-
             else:
                 buff.write(raws)
 
@@ -305,6 +311,15 @@ def _repair_ragged_row(raw, expected_tabs, spec, has_spec, profile=None,
     выигрывает тот, где больше прочих полей совпадает с профилем файла — иначе
     при нескольких формально подходящих позициях выбиралась первая, а не верная.
 
+    Победитель обязан быть СТРОГИМ: счёт преимущества должен быть хотя бы на
+    единицу больше, чем у второго кандидата (см. _score_candidate). Иначе
+    позиция разрыва по данным не определяется, и такая строка возвращается
+    неразрешённой (unresolved), а не склеивается наугад: профилем колонки
+    не восстановить разрыв, случившийся в текстовой колонке с уникальными
+    значениями (наименование объекта ОС), — там все кандидаты дают одинаковый
+    счёт, и «первый» означал бы склейку как можно раньше, то есть тот же
+    хардкод смещения, только со знаком «+».
+
     Returns:
         Tuple[str, bool]: исправленная строка и признак успеха.
     """
@@ -315,19 +330,21 @@ def _repair_ragged_row(raw, expected_tabs, spec, has_spec, profile=None,
         return raw, True
 
     if has_spec:
-        best_idx = None
-        best_score = -1
+        candidates: List[tuple] = []
         for idx in range(len(parts) - excess):
             merged = _merge_at(parts, excess, idx)
             if not _row_is_valid(merged, spec):
                 continue
-            score = (
-                _score_candidate(merged, idx, profile, wildcard)
-                if profile is not None else 0
-            )
-            if score > best_score:
-                best_idx, best_score = idx, score
-        if best_idx is None:
+            candidates.append((_score_candidate(merged, idx, profile, wildcard), idx))
+        if not candidates:
+            return raw, False
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        best_score, best_idx = candidates[0]
+        runner_up = candidates[1][0] if len(candidates) > 1 else None
+        if runner_up is not None and runner_up >= best_score:
+            # Данные не позволяют отличить позиции разрыва — молча склеивать
+            # значит записать контрагента/объект ОС из чужой колонки и
+            # отчитаться «Данные не потеряны». Честно отдаём строку как есть.
             return raw, False
         return '\t'.join(_merge_at(parts, excess, best_idx)) + ending, True
 

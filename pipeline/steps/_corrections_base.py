@@ -119,6 +119,14 @@ class ManualCorrectionsMixin:
         другого — чтобы отличить «правило для другой компании» (молчаливый
         пропуск, это штатно) от «опечатка в имени» (WARNING). Если отбирать по
         всему справочнику, чужие правила попадут в прогон.
+
+        WARNING поднимается ТОЛЬКО для колонки «компания»: у неё есть справочник,
+        с которым можно сверить написание. Для «период» сверять нечего — набор
+        периодов в прогоне не задан, а правило, привязанное к чужому периоду,
+        это штатный сценарий (один файл обслуживает все прогоны; см. также
+        _warn_stale_file). Раньше такое правило попадало в «неизвестные значения»
+        и давало ложный WARNING с подсказкой «проверьте написание: текущая
+        компания …» — про компанию, хотя речь была о периоде.
         """
         index = corrections.index
         if column not in corrections.columns:
@@ -129,11 +137,13 @@ class ManualCorrectionsMixin:
 
         mask = values.isna() | values.eq(target)
 
+        if column != MC.COL_COMPANY:
+            return mask
+
         known = {target}
-        if column == MC.COL_COMPANY:
-            companies = (context.references or {}).get("компании_группы")
-            if isinstance(companies, pd.DataFrame) and ColumnNames.SHORT_COMPANY_NAME in companies:
-                known |= set(_text(companies[ColumnNames.SHORT_COMPANY_NAME], companies.index))
+        companies = (context.references or {}).get("компании_группы")
+        if isinstance(companies, pd.DataFrame) and ColumnNames.SHORT_COMPANY_NAME in companies:
+            known |= set(_text(companies[ColumnNames.SHORT_COMPANY_NAME], companies.index))
 
         unknown = values.notna() & ~values.isin(known)
         if unknown.any():
@@ -168,7 +178,7 @@ class ManualCorrectionsMixin:
                 f"участвуют в ключе маппинга {self.CORRECTION_AREA_LABEL}: {bad}. "
                 f"Допустимые признаки: {list(self.CORRECTION_ALLOWED_FEATURES)}",
                 problem_data=problem,
-                reference_name="Правки (ручные корректировки)",
+                reference_name=MC.REFERENCE_NAME,
             )
 
     # =========================================================================
@@ -294,8 +304,6 @@ class ManualCorrectionsMixin:
              срез задетых строк для аудита, сколько строк в срезе усечено)
         """
         df = frame.copy()
-        if MC.MARKER_COL not in df.columns:
-            df[MC.MARKER_COL] = pd.Series(pd.NA, index=df.index, dtype="string")
 
         applied: list[dict] = []
         skipped: list[dict] = []
@@ -427,7 +435,14 @@ class ManualCorrectionsMixin:
         Несколько правок одной строки накапливаются в одном тексте
         («инвест_договор: нет → да; вид_связи: 3 лица → Связанная»), а не
         затирают друг друга.
+
+        Колонка создаётся здесь, а не заранее: пустая маркерная колонка в
+        прогоне, где ни одно правило не применилось, меняла бы схему общих
+        таблиц без причины. Тип 'string', а не object — иначе шаг 3 упал бы
+        на проверке запрета object-колонок.
         """
+        if MC.MARKER_COL not in df.columns:
+            df[MC.MARKER_COL] = pd.Series(pd.NA, index=df.index, dtype="string")
         prior = df.loc[mask, MC.MARKER_COL]
         has_prior = prior.notna()
         merged = np.where(
@@ -606,6 +621,13 @@ class ManualCorrectionsMixin:
             return context
 
         df, applied, skipped, detail, _ = self._apply_rules(frame, rules, context)
+        # Колонка-маркер появляется только если что-то реально изменилось.
+        # Раньше она создавалась сразу при непустом списке правил, и прогон,
+        # где ни одно правило не применилось (нет строк, нет селекторов),
+        # всё равно увозил на листы «исходники» пустую колонку ручная_правка —
+        # схема общих таблиц менялась там, где по сути ничего не исправляли.
+        if not applied:
+            df = frame
         setattr(context, self.CORRECTION_TARGET_ATTR, df)
 
         self._save_audit(applied, skipped, detail, context)

@@ -368,16 +368,15 @@ class Step6AddOSGroupColumnStep(Step):
         if osv_all_df is None or osv_all_df.empty:
             return True
 
-        if 'счет' not in osv_all_df.columns:
+        mask = self.lease_on_balance_mask(
+            osv_all_df, 'счет', self.LEASE_ON_BALANCE_PREFIXES, prefix_match=True,
+        )
+        if mask is None:
             logger.debug(
                 "В сводной ОСВ нет колонки 'счет' — считаем, что аренда на "
                 "балансе есть (консервативное допущение)."
             )
             return True
-
-        # Префиксное сравнение — ловит детализацию ниже синтетического уровня
-        codes = osv_all_df['счет'].astype(str)
-        mask = codes.str.startswith(self.LEASE_ON_BALANCE_PREFIXES)
 
         if 'сальдо, тыс.ед.' not in osv_all_df.columns:
             # Сальдо не посчитано — решить не можем, требуем ППА (True)
@@ -412,7 +411,7 @@ class Step6AddOSGroupColumnStep(Step):
         name_company: str,
         ppa_all_df: pd.DataFrame,
         osv_all_df: pd.DataFrame,
-        context: ProcessingContext = None,
+        context: ProcessingContext,
     ) -> None:
         """
         Обрабатывает случай «в справочнике ППА нет ни одной записи по компании».
@@ -478,9 +477,10 @@ class Step6AddOSGroupColumnStep(Step):
         # аренда): если договоров 76.07/76.05.3 нет и остатков по счетам
         # аренды (76.07/76.05.3/01.03/02.03) в сводной ОСВ не осталось,
         # требование ППА для РБП 97.21 пропускается — WARNING вместо стопа.
-        if not contracts and context is not None and not self._has_lease_on_balance(
-            osv_all_df, context
-        ):
+        #
+        # context здесь обязателен: без него правило молча отключалось бы и
+        # прогон возвращался к прежнему стопящему поведению без следов в логе.
+        if not contracts and not self._has_lease_on_balance(osv_all_df, context):
             logger.warning(
                 "[!] В справочнике ППА нет ни одной записи по компании '{}', "
                 "но в ОСВ нет остатков по счетам аренды на балансе "
@@ -720,14 +720,11 @@ class Step6AddOSGroupColumnStep(Step):
                 "Группы ОС по договорам: {} заполнено",
                 osv_all_df['группа_ос_аренды_лизинга'].notna().sum(),
             )
-        else:
-            # Страховка: колонки нет (например, merge вернул кадр без 76.07 и
-            # без добавления признака) — договорной классификации нет, группа
-            # заполнится ниже по РБП или заглушкой.
-            osv_all_df['группа_ос_аренды_лизинга'] = np.nan
-            logger.debug(
-                "Договорная классификация пропущена: в основной ОСВ нет счетов 76.07/76.05.3"
-            )
+        # Ветки «колонки 'договор' нет» здесь нет намеренно:
+        # _merge_with_76_lease_detail гарантирует её наличие в обеих ветках
+        # (пустой 76.07 → заглушка, непустой → merge). Раньше здесь стояла
+        # вторая страховка с np.nan — она была недостижимой и выдавала бы
+        # float64 вместо 'string', если всё-таки сработала бы.
 
         # 5. Проставление групп ОС по РБП (97.21)
         logger.debug("Этап 5: Классификация по РБП (97.21)")

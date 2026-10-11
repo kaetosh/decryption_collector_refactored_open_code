@@ -18,6 +18,7 @@
 SMOKE_OK (PASSED/total) либо SMOKE_FAIL, код возврата 1 при провалах.
 """
 
+import atexit
 import shutil
 import sys
 import tempfile
@@ -25,7 +26,11 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.stdout.reconfigure(encoding="utf-8")
+# Иначе на консоли Windows (cp1251) символ «×» в сообщении о провале роняет
+# прогон UnicodeEncodeError — без финальной строки SMOKE_FAIL.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from config.settings import CORRECTIONS_FILE_NAME, CORRECTIONS_SHEET_NAME
 from io_module import corrections as corrections_io
@@ -159,10 +164,20 @@ def context_with_rules(rules, osv=None, journal=None, **kwargs):
 
 print("\n1. Загрузка файла правок")
 # Папка запуска нужна шагам для записи аудита — в реальном прогоне её создаёт
-# configure_run() из cli/main.py до старта конвейера
+# configure_run() из cli/main.py до старта конвейера.
+#
+# Папка запуска — во временном каталоге: реальная _OUTPUT_DATA не должна
+# получать папку от смоука. cleanup_old_runs удаляет папки за пределами пяти
+# последних ПО ИМЕНИ, поэтому каждый прогон этого смоука выталкивал бы
+# настоящий отчёт за окно и удалял вместе с ним его mismatches/.
+from unittest.mock import patch  # noqa: E402
+
 from io_module.output_manager import configure_run  # noqa: E402
 
-RUN_ID = configure_run()
+_SMOKE_OUT = Path(tempfile.mkdtemp(prefix="smoke_corrections_out_"))
+with patch("io_module.output_manager.OUTPUT_DATA_DIR", _SMOKE_OUT):
+    RUN_ID = configure_run()
+atexit.register(shutil.rmtree, _SMOKE_OUT, True)
 
 # 1.1 Файла нет — пустой кадр, не ошибка. Заодно проверяем шаблон (D)
 empty_dir = TMP_ROOT / "no_file"
@@ -614,6 +629,31 @@ check(
     f"признак типа object после правки снова string и с новым значением: {osv['инвест_договор'].dtype}",
 )
 check(str(osv[MC.MARKER_COL].dtype) == "string", f"маркер всегда string: {osv[MC.MARKER_COL].dtype}")
+
+print("\n10.2 Регресс: правило есть, но не применилось — схема кадра не меняется")
+# Правило находит ноль строк. Раньше колонка-маркер всё равно появлялась в кадре
+# (пустая), и на листы «исходники ББЛ»/«исходники ОПУ» уезжал прогон, где по
+# сути ничего не исправляли: общие таблицы меняли схему без причины.
+ctx = context_with_rules(
+    [{"счет": "60.99", "субконто": "Нет такого счёта",
+      "признак": "инвест_договор", "новое_значение": "да"}],
+    osv=make_osv(),
+)
+skipped_result = step_b._process(ctx).summary_osv_df
+check(
+    MC.MARKER_COL not in skipped_result.columns,
+    f"неприменённое правило не добавляет колонку-маркер: {list(skipped_result.columns)}",
+)
+check(
+    skipped_result.equals(make_osv()),
+    "неприменённое правило не меняет данные",
+)
+skipped_summary = ctx.data.get(MC.SUMMARY_KEY) or {}
+check(
+    int(skipped_summary.get(MC.SUMMARY_SKIPPED_RULES) or 0) == 1
+    and int(skipped_summary.get(MC.SUMMARY_APPLIED_RULES) or 0) == 0,
+    f"сводка: 1 неприменённое правило, 0 применённых: {skipped_summary}",
+)
 
 print("\n11. Детализация и предупреждение о широком правиле (A, B)")
 # 11.1 Правило по «счёт + допсубконто» задевает ВСЕ строки контрагента —

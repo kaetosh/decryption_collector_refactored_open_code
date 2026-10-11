@@ -253,9 +253,21 @@ def _currency_rate_status_text(context: Any) -> str:
 
     parts = []
     if balance:
+        source = balance.get(CurrencyConstants.SUMMARY_DATE_SOURCE) or ""
+        auto_chosen = "автовыбор" in source
         if balance.get(CurrencyConstants.SUMMARY_COVERED):
             gap = balance.get(CurrencyConstants.SUMMARY_GAP_DAYS) or 0
-            if gap:
+            if auto_chosen:
+                # Дата перевода взята из самого справочника курса: сравнивать
+                # не с чем, и промаха не будет по построению. Утверждать
+                # «актуален» здесь нельзя — проверки не было. Фактическую
+                # просрочку покажет секция ОПУ (даты проводок).
+                parts.append(
+                    f"дата перевода выбрана автоматически по листу курса — "
+                    f"курс от {balance.get(CurrencyConstants.SUMMARY_RATE_DATE)}; "
+                    f"остатки переведены по нему"
+                )
+            elif gap:
                 # Дата внутри диапазона листа, курс взят с предыдущего дня
                 parts.append(
                     f"актуален — на запрошенную дату "
