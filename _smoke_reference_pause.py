@@ -20,20 +20,35 @@
   - ошибка при самом перечитывании обновлённого справочника -> честный [STOP]
     с новой причиной в __cause__.
 
+Чистка устаревшей диагностики (проблема оказалась устранена правкой):
+  - файл mismatch_* первой попытки удаляется после успешного повтора;
+  - чужие и созданные ДО шага файлы папки (reference_scope_*,
+    manual_corrections_*, mismatch_* прошлых шагов) не трогаются;
+  - «стоп», повторная ошибка и занятый файл (PermissionError) оставляют
+    диагностику на месте — получатель должен видеть нерешённую проблему;
+  - ERROR «[STOP] Обработка остановлена» не попадает в сводку
+    предупреждений, если прогон продолжился, и остаётся при реальном стопе.
+
 Изоляция: реальные _INPUT_DATA / _REFERENCE_DATA не затрагиваются —
 refresh_references подменяется, пауза — подменяется; тестируется контракт
-декоратора, а не файловый ввод-вывод.
+декоратора, а не файловый ввод-вывод. Файлы диагностики пишутся в
+временную папку вывода (temp_run_dir), реальная _OUTPUT_DATA не трогается.
 
 Запуск: python -u _smoke_reference_pause.py
 """
 import sys
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from config.settings import REFERENCE_PAUSE_RESOLVED_KEY
+from io_module.output_manager import configure_run, get_run_dir
 from pipeline.base import ProcessingContext, Step
 from pipeline.errors import (
     ConvergenceError,
@@ -129,6 +144,57 @@ class _OtherErrorStep(Step):
 
     def _process(self, context):
         raise self._error
+
+
+class _FailsWithData(Step):
+    """Падает на справочнике С problem_data (пишет файл в mismatches/) N раз."""
+
+    def __init__(self, fails: int = 1):
+        super().__init__("step_fails_data")
+        self.fails = fails
+        self.calls = 0
+
+    def _process(self, context):
+        self.calls += 1
+        if self.calls <= self.fails:
+            raise ReferenceMismatchError(
+                "нет записи",
+                problem_data=pd.DataFrame({
+                    "счёт": ["60.01"],
+                    "причина": ["нет строки в Меппинг_бб"],
+                }),
+                reference_name="Меппинг_бб",
+            )
+        return context
+
+
+@contextmanager
+def temp_run_dir():
+    """Папка вывода прогона во временном каталоге (реальные файлы не трогаем)."""
+    with tempfile.TemporaryDirectory(prefix="smoke_pause_out_") as tmp:
+        with patch("io_module.output_manager.OUTPUT_DATA_DIR", Path(tmp)):
+            configure_run()
+            yield Path(get_run_dir())
+
+
+def diagnostic_files(run_dir: Path) -> list[str]:
+    """Имена диагностических файлов папки запуска (mismatches/)."""
+    return sorted(path.name for path in (run_dir / "mismatches").glob("*.xlsx"))
+
+
+def captured_messages(level: str = "WARNING") -> tuple[list, int]:
+    """Sink того же вида, что в logger_config: собирает тексты указанного уровня.
+
+    Нужен, чтобы проверить, что ERROR «[STOP] Обработка остановлена» не
+    попадает в сводку предупреждений титульного листа у зелёного прогона.
+    """
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda m: messages.append(str(m)),
+        level=level,
+        format="{message}",
+    )
+    return messages, sink_id
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Тесты
@@ -390,6 +456,186 @@ def test_wait_for_reference_update_answers() -> None:
         )
 
 
+def test_stale_diagnostics_removed_after_resume() -> None:
+    """Шаг прошёл после правки справочника — файл первой попытки удалён."""
+    step = _FailsWithData(fails=1)
+    context = make_context()
+
+    with temp_run_dir() as run_dir, \
+            patch("pipeline.executors._stdin_is_tty", return_value=True), \
+            patch("pipeline.executors.wait_for_reference_update", return_value=True), \
+            patch("pipeline.executors.refresh_references"):
+        step.execute(context)
+        left = diagnostic_files(run_dir)
+
+    check(step.calls == 2, f"шаг повторён после паузы (вызовов: {step.calls})")
+    check(
+        left == [],
+        f"диагностика устранённой проблемы удалена из mismatches/ (осталось: {left})",
+    )
+    check(
+        context.data.get(REFERENCE_PAUSE_RESOLVED_KEY) == 1,
+        f"счётчик удалённой диагностики на титульный лист = 1 "
+        f"(факт: {context.data.get(REFERENCE_PAUSE_RESOLVED_KEY)})",
+    )
+
+
+def test_foreign_diagnostics_survive_resume() -> None:
+    """Чистка трогает только файлы этого шага: чужие и ранние остаются."""
+    step = _FailsWithData(fails=1)
+    context = make_context()
+    kept = (
+        "reference_scope_Тест_000000_000000.xlsx",
+        "manual_corrections_баланс_Тест_000000_000000.xlsx",
+        "missing_files_step_1b_000000_000000.xlsx",
+        "mismatch_step_01_прочее_000000_000000.xlsx",
+    )
+
+    with temp_run_dir() as run_dir, \
+            patch("pipeline.executors._stdin_is_tty", return_value=True), \
+            patch("pipeline.executors.wait_for_reference_update", return_value=True), \
+            patch("pipeline.executors.refresh_references"):
+        folder = run_dir / "mismatches"
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in kept:
+            (folder / name).write_text("заглушка", encoding="utf-8")
+        step.execute(context)
+        left = diagnostic_files(run_dir)
+
+    check(
+        left == sorted(kept),
+        f"остались только чужие и созданные до шага файлы (факт: {left})",
+    )
+
+
+def test_diagnostics_kept_on_stop() -> None:
+    """«стоп» в паузе: проблема не решена — диагностика остаётся."""
+    step = _FailsWithData(fails=1)
+    context = make_context()
+
+    with temp_run_dir() as run_dir, \
+            patch("pipeline.executors._stdin_is_tty", return_value=True), \
+            patch("pipeline.executors.wait_for_reference_update", return_value=False), \
+            patch("pipeline.executors.refresh_references"):
+        try:
+            step.execute(context)
+        except ProcessingStepError:
+            pass
+        else:
+            raise AssertionError("Ожидался ProcessingStepError при «стоп»")
+        left = diagnostic_files(run_dir)
+
+    check(len(left) == 1, f"диагностика сохранена после «стоп» (факт: {left})")
+    check(
+        REFERENCE_PAUSE_RESOLVED_KEY not in context.data,
+        "счётчик удалённой диагностики не вырос при «стоп»",
+    )
+
+
+def test_diagnostics_kept_when_retry_fails_again() -> None:
+    """Справочник обновили, но шаг упал снова и пользователь ответил «стоп»."""
+    step = _FailsWithData(fails=2)
+    context = make_context()
+
+    with temp_run_dir() as run_dir, \
+            patch("pipeline.executors._stdin_is_tty", return_value=True), \
+            patch(
+                "pipeline.executors.wait_for_reference_update",
+                side_effect=[True, False],
+            ) as mock_wait, \
+            patch("pipeline.executors.refresh_references"):
+        try:
+            step.execute(context)
+        except ProcessingStepError:
+            pass
+        else:
+            raise AssertionError("Ожидался ProcessingStepError после второго провала")
+        left = diagnostic_files(run_dir)
+
+    check(mock_wait.call_count == 2, f"было две паузы (факт: {mock_wait.call_count})")
+    check(
+        len(left) == 1,
+        f"диагностика нерешённой проблемы осталась (факт: {left})",
+    )
+
+
+def test_locked_diagnostics_file_survives() -> None:
+    """Файл открыт в Excel: удаление не удалось — прогон продолжается."""
+    step = _FailsWithData(fails=1)
+    context = make_context()
+
+    with temp_run_dir() as run_dir, \
+            patch("pipeline.executors._stdin_is_tty", return_value=True), \
+            patch("pipeline.executors.wait_for_reference_update", return_value=True), \
+            patch("pipeline.executors.refresh_references"), \
+            patch.object(Path, "unlink", side_effect=PermissionError("файл занят")):
+        step.execute(context)
+        left = diagnostic_files(run_dir)
+
+    check(step.calls == 2, "занятый файл не сорвал повторный проход шага")
+    check(
+        len(left) == 1,
+        f"занятый файл оставлен на месте (факт: {left})",
+    )
+    check(
+        REFERENCE_PAUSE_RESOLVED_KEY not in context.data,
+        "занятый файл не попал в счётчик удалённой диагностики",
+    )
+
+
+def test_stop_error_logged_only_on_real_stop() -> None:
+    """[STOP] в сводке предупреждений — только когда прогон реально остановился."""
+    stop_marker = "[STOP] Обработка остановлена"
+
+    # Успешное возобновление: сводка предупреждений остаётся чистой.
+    resumed_messages, sink_id = captured_messages()
+    try:
+        step = _FailsWithData(fails=1)
+        context = make_context()
+        with temp_run_dir(), \
+                patch("pipeline.executors._stdin_is_tty", return_value=True), \
+                patch("pipeline.executors.wait_for_reference_update", return_value=True) as mock_wait, \
+                patch("pipeline.executors.refresh_references"):
+            step.execute(context)
+            reason = mock_wait.call_args.args[1]
+    finally:
+        logger.remove(sink_id)
+
+    stop_lines = [line for line in resumed_messages if stop_marker in line]
+    check(
+        not stop_lines,
+        f"после возобновления в сводке нет строки «{stop_marker}» (факт: {stop_lines})",
+    )
+    check(
+        "step_fails_data" in reason and "Меппинг_бб" in reason,
+        f"причина передана в блок паузы (факт: {reason!r})",
+    )
+
+    # Реальная остановка: прежнее поведение — ERROR в сводке остаётся.
+    stopped_messages, sink_id = captured_messages()
+    try:
+        step = _FailsWithData(fails=1)
+        context = make_context()
+        with temp_run_dir(), \
+                patch("pipeline.executors._stdin_is_tty", return_value=True), \
+                patch("pipeline.executors.wait_for_reference_update", return_value=False), \
+                patch("pipeline.executors.refresh_references"):
+            try:
+                step.execute(context)
+            except ProcessingStepError:
+                pass
+            else:
+                raise AssertionError("Ожидался ProcessingStepError при «стоп»")
+    finally:
+        logger.remove(sink_id)
+
+    stop_lines = [line for line in stopped_messages if stop_marker in line]
+    check(
+        len(stop_lines) == 1,
+        f"при реальной остановке строка «{stop_marker}» в сводке одна (факт: {stop_lines})",
+    )
+
+
 def main() -> None:
     test_pause_and_retry_step()
     test_context_rollback_before_retry()
@@ -402,6 +648,12 @@ def main() -> None:
     test_missing_files_error_not_paused()
     test_refresh_failure_becomes_stop()
     test_wait_for_reference_update_answers()
+    test_stale_diagnostics_removed_after_resume()
+    test_foreign_diagnostics_survive_resume()
+    test_diagnostics_kept_on_stop()
+    test_diagnostics_kept_when_retry_fails_again()
+    test_locked_diagnostics_file_survives()
+    test_stop_error_logged_only_on_real_stop()
 
     total = PASSED + FAILED
     label = "пауза при неактуальном справочнике (PAUSE_ON_REFERENCE_ERROR)"

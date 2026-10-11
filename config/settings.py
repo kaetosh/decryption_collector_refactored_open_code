@@ -142,6 +142,10 @@ PAUSE_ON_REFERENCE_ERROR = True
 # (титульный лист), который не должен импортировать pipeline-модули.
 REFERENCE_PAUSE_ENABLED_KEY = "reference_pause_enabled"
 REFERENCE_PAUSE_COUNT_KEY = "reference_pause_count"
+# Сколько файлов диагностики удалено после успешного повтора шага (проблема
+# оказалась устранена правкой справочника). Пишет Step._drop_resolved_diagnostics,
+# читает титульный лист — файл после паузы должен быть самодостаточным.
+REFERENCE_PAUSE_RESOLVED_KEY = "reference_pause_resolved_diagnostics"
 
 
 # Конфигурация справочников

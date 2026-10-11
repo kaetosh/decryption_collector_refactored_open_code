@@ -15,6 +15,9 @@
      step20/step21_collapse_*) помечены как штатная информация; проблемные
      файлы стоят в списке выше информационных.
   7. Сбой при сборе строк не превращается в падение сохранения отчёта.
+  8. Сводка предупреждений на листе: лимит, повторы, ссылка на лог.
+  9. Пауза на обновление справочника: строка появляется только при паузе,
+     число удалённых файлов диагностики показано получателю.
 
 Запуск: python _smoke_report_cover.py
 """
@@ -251,6 +254,32 @@ def main() -> int:
     rows = rc.build_cover_rows(make_context(), warnings=None)
     check('ПРЕДУПРЕЖДЕНИЯ ЗА ПРОГОН' not in [label for label, _ in rows],
           'без сводки раздел не создаётся (обратная совместимость)')
+
+    print('\n9. Пауза на обновление справочника')
+    rows = rc.build_cover_rows(make_context(), warnings=[])
+    check(find_row(rows, 'Паузы для обновления справочника') == '',
+          'без паузы строка не появляется')
+
+    paused_ctx = make_context(data={
+        rc.REFERENCE_PAUSE_COUNT_KEY: 2,
+        rc.REFERENCE_PAUSE_RESOLVED_KEY: 3,
+    })
+    pause_text = find_row(
+        rc.build_cover_rows(paused_ctx, warnings=[]), 'Паузы для обновления справочника',
+    )
+    check(pause_text.startswith('2'), f'число пауз показано получателю: {pause_text}')
+    check('продолжилась с того же шага' in pause_text, 'сказано, что обработка продолжилась')
+    check('устранённая диагностика удалена (3)' in pause_text,
+          'сказано, что устаревшая диагностика удалена — искать её не нужно')
+
+    unresolved_ctx = make_context(data={rc.REFERENCE_PAUSE_COUNT_KEY: 1})
+    check(
+        'устранённая' not in find_row(
+            rc.build_cover_rows(unresolved_ctx, warnings=[]),
+            'Паузы для обновления справочника',
+        ),
+        'без удалённых файлов хвост про них не добавляется',
+    )
 
     total = PASSED + FAILED
     label = "титульный лист отчёта (лист «О отчёте»)"

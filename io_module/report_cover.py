@@ -50,6 +50,7 @@ from config.defaults import (
 from config.settings import (
     EXPORT_REPORT_ON_MISMATCH,
     REFERENCE_PAUSE_COUNT_KEY,
+    REFERENCE_PAUSE_RESOLVED_KEY,
     SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR,
     STRICT_ASSET_SALE_DISTRIBUTION_CHECK,
     STRICT_CONTRACTOR_CHECK,
@@ -394,11 +395,17 @@ def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str,
     rows.append(("Актуальность курса валюты", _currency_rate_status_text(context)))
     pause_count = int((context.data or {}).get(REFERENCE_PAUSE_COUNT_KEY, 0))
     if pause_count:
-        rows.append((
-            "Паузы для обновления справочника",
+        pause_text = (
             f"{pause_count} — прогон приостанавливался, "
-            f"Справочники.xlsx обновлялся и обработка продолжилась с того же шага",
-        ))
+            f"Справочники.xlsx обновлялся и обработка продолжилась с того же шага"
+        )
+        # Файлы диагностики первой попытки удалены (Step._drop_resolved_
+        # diagnostics) — без этой строки получатель искал бы в папке запуска
+        # проблему, которой уже нет.
+        resolved = int((context.data or {}).get(REFERENCE_PAUSE_RESOLVED_KEY, 0))
+        if resolved:
+            pause_text += f"; устранённая диагностика удалена ({resolved})"
+        rows.append(("Паузы для обновления справочника", pause_text))
 
     for label, df_name in (
         ("Строк в расшифровке баланса", "balance_df"),

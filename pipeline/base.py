@@ -7,12 +7,13 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 import numpy as np
 import pandas as pd
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, FrozenSet, List, Optional
 from loguru import logger
 from io_module.data_io import DataSaver
-from io_module.output_manager import get_output_dir, get_run_id
+from io_module.output_manager import get_output_dir, get_run_dir, get_run_id
 from pipeline.errors import (
     ReferenceMismatchError,
     MissingFilesError,
@@ -27,7 +28,18 @@ from pipeline.constants import (
     Values,
 )
 from pipeline.decorators import handle_pipeline_errors
-from config.settings import SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR, to_relative
+from config.settings import (
+    REFERENCE_PAUSE_RESOLVED_KEY,
+    SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR,
+    to_relative,
+)
+
+# Префикс файлов диагностики, которые пауза на неактуальном справочнике вправе
+# удалить после успешного повтора шага: только mismatch_* (их пишет
+# _save_reference_mismatch_report). Отчёты штатной работы шагов
+# (reference_scope_*, manual_corrections_*, step20/21_collapse_*) и
+# missing_files_* к справочной ошибке отношения не имеют и не трогаются.
+DIAGNOSTIC_RESOLVED_PREFIX = 'mismatch_'
 
 
 def _format_diagnostic_sheet(output_path: Any) -> None:
@@ -621,6 +633,105 @@ class Step(ABC):
             )
         except Exception as save_error:
             logger.error("Не удалось сохранить файл с проблемными данными: {}", save_error)
+
+    @staticmethod
+    def _diagnostics_folder() -> Optional[Path]:
+        """
+        Папка mismatches текущего запуска или None (вывод не инициализирован).
+
+        Именно get_run_dir(), а не get_output_dir(): снимок папки берётся
+        на каждом шаге, и get_output_dir создал бы пустую папку у прогонов,
+        у которых диагностики не будет вовсе.
+        """
+        try:
+            return get_run_dir() / 'mismatches'
+        except RuntimeError:
+            return None
+
+    def _snapshot_diagnostics(self) -> FrozenSet[str]:
+        """
+        Снимок файлов папки mismatches/ ДО шага (для паузы на справочнике).
+
+        Нужен сценарию «обновил справочник — продолжил с того же шага»:
+        если после Enter шаг отработал, диагностика первой попытки описывает
+        уже исправленную проблему, а титульный лист называет её «требуют
+        разбора» — получатель отчёта ищет несуществующую беду.
+
+        Снимок позволяет удалить ровно то, что создал этот шаг, не тронув
+        файлы предыдущих шагов. Без настроенного вывода (смоуки, юнит-тесты)
+        снимок пустой, а не падает.
+        """
+        folder = self._diagnostics_folder()
+        if folder is None or not folder.is_dir():
+            return frozenset()
+        try:
+            return frozenset(
+                entry.name for entry in folder.iterdir() if entry.is_file()
+            )
+        except OSError:
+            return frozenset()
+
+    def _drop_resolved_diagnostics(self, context, before: FrozenSet[str]) -> int:
+        """
+        Удаляет диагностику, созданную шагом, после успешного повтора.
+
+        Вызывается паузой на неактуальном справочнике: пользователь внёс
+        правки, шаг отработал — файлы первой попытки больше не описывают
+        состояние прогона, и оставлять их в папке запуска нельзя.
+
+        Удаляются ТОЛЬКО новые файлы с префиксом mismatch_ (отсутствовавшие
+        в снимке before). Файлы предыдущих шагов и штатные отчёты
+        (reference_scope_*, manual_corrections_*, step20/21_collapse_*)
+        не трогаются никогда. Папка mismatches не удаляется: она
+        пересоздаётся при первом обращении и на титуле не отображается
+        (пустая папка не даёт строк — см. report_cover._files_in_folder).
+
+        Файл, открытый в Excel, удалить нельзя — об этом пишется WARNING,
+        прогон продолжается: лишняя строка предупреждения лучше падения.
+
+        Args:
+            context: Контекст прогона (счётчик для титульного листа).
+            before: Снимок файлов папки, сделанный до шага.
+
+        Returns:
+            Сколько файлов удалено.
+        """
+        folder = self._diagnostics_folder()
+        if folder is None or not folder.is_dir():
+            return 0
+        try:
+            current = {entry.name for entry in folder.iterdir() if entry.is_file()}
+        except OSError:
+            return 0
+
+        removed = 0
+        for name in sorted(current - before):
+            if not name.startswith(DIAGNOSTIC_RESOLVED_PREFIX):
+                continue
+            path = folder / name
+            try:
+                path.unlink()
+            except OSError as error:
+                logger.warning(
+                    "[!] Не удалось удалить устаревшую диагностику '{}': {} — "
+                    "проблема устранена, но файл остался (открыт в Excel?). "
+                    "Удалите его вручную.",
+                    to_relative(path),
+                    error,
+                )
+                continue
+            removed += 1
+            logger.info(
+                "[CLEAN] Удалена устаревшая диагностика '{}' — проблема "
+                "устранена после обновления справочника.",
+                to_relative(path),
+            )
+
+        if removed:
+            context.data[REFERENCE_PAUSE_RESOLVED_KEY] = (
+                int(context.data.get(REFERENCE_PAUSE_RESOLVED_KEY, 0)) + removed
+            )
+        return removed
 
     
     @staticmethod

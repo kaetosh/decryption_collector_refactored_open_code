@@ -137,11 +137,21 @@ def handle_pipeline_errors(func):
         # пауза, откатим атрибуты и context.data к этому моменту, чтобы повтор
         # шага начался с чистого состояния (шаг мог частично изменить таблицы).
         snapshot = _snapshot_context(context)
+        # Снимок папки mismatches/ на тот же случай: после успешного повтора
+        # диагностика первой попытки описывает уже исправленную проблему.
+        diagnostics_before = self._snapshot_diagnostics()
 
-        def _pause_and_retry() -> bool:
+        def _pause_and_retry(reason: str) -> bool:
             """
             Пауза на неактуальном справочнике: ждём Enter, перечитываем
             Справочники.xlsx, откатываем контекст к состоянию до шага.
+
+            Args:
+                reason: Почему шаг упал — печатается в блоке паузы. ERROR
+                    «[STOP] Обработка остановлена» логируется вызывающим
+                    кодом только если паузы не будет: при успешном
+                    возобновлении он попал бы в сводку предупреждений
+                    титульного листа и пугал получателя у зелёного отчёта.
 
             Returns:
                 True — шаг надо повторить (пользователь подтвердил);
@@ -151,7 +161,7 @@ def handle_pipeline_errors(func):
                 return False
             from pipeline.executors import refresh_references, wait_for_reference_update
 
-            if not wait_for_reference_update(context):
+            if not wait_for_reference_update(context, reason):
                 return False
             # Шаг мог частично изменить таблицы/context.data до ошибки —
             # откатываем к состоянию до вызова шага, чтобы повтор был чистым.
@@ -181,6 +191,22 @@ def handle_pipeline_errors(func):
             )
             return True
 
+        def _retry_step():
+            """
+            Повтор шага после обновления справочника + чистка устаревшей
+            диагностики первой попытки.
+
+            Чистка выполняется именно здесь: если повтор снова упадёт,
+            исключение уйдёт наружу, файлы диагностики останутся, и
+            получатель увидит реальную проблему, а не устранённую.
+            """
+            result = wrapper(self, context)
+            # Duck-typing как в ветке успеха: счётчик для титульного листа
+            # пишем в тот же объект, куда ушла метрика повторного шага.
+            target = result if hasattr(result, "data") else context
+            self._drop_resolved_diagnostics(target, diagnostics_before)
+            return result
+
         logger.debug("--- Начало этапа: {} ---", step_name)
 
         try:
@@ -201,12 +227,10 @@ def handle_pipeline_errors(func):
             if STRICT_CONTRACTOR_CHECK:
                 # Строгий режим: падаем (или ждём обновления справочника)
                 _record(context, "error", str(e))
-                logger.error(
-                    "[STOP] Обработка остановлена: неизвестные контрагенты на этапе '{}': {}",
-                    step_name, e,
-                )
-                if _pause_and_retry():
-                    return wrapper(self, context)
+                reason = f"неизвестные контрагенты на этапе '{step_name}': {e}"
+                if _pause_and_retry(reason):
+                    return _retry_step()
+                logger.error("[STOP] Обработка остановлена: {}", reason)
                 raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
             else:
                 # Мягкий режим: заменяем на '3 лица' и продолжаем
@@ -230,12 +254,10 @@ def handle_pipeline_errors(func):
             _record(context, "error", str(e))
             e.step_name = step_name
             self._save_reference_mismatch_report(e)
-            logger.error(
-                "[STOP] Обработка остановлена: не найдены группы ОС на этапе '{}': {}",
-                step_name, e,
-            )
-            if _pause_and_retry():
-                return wrapper(self, context)
+            reason = f"не найдены группы ОС на этапе '{step_name}': {e}"
+            if _pause_and_retry(reason):
+                return _retry_step()
+            logger.error("[STOP] Обработка остановлена: {}", reason)
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
 
         except ConvergenceError as e:
@@ -260,12 +282,10 @@ def handle_pipeline_errors(func):
             _record(context, "error", str(e))
             e.step_name = step_name
             self._save_reference_mismatch_report(e)
-            logger.error(
-                "[STOP] Обработка остановлена: несоответствие данных справочникам на этапе '{}': {}",
-                step_name, e,
-            )
-            if _pause_and_retry():
-                return wrapper(self, context)
+            reason = f"несоответствие данных справочникам на этапе '{step_name}': {e}"
+            if _pause_and_retry(reason):
+                return _retry_step()
+            logger.error("[STOP] Обработка остановлена: {}", reason)
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
 
         except MissingFilesError as e:

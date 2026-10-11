@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 from loguru import logger
@@ -522,8 +522,14 @@ def _apply_company_reference_scope(context: ProcessingContext) -> None:
 # cli/main.py сразу после initialize_context (False при --no-interactive),
 # чтобы декоратор handle_pipeline_errors не знал о CLI-флаге напрямую.
 # Сами ключи объявлены в config/settings.py (REFERENCE_PAUSE_ENABLED_KEY /
-# REFERENCE_PAUSE_COUNT_KEY): их читает и io_module/report_cover — титульный
-# лист, который не должен импортировать pipeline-модули.
+# REFERENCE_PAUSE_COUNT_KEY / REFERENCE_PAUSE_RESOLVED_KEY): их читает и
+# io_module/report_cover — титульный лист, который не должен импортировать
+# pipeline-модули.
+
+# Сколько символов причины печатать в блоке паузы. Текст ошибки может быть
+# списком из сотен позиций (счета, контрагенты), а блок паузы печатается
+# в консоль целиком, минуя ограничение консольного формата loguru.
+_PAUSE_REASON_MAX_CHARS = 300
 
 
 def _stdin_is_tty() -> bool:
@@ -534,7 +540,10 @@ def _stdin_is_tty() -> bool:
         return False
 
 
-def wait_for_reference_update(context: ProcessingContext) -> bool:
+def wait_for_reference_update(
+    context: ProcessingContext,
+    reason: Optional[str] = None,
+) -> bool:
     """Пауза: ждём, пока пользователь обновит Справочники.xlsx.
 
     Возвращает True — продолжить (пользователь нажал Enter);
@@ -551,6 +560,14 @@ def wait_for_reference_update(context: ProcessingContext) -> bool:
     прервать (штатная остановка [STOP], код 1, с подсказками про mismatches/);
     Ctrl+C прерывает на уровне системы (KeyboardInterrupt, код 130) — общий
     механизм всех пауз, в инструкции пользователю не показывается.
+
+    Args:
+        context: Контекст прогона.
+        reason: Причина остановки шага (для блока паузы). Нужна, потому что
+            ERROR «[STOP] Обработка остановлена» логируется только когда
+            паузы нет: при успешном возобновлении он попал бы в сводку
+            предупреждений титульного листа зелёного отчёта. Текст
+            обрезается — блок паузы печатается в консоль целиком.
     """
     if not context.data.get(REFERENCE_PAUSE_ENABLED_KEY, True):
         return False
@@ -560,6 +577,9 @@ def wait_for_reference_update(context: ProcessingContext) -> bool:
     print()
     print("=" * 80)
     print("[>>] ПРОГОН ПРИОСТАНОВЛЕН: неактуальный справочник.")
+    if reason:
+        print(f"     Причина: {reason[:_PAUSE_REASON_MAX_CHARS]}"
+              f"{'...' if len(reason) > _PAUSE_REASON_MAX_CHARS else ''}")
     print("     Проблемные значения — в файлах mismatches/ папки запуска, детали — в логе выше.")
     print(f"     Справочник: {to_relative(REFERENCE_DATA_FILE)}")
     print()
@@ -578,6 +598,10 @@ def wait_for_reference_update(context: ProcessingContext) -> bool:
         if cleaned in ("стоп", "stop", "s", "q", "нет", "n"):
             return False
         if cleaned == "":
+            print()
+            print("[i] Проверяю обновлённый справочник и продолжаю с этого же шага...")
+            print("     Файлы mismatches/ от прежней попытки будут удалены, если")
+            print("     после ваших правок шаг пройдёт — разбирать их будет нечего.")
             return True
         print('[i] Пустой Enter — продолжить, «стоп» — прервать прогон.')
 
