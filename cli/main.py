@@ -41,7 +41,12 @@ from pipeline.executors import (
 from pipeline.errors import PipelineError, ProcessingStepError
 from cli.arguments import parse_arguments
 from cli.splash import hold_splash, show_splash
-from config.settings import SHOW_SPLASH, BASE_DIR, to_relative
+from config.settings import (
+    BASE_DIR,
+    REFERENCE_PAUSE_ENABLED_KEY,
+    SHOW_SPLASH,
+    to_relative,
+)
 from io_module.auto_sort import cleanup_old_archive
 from io_module.output_manager import cleanup_old_runs, configure_run, get_run_id, get_run_dir
 from io_module.run_summary import log_run_summary
@@ -162,6 +167,12 @@ def main(
         context = initialize_context()
         context.run_id = get_run_id()
         context.tolerance_params = load_params(context)
+
+        # Пауза при неактуальном справочнике (сценарий «обновил справочник —
+        # продолжил с того же шага»): разрешена только в интерактивном режиме.
+        # Флаг читается из context.data, чтобы декоратор handle_pipeline_errors
+        # не знал о CLI-флаге напрямую.
+        context.data[REFERENCE_PAUSE_ENABLED_KEY] = not no_interactive
 
         # Дата перевода валютных остатков (для компаний с валютой != RUB):
         # приоритет — CLI-флаг --balance-date, затем интерактивный вопрос;

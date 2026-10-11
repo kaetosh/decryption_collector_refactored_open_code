@@ -11,6 +11,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import sys
 from typing import Any
 
 import pandas as pd
@@ -19,7 +20,12 @@ from loguru import logger
 from pipeline.base import ProcessingContext, Step
 from pipeline.constants import ColumnNames
 from pipeline.errors import ReferenceMismatchError, PeriodMismatchError, TooManyFilesError
-from pipeline.step_config import BalanceReportConstants, OpuReportConstants
+from pipeline.step_config import (
+    BalanceReportConstants,
+    ManualCorrectionsConstants,
+    OpuReportConstants,
+)
+from config.loader import load_params
 from config.settings import (
     ACCOUNT_CARDS_DIR,
     ACCOUNTS_OSV_DIR,
@@ -28,7 +34,10 @@ from config.settings import (
     INBOX_DIR,
     OSV_GENERAL_DIR,
     REFERENCE_CONFIGS,
+    REFERENCE_DATA_FILE,
     REFERENCE_DIR,
+    REFERENCE_PAUSE_ENABLED_KEY,
+    REFERENCE_PAUSE_COUNT_KEY,
     SPECIAL_REPORTS_DIR,
     to_relative,
 )
@@ -504,6 +513,116 @@ def _apply_company_reference_scope(context: ProcessingContext) -> None:
     }
 
     _save_reference_scope_diagnostics(diagnostics, context)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2б. Пауза при неактуальном справочнике (PAUSE_ON_REFERENCE_ERROR)
+# ─────────────────────────────────────────────────────────────────────────────
+# Ключ в context.data: разрешена ли пауза в этом запуске. Выставляется в
+# cli/main.py сразу после initialize_context (False при --no-interactive),
+# чтобы декоратор handle_pipeline_errors не знал о CLI-флаге напрямую.
+# Сами ключи объявлены в config/settings.py (REFERENCE_PAUSE_ENABLED_KEY /
+# REFERENCE_PAUSE_COUNT_KEY): их читает и io_module/report_cover — титульный
+# лист, который не должен импортировать pipeline-модули.
+
+
+def _stdin_is_tty() -> bool:
+    """Признак «stdin — терминал». Без TTY ждать ввода нельзя (CI, редирект в файл)."""
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def wait_for_reference_update(context: ProcessingContext) -> bool:
+    """Пауза: ждём, пока пользователь обновит Справочники.xlsx.
+
+    Возвращает True — продолжить (пользователь нажал Enter);
+    False — прервать прогон как раньше ([STOP] и код выхода 1).
+
+    Пауза делается только если она разрешена для запуска
+    (context.data[REFERENCE_PAUSE_ENABLED_KEY], выставляется в cli/main.py)
+    И stdin — терминал. В --no-interactive / без TTY паузы нет — поведение
+    остаётся прежним (ошибка сразу уходит в [STOP]). Это тот же принцип,
+    что у hold_splash: фоновым прогонам лишние паузы не нужны.
+
+    Пользователь может несколько раз править справочник: после Enter шаг
+    повторяется, и если ошибка осталась — пауза возникнет снова. «стоп» —
+    прервать (штатная остановка [STOP], код 1, с подсказками про mismatches/);
+    Ctrl+C прерывает на уровне системы (KeyboardInterrupt, код 130) — общий
+    механизм всех пауз, в инструкции пользователю не показывается.
+    """
+    if not context.data.get(REFERENCE_PAUSE_ENABLED_KEY, True):
+        return False
+    if not _stdin_is_tty():
+        return False
+
+    print()
+    print("=" * 80)
+    print("[>>] ПРОГОН ПРИОСТАНОВЛЕН: неактуальный справочник.")
+    print("     Проблемные значения — в файлах mismatches/ папки запуска, детали — в логе выше.")
+    print(f"     Справочник: {to_relative(REFERENCE_DATA_FILE)}")
+    print()
+    print("     1. Внесите правки в файл Справочники.xlsx (закройте его в Excel).")
+    print("     2. Нажмите Enter — обработка продолжится С ТЕКУЩЕГО ШАГА;")
+    print("        выгрузки перечитываться не будут.")
+    print("     Чтобы остановить скрипт, введите: стоп")
+    print("=" * 80)
+    while True:
+        try:
+            answer = input("\n[PAUSE] Справочник обновлён? Нажмите Enter для продолжения... ")
+        except EOFError:
+            print()
+            return False
+        cleaned = answer.strip().lower()
+        if cleaned in ("стоп", "stop", "s", "q", "нет", "n"):
+            return False
+        if cleaned == "":
+            return True
+        print('[i] Пустой Enter — продолжить, «стоп» — прервать прогон.')
+
+
+def refresh_references(context: ProcessingContext) -> None:
+    """Перечитывает Справочники.xlsx после паузы — без перечитывания выгрузок.
+
+    Обновляет context.references, допуски сходимости (лист «Параметры»),
+    повторно валидирует компанию и применяет индивидуальный меппинг
+    (_apply_company_reference_scope), сбрасывает кэш ручных правок
+    (Правки.xlsx — get_corrections читает его один раз на прогон).
+
+    Данные выгрузок (common_osv_df, summary_osv_df, journal_df, balance_df,
+    pnl_df) НЕ трогаются — это и есть выигрыш сценария: дорогая обработка
+    выгрузок повторно не выполняется.
+
+    Raises:
+        ReferenceMismatchError: обновлённый справочник сам невалиден
+            (например, период в КомпанииГруппы изменён — PeriodMismatchError).
+            Вызывающий декоратор превращает это в честный [STOP].
+    """
+    logger.info("[RESUME] Перечитываем Справочники.xlsx (данные выгрузок не затрагиваются)")
+
+    # Кэш ручных правок загружается один раз на прогон (get_corrections):
+    # при паузе его надо сбросить, иначе шаги 12а/18а увидят старые правила.
+    context.data.pop(ManualCorrectionsConstants.CONTEXT_KEY, None)
+
+    context.references = _load_all_references()
+
+    # Допуски сходимости — тоже лист справочника («Параметры»): если их
+    # правили вместе с меппингом, повторный прогон должен видеть новые.
+    context.tolerance_params = load_params(context)
+
+    # Компания могла быть переименована/дополнена — повторяем валидацию и
+    # обогащение (безопасно: присваивает те же поля, если ничего не менялось).
+    _validate_and_enrich_company_info(context)
+
+    # Индивидуальный меппинг компании (колонка «компания» в Меппинг_опу/Меппинг_бб).
+    _apply_company_reference_scope(context)
+
+    logger.info(
+        "[RESUME] Справочники перечитаны: листов {}, допусков {}",
+        len(context.references),
+        len(context.tolerance_params),
+    )
 
 
 # Имена листов Excel-диагностики индивидуального меппинга. Первые два — обе

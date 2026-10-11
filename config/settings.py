@@ -127,6 +127,22 @@ EXPORT_REPORT_ON_MISMATCH = True
 # False — прежнее (жёсткое) поведение: ошибка обработки останавливает конвейер.
 SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR = True
 
+# Пауза при неактуальном справочнике (сценарий «обновил справочник — продолжил
+# с того же шага»): True — при справочной ошибке шага (ReferenceMismatchError
+# и подвиды, MissingContractorError в строгом режиме, MissingOSGroupError)
+# конвейер не останавливается, а ждёт Enter после обновления Справочники.xlsx
+# и повторяет УПАВШИЙ шаг с уже обработанными выгрузками (они не перечитываются).
+# False — прежнее поведение: [STOP] и код выхода 1.
+# Пауза не делается автоматически в --no-interactive и без TTY (см.
+# pipeline/executors.wait_for_reference_update): там поведение как раньше.
+PAUSE_ON_REFERENCE_ERROR = True
+
+# Ключи паузы в context.data (см. PAUSE_ON_REFERENCE_ERROR). Вынесены в
+# config.settings, а не в pipeline.executors: их читает и io_module/report_cover
+# (титульный лист), который не должен импортировать pipeline-модули.
+REFERENCE_PAUSE_ENABLED_KEY = "reference_pause_enabled"
+REFERENCE_PAUSE_COUNT_KEY = "reference_pause_count"
+
 
 # Конфигурация справочников
 REFERENCE_CONFIGS = {

@@ -172,6 +172,20 @@ pip install -r requirements.txt
 | `TooManyFilesError` | отчёт об избыточных файлах в Excel (mismatches/), сбой. Возникает, когда в папке найдено более одного файла по паттерну (например, два файла общей ОСВ) |
 | `Exception` | заворачивается в `ProcessingStepError`, оригинал — в `__cause__` |
 
+**Пауза при неактуальном справочнике** (`PAUSE_ON_REFERENCE_ERROR`,
+по умолчанию `True`): справочная ошибка шага (`ReferenceMismatchError` и
+подвиды, `MissingContractorError` в строгом режиме, `MissingOSGroupError`)
+не останавливает прогон, а ждёт Enter («Справочники.xlsx обновлён?»), после
+чего декоратор `handle_pipeline_errors` откатывает контекст к состоянию до
+шага, перечитывает `Справочники.xlsx` (`refresh_references`) и **повторяет
+упавший шаг** — данные выгрузок не перечитываются. Если ошибка осталась —
+пауза возникает снова (несколько обновлений справочника подряд). Пауза не
+делается в `--no-interactive` и без TTY — там поведение прежнее (`[STOP]`,
+код 1). `ConvergenceError` (расхождение данных) и `MissingFilesError` /
+`TooManyFilesError` (файлы выгрузок) паузой не обрабатываются. Подробнее —
+в `AGENTS.md`, смоук `_smoke_reference_pause.py`.
+
+
 Иерархия и атрибуты исключений — в `pipeline/errors.py`. Появление нового типа
 ошибки: добавить класс в `errors.py` и ветку в `decorators.py`.
 

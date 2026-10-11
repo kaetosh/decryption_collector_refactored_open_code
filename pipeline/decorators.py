@@ -14,7 +14,11 @@ from time import perf_counter
 import pandas as pd
 from loguru import logger
 
-from config.settings import STRICT_CONTRACTOR_CHECK
+from config.settings import (
+    PAUSE_ON_REFERENCE_ERROR,
+    REFERENCE_PAUSE_COUNT_KEY,
+    STRICT_CONTRACTOR_CHECK,
+)
 from pipeline.errors import (
     ReferenceMismatchError,
     ConvergenceError,
@@ -45,6 +49,40 @@ def _collect_rows(target) -> dict:
             if isinstance(value, pd.DataFrame):
                 rows[f"data.{key}"] = len(value)
     return rows
+
+
+def _snapshot_context(target) -> dict:
+    """
+    Сохраняет состояние контекста ДО вызова шага: ссылки на все атрибуты
+    и копию словаря context.data.
+
+    Используется паузой на неактуальном справочнике: шаг мог частично
+    изменить таблицы/context.data до того, как упал на ReferenceMismatchError.
+    Перед повторным выполнением шага контекст откатывается к этому состоянию,
+    чтобы повтор начался «с чистого листа» (как если бы шаг ещё не выполнялся).
+
+    Сохраняются ссылки, а не глубокие копии — O(1) по объёму данных.
+    In-place мутации DataFrame (изменение объекта по той же ссылке) этим
+    снапшотом не откатываются, но шаги пайплайна работают с локальными
+    .copy() и присваивают результат в контекст только при успехе (аудит 10/2026).
+    """
+    names = getattr(target, "__slots__", None) or list(getattr(target, "__dict__", {}).keys())
+    fields = [name for name in names if not str(name).startswith("__")]
+    snapshot = {name: getattr(target, name, None) for name in fields}
+    data = getattr(target, "data", None)
+    if isinstance(data, dict):
+        snapshot["data"] = dict(data)
+    return snapshot
+
+
+def _restore_context(target, snapshot: dict) -> None:
+    """Возвращает атрибуты контекста к снапшоту (тем объектам, что были до шага)."""
+    for name, old in snapshot.items():
+        if getattr(target, name, None) is not old:
+            try:
+                setattr(target, name, old)
+            except Exception:  # noqa: BLE001 — откат не должен ломать паузу
+                continue
 
 
 def handle_pipeline_errors(func):
@@ -95,6 +133,54 @@ def handle_pipeline_errors(func):
                     "rows": rows,
                 })
 
+        # Состояние контекста до шага: если шаг упадёт на справочнике и встанет
+        # пауза, откатим атрибуты и context.data к этому моменту, чтобы повтор
+        # шага начался с чистого состояния (шаг мог частично изменить таблицы).
+        snapshot = _snapshot_context(context)
+
+        def _pause_and_retry() -> bool:
+            """
+            Пауза на неактуальном справочнике: ждём Enter, перечитываем
+            Справочники.xlsx, откатываем контекст к состоянию до шага.
+
+            Returns:
+                True — шаг надо повторить (пользователь подтвердил);
+                False — прервать прогон как раньше ([STOP]).
+            """
+            if not PAUSE_ON_REFERENCE_ERROR:
+                return False
+            from pipeline.executors import refresh_references, wait_for_reference_update
+
+            if not wait_for_reference_update(context):
+                return False
+            # Шаг мог частично изменить таблицы/context.data до ошибки —
+            # откатываем к состоянию до вызова шага, чтобы повтор был чистым.
+            _restore_context(context, snapshot)
+            # Счётчик для титульного листа: получатель видит, что отчёт собран
+            # после паузы на обновлении справочника (после отката context.data,
+            # иначе счётчик затерялся бы вместе с мутациями шага).
+            context.data[REFERENCE_PAUSE_COUNT_KEY] = (
+                int(context.data.get(REFERENCE_PAUSE_COUNT_KEY, 0)) + 1
+            )
+            try:
+                refresh_references(context)
+            except ReferenceMismatchError as refresh_error:
+                # Обновлённый справочник сам невалиден (например, изменён период
+                # в КомпанииГруппы) — честный [STOP] с новой причиной.
+                _record(context, "error", str(refresh_error))
+                logger.error(
+                    "[STOP] Обработка остановлена: при перечитывании обновлённого "
+                    "справочника на этапе '{}' возникла ошибка: {}",
+                    step_name, refresh_error,
+                )
+                raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from refresh_error
+            logger.info(
+                "[RESUME] Справочник обновлён — повторяем шаг '{}' "
+                "(выгрузки не перечитываются).",
+                step_name,
+            )
+            return True
+
         logger.debug("--- Начало этапа: {} ---", step_name)
 
         try:
@@ -113,12 +199,14 @@ def handle_pipeline_errors(func):
             self._save_reference_mismatch_report(e)
 
             if STRICT_CONTRACTOR_CHECK:
-                # Строгий режим: падаем
+                # Строгий режим: падаем (или ждём обновления справочника)
                 _record(context, "error", str(e))
                 logger.error(
                     "[STOP] Обработка остановлена: неизвестные контрагенты на этапе '{}': {}",
                     step_name, e,
                 )
+                if _pause_and_retry():
+                    return wrapper(self, context)
                 raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
             else:
                 # Мягкий режим: заменяем на '3 лица' и продолжаем
@@ -146,6 +234,8 @@ def handle_pipeline_errors(func):
                 "[STOP] Обработка остановлена: не найдены группы ОС на этапе '{}': {}",
                 step_name, e,
             )
+            if _pause_and_retry():
+                return wrapper(self, context)
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
 
         except ConvergenceError as e:
@@ -174,6 +264,8 @@ def handle_pipeline_errors(func):
                 "[STOP] Обработка остановлена: несоответствие данных справочникам на этапе '{}': {}",
                 step_name, e,
             )
+            if _pause_and_retry():
+                return wrapper(self, context)
             raise ProcessingStepError(f"Сбой на этапе '{step_name}'") from e
 
         except MissingFilesError as e:

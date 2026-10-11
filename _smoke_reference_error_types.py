@@ -37,6 +37,7 @@ ConvergenceError вместо ValueError (INC-6a, INC-6c); ProcessingStepError
 """
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -132,22 +133,26 @@ def test_reference_error_stops_pipeline_as_stop_not_critical() -> None:
     context = ProcessingContext(company='Тест', segment='Собственность', period='202608',
                                 type_period='8 мес')
 
-    try:
-        _FailingStep().execute(context)
-    except ProcessingStepError as exc:
-        cause = exc.__cause__
-        check(isinstance(cause, ReferenceMismatchError), f"причина — ReferenceMismatchError (факт: {cause!r})")
-        check(
-            isinstance(cause, PipelineError),
-            'первопричина — PipelineError, иначе cli/main.py напечатал бы '
-            'CRITICAL [!!] Неожиданная ошибка вместо [STOP]',
-        )
-        check(
-            context.step_metrics[-1]['status'] == 'error',
-            f"метрики шага записали статус error (факт: {context.step_metrics})",
-        )
-    else:
-        raise AssertionError('Ожидался ProcessingStepError')
+    # Неинтерактив: без TTY пауза на справочнике (PAUSE_ON_REFERENCE_ERROR)
+    # не делается — поведение как раньше ([STOP]). Смоук проверяет именно
+    # контракт ReferenceMismatchError -> ProcessingStepError с PipelineError-причиной.
+    with patch('pipeline.executors._stdin_is_tty', return_value=False):
+        try:
+            _FailingStep().execute(context)
+        except ProcessingStepError as exc:
+            cause = exc.__cause__
+            check(isinstance(cause, ReferenceMismatchError), f"причина — ReferenceMismatchError (факт: {cause!r})")
+            check(
+                isinstance(cause, PipelineError),
+                'первопричина — PipelineError, иначе cli/main.py напечатал бы '
+                'CRITICAL [!!] Неожиданная ошибка вместо [STOP]',
+            )
+            check(
+                context.step_metrics[-1]['status'] == 'error',
+                f"метрики шага записали статус error (факт: {context.step_metrics})",
+            )
+        else:
+            raise AssertionError('Ожидался ProcessingStepError')
 
 
 def test_convergence_error_has_own_stop_message() -> None:

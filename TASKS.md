@@ -6,11 +6,25 @@
 ---
 
 ## Активные задачи
-* Активных задач нет. Последняя закрыта 07.10.2026 — НДС выручки 90.01 берётся готовой суммой из отчёта по проводкам 90.03 вместо восстановления ставки из субконто (см. «Завершённые задачи»).
+* Активных задач нет. Последняя закрыта 09.10.2026 — пауза при неактуальном справочнике: прогон приостанавливается на упавшем шаге, ждёт Enter после обновления Справочники.xlsx и повторяет шаг (PAUSE_ON_REFERENCE_ERROR).
 
 ---
 
 ## Завершённые задачи
+### ✅ Пауза при неактуальном справочнике: продолжить с того же шага (PAUSE_ON_REFERENCE_ERROR)
+- **Дата:** сессия 09.10.2026 — **завершена**
+- **Симптом:** запустили скрипт → дождались обработки выгрузок → стоп из-за неполного справочника → актуализировали → заново запускаем прогон с самого начала. На объёмных выгрузках крупных компаний это дорого, а при нескольких обновлениях справочника подряд — умножалось.
+- **Настоящая причина:** ошибки справочников (`ReferenceMismatchError` и подвиды) — жёсткий стоп `[STOP]` с кодом 1; состояние пайплайна не сохранялось между запусками, а справочники читались один раз в `initialize_context` (`context.references`) — перезапуск заново парсил все выгрузки.
+- **Решение — пауза и повтор шага внутри одного процесса (декоратор `handle_pipeline_errors`, `pipeline/decorators.py`):**
+  1. **Гейт** — только справочные ошибки шагов (`ReferenceMismatchError` и подвиды, `MissingContractorError` в строгом режиме, `MissingOSGroupError`). НЕ паузируются: `ConvergenceError` (расхождение данных), `MissingFilesError`/`TooManyFilesError` (файлы выгрузок), общий `except Exception`, ошибки Фазы 0 вне шагов.
+  2. `wait_for_reference_update(context)` (`pipeline/executors.py`) — печатает инструкцию в stdout (как паузы выгрузок) и ждёт `input()`: пустой Enter — продолжить; «стоп»/`stop`/`s`/`q`/EOF — прервать как раньше. Мусорный ввод переспрашивается.
+  3. `_snapshot_context`/`_restore_context` (`pipeline/decorators.py`) — перед шагом снимаются ссылки на атрибуты + копия `context.data`; при паузе контекст откатывается к состоянию ДО шага (шаг мог частично изменить таблицы до ошибки). Шаги пайплайна работают с локальными `.copy()` и присваивают в контекст только при успехе (аудит 20 мест `raise`), поэтому отката ссылок достаточно.
+  4. `refresh_references(context)` — перечитывает `Справочники.xlsx` (`_load_all_references`, `load_params`, `_validate_and_enrich_company_info`, `_apply_company_reference_scope`, сброс кэша `Правки.xlsx`), **данные выгрузок не трогает**. Битый обновлённый справочник → честный `[STOP]` с новой причиной.
+  5. `return wrapper(self, context)` — повторный вызов упавшего шага; повторная ошибка → новая пауза (несколько обновлений подряд). Счётчик пауз `REFERENCE_PAUSE_COUNT_KEY` → строка «Паузы для обновления справочника» на титульном листе (`io_module/report_cover._status_rows`).
+- **Флаги:** `PAUSE_ON_REFERENCE_ERROR = True` (`config/settings.py`); при `--no-interactive` (`context.data[REFERENCE_PAUSE_ENABLED_KEY] = False`, выставляет `cli/main.py`) и без TTY (`_stdin_is_tty()`) пауза не делается — поведение побайтово прежнее. Ключи `REFERENCE_PAUSE_ENABLED_KEY`/`REFERENCE_PAUSE_COUNT_KEY` в `config/settings.py` (их читает `report_cover`, не импортируя `pipeline`). Ленивый импорт `refresh_references`/`wait_for_reference_update` в декораторе — разрыв цикла `executors → base → decorators`.
+- **Проверка:** `_smoke_reference_pause.py` (новый) — **`SMOKE_OK (33/33)`**: пауза+повтор, откат контекста, счётчик, две паузы, «стоп», выключенный флаг, неинтерактив, без TTY, ConvergenceError/MissingFilesError не паузятся, битый обновлённый справочник → `[STOP]`, примитивы `wait_for_reference_update`. Регрессии: `_smoke_reference_error_types.py` — `SMOKE_OK (19/19)` (добавлен патч `_stdin_is_tty → False` в тесте `execute` — иначе смоук упирался в паузу), `_smoke_manual_corrections.py` — `SMOKE_OK (78/78)`, `_smoke_input_data_errors.py` — `SMOKE_OK (71/71)`, `_smoke_report_cover.py` — `SMOKE_OK (54/54)`, `_smoke_optional_special_reports.py` — `SMOKE_OK (15/15)`, `_smoke_warnings_summary.py` — `SMOKE_OK (18/18)`; `py_compile` всех изменённых файлов — OK.
+- **Файлы:** `config/settings.py`, `pipeline/decorators.py`, `pipeline/executors.py`, `cli/main.py`, `io_module/report_cover.py`, `_smoke_reference_pause.py` (новый), `_smoke_reference_error_types.py`, `AGENTS.md`, `README.md`, `TASKS.md`.
+
 ### ✅ НДС выручки 90.01 — из отчёта по проводкам 90.03 вместо ставки из субконто
 - **Дата:** сессия 07.10.2026 — **завершена**
 - **Симптом (прогон RO, 6мес2026, 07.10.2026 21:20):**
