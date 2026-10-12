@@ -7,6 +7,7 @@ Mixin с загрузкой и фильтрацией данных для Шаг
     _filter_91_transactions: фильтрация проводок по 91.01/91.02
     _add_income_expense_type: подтягивание вид_дохода_расхода из Меппинг_опу
     _check_unspecified: проверка наличия неучтённых доходов/расходов
+    _build_contractor_positions: карта {код счёта: номер субконто с контрагентом}
     _extract_contractors: извлечение контрагентов из Субконто
 """
 import pandas as pd
@@ -17,6 +18,7 @@ from utils import build_composite_key, individual_scope_mask
 
 from pipeline.base import ProcessingContext
 from pipeline.errors import MissingMappingError, ReferenceMismatchError
+from pipeline.step_config import StepConstants
 
 
 class Step17DataMixin:
@@ -43,12 +45,7 @@ class Step17DataMixin:
             chart_accounts_all_df['компания'] == name_company
         ]
 
-        accounts_with_contractors = tuple(
-            chart_accounts_df.loc[
-                chart_accounts_df['субконто_1'] == 'Контрагенты',
-                'код'
-            ]
-        )
+        contractor_positions = self._build_contractor_positions(chart_accounts_df)
 
         # ★ Единообразие с другими справочниками: вместо сырого ValueError —
         # ReferenceMismatchError с problem_data (штатная остановка [STOP],
@@ -71,21 +68,30 @@ class Step17DataMixin:
                 searched_company=name_company,
             )
 
-        if not accounts_with_contractors:
+        if not contractor_positions:
+            subconto_cols = ', '.join(self.CONTRACTOR_SUBCONTO_COLS)
             raise ReferenceMismatchError(
                 message=(
                     f"В плане счетов БУ (лист ПланСчетовБУ) для компании "
-                    f"'{name_company}' нет счетов со значением 'Контрагенты' "
-                    f"в поле субконто_1. Дополните справочник."
+                    f"'{name_company}' нет счетов со значением "
+                    f"'{self.CONTRACTOR_VALUE}' ни в одной из колонок "
+                    f"({subconto_cols}). Дополните справочник."
                 ),
-                problem_data=chart_accounts_df[['компания', 'код', 'субконто_1']].copy(),
+                problem_data=chart_accounts_df[
+                    ['компания', 'код', *self.CONTRACTOR_SUBCONTO_COLS]
+                ].copy(),
                 reference_name="ПланСчетовБУ",
                 searched_company=name_company,
             )
 
         logger.debug(
-            "Счета с контрагентами из ПланаСчетовБУ: {}",
-            accounts_with_contractors,
+            "Счета с контрагентами из ПланСчетовБУ: {} счетов, "
+            "по позициям субконто: {}",
+            len(contractor_positions),
+            {
+                pos: sum(1 for p in contractor_positions.values() if p == pos)
+                for pos in range(1, len(self.CONTRACTOR_SUBCONTO_COLS) + 1)
+            },
         )
 
         other_income_vat_df = context.references['прочие_доходы_ндс']
@@ -130,7 +136,7 @@ class Step17DataMixin:
             'group_companies': group_companies_df,
             'companies': companies_df,
             'credit': credit_df,
-            'accounts_with_contractors': accounts_with_contractors,
+            'contractor_positions': contractor_positions,
             'asset_sale_types': asset_sale_types,
             'valid_rbp_types': valid_rbp_types,
         }
@@ -418,30 +424,94 @@ class Step17DataMixin:
         if not df_9101.loc[df_9101['вид_дохода_расхода'] == 'не_указано'].empty:
             logger.warning("[!] Есть неучтённые доходы в 91.01!")
 
+    def _build_contractor_positions(self, chart_accounts_df: pd.DataFrame) -> dict:
+        """Строит карту {код счёта: номер субконто, где лежит контрагент}.
+
+        Источник — лист ПланСчетовБУ, отфильтрованный по компании. Контрагент
+        не обязан быть в первом субконто: у счёта 45 (товары на ответственном
+        хранении), 45.01–45.04 или 98.01 (доходы будущих периодов) он во
+        втором — на реальных данных СТБ это 36 проводок 91.01, которые раньше
+        молча уходили в 'не_указано'.
+
+        Номер субконто справочника переносится на колонку выгрузки по
+        проводкам напрямую: 1С выгружает субконто подряд с первого, без
+        пропусков, поэтому 'субконто_2' -> колонка 'Субконто Дт_2'/'Кт_2'.
+
+        Если бухгалтер продублирует 'Контрагенты' в двух колонках одного
+        счёта, побеждает минимальный номер: setdefault не перезаписывает, а
+        колонки обходятся в порядке 1, 2, 3.
+        """
+        positions: dict[str, int] = {}
+
+        for position, column in enumerate(self.CONTRACTOR_SUBCONTO_COLS, start=1):
+            if column not in chart_accounts_df.columns:
+                continue
+
+            codes = chart_accounts_df.loc[
+                chart_accounts_df[column] == self.CONTRACTOR_VALUE,
+                'код',
+            ]
+
+            for code in codes.dropna():
+                code_str = str(code).strip()
+                if code_str:
+                    positions.setdefault(code_str, position)
+
+        return positions
+
     def _extract_contractors(
         self,
         df: pd.DataFrame,
         is_income: bool,
-        accounts_with_contractors: tuple
+        contractor_positions: dict
     ) -> pd.DataFrame:
         """
-        Извлекает контрагентов из Субконто.
+        Извлекает контрагентов из Субконто, беря колонку по номеру из плана счетов.
 
-        Для 91.01 (доходы): контрагент в Субконто Дт_1, корр.счет = Дт
-        Для 91.02 (расходы): контрагент в Субконто Кт_1, корр.счет = Кт
+        Для 91.01 (доходы): контрагент на стороне Дт, корр.счет = Дт
+        Для 91.02 (расходы): контрагент на стороне Кт, корр.счет = Кт
+
+        Колонка выбирается по позиции субконто из ПланСчетовБУ
+        ({код: номер субконто}), а не захардкожена как '..._1'.
         """
-        contractor_col = 'Субконто Дт_1' if is_income else 'Субконто Кт_1'
+        prefix = 'Субконто Дт' if is_income else 'Субконто Кт'
 
-        mask_contractor = df['Корр.счет'].astype(str).isin(accounts_with_contractors)
+        # Явный Int64 обязателен: без него pandas тянет из int NaN и делает
+        # dtype float64, тогда имя колонки стало бы 'Субконто Дт_2.0'.
+        positions = (
+            df['Корр.счет'].astype('string')
+            .map(contractor_positions)
+            .astype('Int64')
+        )
 
-        df['контрагент'] = df[contractor_col].where(
-            mask_contractor,
-            'не_указано'
-        ).astype('string')
+        df['контрагент'] = pd.Series(
+            StepConstants.UNSPECIFIED, index=df.index, dtype='string'
+        )
+
+        for position in sorted({int(p) for p in positions.dropna()}):
+            contractor_col = f'{prefix}_{position}'
+
+            if contractor_col not in df.columns:
+                # План требует субконто на этой позиции, а выгрузка такой
+                # колонки не отдала (например, в файле 91.01 есть только
+                # 'Субконто Кт_1'). Строка останется с 'не_указано' —
+                # это дефект входных данных, а не повод ронять конвейер.
+                logger.warning(
+                    "[!] План счетов БУ указывает контрагента в {}-м субконто, "
+                    "но в выгрузке нет колонки '{}'. Проверьте {} строк — "
+                    "контрагент останется '{}'.",
+                    position, contractor_col,
+                    int(positions.eq(position).sum()),
+                    StepConstants.UNSPECIFIED,
+                )
+                continue
+
+            mask = positions.eq(position)
+            df.loc[mask, 'контрагент'] = df.loc[mask, contractor_col]
 
         logger.debug(
             "Извлечено контрагентов: {} из {} строк",
-            (df['контрагент'] != 'не_указано').sum(),
+            (df['контрагент'] != StepConstants.UNSPECIFIED).sum(),
             len(df),
         )
 

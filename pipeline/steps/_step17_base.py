@@ -11,7 +11,7 @@ Mixin с базовыми атрибутами для Шага 17.
     FX_* = константы курсовых разниц из OpuReportConstants
 """
 from pipeline.base import Step
-from pipeline.step_config import AccountConstants, OpuReportConstants
+from pipeline.step_config import AccountConstants, OpuReportConstants, PlanAccountsConstants
 
 
 class Step17BaseMixin(Step):
@@ -25,6 +25,15 @@ class Step17BaseMixin(Step):
     ACCOUNT_OTHER_EXPENSE = '91.02'
 
     NDS_ACCOUNTS = '68.02'
+
+    # Колонки субконто листа ПланСчетовБУ, в которых ищется контрагент.
+    # Контрагент не обязан сидеть в первом субконто: у счёта 45 (товары на
+    # ответственном хранении) или 98.01 (доходы будущих периодов) он во
+    # втором, и такое встречается в реальных планах счетов. Номер колонки
+    # справочника = номеру колонки выгрузки (Субконто Дт_2 / Субконто Кт_2),
+    # поэтому позицию можно переносить напрямую.
+    CONTRACTOR_SUBCONTO_COLS = PlanAccountsConstants.SUBCONTO_COLS
+    CONTRACTOR_VALUE = PlanAccountsConstants.CONTRACTOR_VALUE
 
     PPA_OPPA_ACCOUNTS = AccountConstants.PPA_OPPA_ACCOUNTS
     PPA_TRANSFER_ACCOUNTS = AccountConstants.PPA_TRANSFER_ACCOUNTS

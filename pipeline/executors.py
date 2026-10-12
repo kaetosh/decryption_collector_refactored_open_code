@@ -24,6 +24,7 @@ from pipeline.step_config import (
     BalanceReportConstants,
     ManualCorrectionsConstants,
     OpuReportConstants,
+    PlanAccountsConstants,
 )
 from config.loader import load_params
 from config.settings import (
@@ -217,8 +218,10 @@ REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
     "план_счетов_бу": ReferenceSpec(
         sheet_name="ПланСчетовБУ",
         strings=(
-            "компания", "код", "наименование",
-            "субконто_1", "субконто_2", "субконто_3",
+            PlanAccountsConstants.COMPANY_COL,
+            PlanAccountsConstants.CODE_COL,
+            PlanAccountsConstants.NAME_COL,
+            *PlanAccountsConstants.SUBCONTO_COLS,
         ),
     ),
     "справочник_уфр": ReferenceSpec(

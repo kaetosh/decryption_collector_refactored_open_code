@@ -14,7 +14,7 @@ from utils import (
     normalize_account,
 )
 from pipeline.errors import ConvergenceError, MissingMappingError, ReferenceMismatchError, InputDataError
-from pipeline.step_config import ReconciliationConstants
+from pipeline.step_config import PlanAccountsConstants, ReconciliationConstants
 
 
 class Step1cReconcileTotalsStep(Step):
@@ -84,8 +84,8 @@ class Step1cReconcileTotalsStep(Step):
                 'Не загружен справочник: план счетов БУ.',
                 reference_name='ПланСчетовБУ',
             )
-            
-        unique_chart_accounts = set(normalize_account(chart_accounts['код']))
+
+        unique_chart_accounts = set(normalize_account(chart_accounts[PlanAccountsConstants.CODE_COL]))
         
         osv_df['синтетический_счет'] = normalize_account(osv_df['Счет'])
         missing_acc = [x for x in osv_df['синтетический_счет'].unique() if x not in unique_chart_accounts]

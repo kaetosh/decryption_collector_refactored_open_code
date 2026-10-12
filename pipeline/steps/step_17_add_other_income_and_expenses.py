@@ -91,12 +91,12 @@ class Step17AddOtherIncomeExpensesToOpuStep(
         df_9101 = self._extract_contractors(
             df_9101,
             is_income=True,
-            accounts_with_contractors=refs['accounts_with_contractors']
+            contractor_positions=refs['contractor_positions']
         )
         df_9102 = self._extract_contractors(
             df_9102,
             is_income=False,
-            accounts_with_contractors=refs['accounts_with_contractors']
+            contractor_positions=refs['contractor_positions']
         )
 
         df_9101, df_9102 = self._process_ppa(
