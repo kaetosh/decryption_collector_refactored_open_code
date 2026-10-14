@@ -270,65 +270,13 @@ class Step1aListExpectedRegistersStep(Step):
         )
         
         # 5. Сопоставление счетов (логика префиксов) - ТОЛЬКО ДЛЯ БАЛАНСА
-        mapping_df = context.references['меппинг_баланс']
-        
+        # Правило живёт в Step.build_partial_account_matches: его же зовёт
+        # refresh_references, чтобы пересобрать сопоставление после паузы на
+        # обновлённом справочнике (шаги 4/11 читают результат из контекста).
         osv_codes = df.index.unique()
-        mapping_codes_set = set(mapping_df['счет'].unique())
-        
-        # Словарь префиксов справочника
-        prefix_dict = {}
-        for code in mapping_codes_set:
-            parts = code.split('.')
-            for i in range(1, len(parts) + 1):
-                prefix_dict.setdefault('.'.join(parts[:i]), []).append(code)
-        
-        # Анализ совпадений
-        stats = {'total': len(osv_codes), 'full': 0, 'partial': 0, 'missing': 0}
-        unmatched_details = []
-        partial_matches = []
-        
-        for osv_code in osv_codes:
-            if osv_code in mapping_codes_set:
-                stats['full'] += 1
-                continue
-            
-            # Поиск по префиксам от длинного к короткому
-            matched_codes = []
-            matched_prefix = None
-            osv_parts = osv_code.split('.')
-            for depth in range(len(osv_parts), 0, -1):
-                prefix = '.'.join(osv_parts[:depth])
-                if prefix in prefix_dict:
-                    matched_codes = prefix_dict[prefix]
-                    matched_prefix = prefix
-                    break
-            
-            if matched_codes:
-                # Проверка: должно быть ровно одно совпадение. Несколько
-                # кандидатов — ошибка справочника (счёт и его родители не
-                # заведены или уровень неоднозначен); единственное совпадение
-                # (в т.ч. на синтетическом уровне, 04.01 -> '04') — штатная
-                # подстановка.
-                if len(matched_codes) > 1:
-                    self._raise_balance_mapping_error(osv_code, matched_prefix, matched_codes, df)
-                
-                stats['partial'] += 1
-                partial_matches.append({
-                    'Счет из ОСВ': osv_code,
-                    'Совпадающие счета из справочника': matched_codes[0]
-                })
-            else:
-                stats['missing'] += 1
-                unmatched_details.append(osv_code)
-        
-        logger.debug(
-            "Статистика меппинга счетов - без совпадений: {} {}",
-            stats['missing'],
-            unmatched_details if unmatched_details else '',
+        partially_matching_accounts_df = self.build_partial_account_matches(
+            osv_codes, context.references['меппинг_баланс'], df,
         )
-        
-        # Создаем DataFrame с частичными совпадениями
-        partially_matching_accounts_df = pd.DataFrame(partial_matches)
         if not partially_matching_accounts_df.empty:
             logger.debug(
                 "Найдено {} счетов с частичным совпадением",
@@ -463,8 +411,16 @@ class Step1aListExpectedRegistersStep(Step):
         filtered_loads.loc[mask_osv, 'Имя файла для сохранения'] = balance_filenames
         
         context.data['expected_filenames'] = balance_filenames
-        context.data['mapping'] = mapping_df
+        # Сопоставление счетов ОСВ со справочником (результат) — для шагов 4/11.
+        # Сам справочник шаги читают из context.references: копия меппинга в
+        # context.data устаревала бы после паузы на обновлённом справочнике
+        # (refresh_references её не обновлял, и шаг 11 падал с теми же
+        # позициями, которые пользователь уже исправил).
         context.data['partially_matching_accounts_df'] = partially_matching_accounts_df
+        # Вход для пересборки сопоставления: executors.refresh_references
+        # пересобирает его после паузы тем же правилом (общий хелпер), иначе
+        # шаги 4/11 продолжили бы сопоставлять по старому Меппинг_бб.
+        context.data['osv_account_codes'] = list(osv_codes)
         
         # =========================================================================
         # 9. ФОРМИРОВАНИЕ СПИСКА СПЕЦОТЧЕТОВ
@@ -548,83 +504,6 @@ class Step1aListExpectedRegistersStep(Step):
         
         return context
     
-    def _raise_balance_mapping_error(
-        self,
-        osv_code: str,
-        matched_prefix: str,
-        matched_codes: list,
-        osv_df: pd.DataFrame = None,
-    ) -> None:
-        """
-        Жёсткая ошибка неоднозначного сопоставления балансового счёта
-        (справочник Меппинг_бб).
-
-        Возникает, когда под найденный уровень-остановку подходит несколько
-        счетов-кандидатов. Типовой случай: счёт из ОСВ и его родительские
-        уровни отсутствуют в справочнике, поиск провалился до уровня, под
-        которым есть несколько субсчетов (например: 68.22.2 -> уровень '68',
-        в справочнике 68.01, 68.02 и др., но нет 68.22). Единственное
-        совпадение (в т.ч. на синтетическом уровне, 04.01 -> '04') ошибкой
-        не является — это штатная подстановка.
-        """
-        matched_depth = len(matched_prefix.split('.'))
-        is_synthetic = (matched_depth == 1)
-        if is_synthetic:
-            reason = (
-                f"счет '{osv_code}' и его родительские уровни отсутствуют "
-                f"в справочнике Меппинг_бб, а под синтетическим уровнем "
-                f"'{matched_prefix}' есть несколько субсчетов "
-                f"— сопоставление неоднозначно"
-            )
-        else:
-            reason = (
-                f"на детальном уровне '{matched_prefix}' найдено несколько "
-                f"счетов-кандидатов — сопоставление неоднозначно"
-            )
-        osv_parts_full = osv_code.split('.')
-        parent_levels = ['.'.join(osv_parts_full[:i]) for i in range(1, len(osv_parts_full))]
-        problem_row = {
-            'счет_осв': osv_code,
-            'причина': ('несколько кандидатов под синтетическим уровнем' if is_synthetic
-                        else 'несколько кандидатов на детальном уровне'),
-            'найденный_уровень_в_справочнике': matched_prefix,
-            'количество_кандидатов': len(matched_codes),
-            'счета_кандидаты': ', '.join(sorted(matched_codes)),
-        }
-        # Добавляем наименование и сальдо счёта из общей ОСВ, чтобы бухгалтер
-        # сразу видел сумму, по которой произошла неоднозначность сопоставления.
-        if osv_df is not None and osv_code in osv_df.index:
-            try:
-                osv_row = osv_df.loc[osv_code]
-                if isinstance(osv_row, pd.DataFrame):
-                    osv_row = osv_row.iloc[0]
-                if 'Наименование' in osv_row.index and pd.notna(osv_row['Наименование']):
-                    problem_row['наименование_счета'] = osv_row['Наименование']
-                saldo_col = 'сальдо, тыс.ед.'
-                if saldo_col not in osv_row.index and 'Сальдо, тыс.ед.' in osv_row.index:
-                    saldo_col = 'Сальдо, тыс.ед.'
-                if saldo_col in osv_row.index:
-                    saldo = osv_row[saldo_col]
-                    problem_row['сальдо, тыс.ед.'] = (
-                        float(saldo) if pd.notna(saldo) else None
-                    )
-            except KeyError:
-                pass
-        problem_data = pd.DataFrame([problem_row])
-        raise ReferenceMismatchError(
-            message=(
-                f"Не удалось сопоставить счет '{osv_code}' из общей ОСВ со "
-                f"справочником Меппинг_бб: {reason}. "
-                f"На уровне '{matched_prefix}' найдено счетов-кандидатов: "
-                f"{len(matched_codes)} ({', '.join(sorted(matched_codes))}). "
-                f"Добавьте счет '{osv_code}' или его родительский уровень "
-                f"({', '.join(parent_levels)}) в Справочники.xlsx "
-                f"(лист 'Меппинг_бб') и повторите запуск."
-            ),
-            problem_data=problem_data,
-            reference_name="Меппинг_бб",
-        )
-
     def _get_opu_accounts_to_export(self, df: pd.DataFrame) -> list:
         """
         Определяет точные счета для выгрузки отчётов по проводкам под ОПУ.

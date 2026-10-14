@@ -628,12 +628,51 @@ def wait_for_reference_update(
         print('[i] Пустой Enter — продолжить, «стоп» — прервать прогон.')
 
 
+def _refresh_derived_reference_data(context: ProcessingContext) -> None:
+    """Пересобирает в context.data всё, что выведено из справочников.
+
+    Инвариант паузы: любой производный от справочника результат, которым
+    пользуются шаги, обязан пересобираться здесь. Иначе после обновления
+    справочника повторный шаг читает старые данные и падает с теми же
+    позициями, которые пользователь только что исправил (реальный кейс
+    ТокПФ, 14.10.2026: шаг 5 читал `context.references['меппинг_баланс']` и
+    после паузы проходил, а шаг 11 читал снимок `context.data['mapping']`,
+    сделанный шагом 1а до паузы, и останавливался заново).
+
+    Сейчас здесь одно производное — сопоставление счетов ОСВ со счетами
+    Меппинг_бб (его читают шаги 4 и 11). Сам меппинг в context.data больше
+    не кэшируется: шаги берут его из context.references.
+
+    Если входных данных для пересборки нет (правило ещё не отработало),
+    ничего не делаем: отсутствие производной не должно ломать возобновление.
+    """
+    osv_codes = context.data.get('osv_account_codes')
+    mapping_df = context.references.get('меппинг_баланс')
+    if not osv_codes or mapping_df is None or mapping_df.empty:
+        return
+
+    previous = context.data.get('partially_matching_accounts_df')
+    previous_n = len(previous) if isinstance(previous, pd.DataFrame) else 0
+
+    context.data['partially_matching_accounts_df'] = Step.build_partial_account_matches(
+        list(osv_codes), mapping_df,
+    )
+    current_n = len(context.data['partially_matching_accounts_df'])
+    logger.info(
+        "[RESUME] Сопоставление счетов ОСВ пересобрано по обновлённому "
+        "Меппинг_бб: частичных совпадений {} (было {})",
+        current_n, previous_n,
+    )
+
+
 def refresh_references(context: ProcessingContext) -> None:
     """Перечитывает Справочники.xlsx после паузы — без перечитывания выгрузок.
 
     Обновляет context.references, допуски сходимости (лист «Параметры»),
     повторно валидирует компанию и применяет индивидуальный меппинг
-    (_apply_company_reference_scope), сбрасывает кэш ручных правок
+    (_apply_company_reference_scope), пересобирает производные от
+    справочников данные в context.data
+    (_refresh_derived_reference_data), сбрасывает кэш ручных правок
     (Правки.xlsx — get_corrections читает его один раз на прогон).
 
     Данные выгрузок (common_osv_df, summary_osv_df, journal_df, balance_df,
@@ -642,7 +681,8 @@ def refresh_references(context: ProcessingContext) -> None:
 
     Raises:
         ReferenceMismatchError: обновлённый справочник сам невалиден
-            (например, период в КомпанииГруппы изменён — PeriodMismatchError).
+            (например, период в КомпанииГруппы изменён — PeriodMismatchError,
+            или в Меппинг_бб появилась неоднозначность сопоставления счетов).
             Вызывающий декоратор превращает это в честный [STOP].
     """
     logger.info("[RESUME] Перечитываем Справочники.xlsx (данные выгрузок не затрагиваются)")
@@ -663,6 +703,11 @@ def refresh_references(context: ProcessingContext) -> None:
 
     # Индивидуальный меппинг компании (колонка «компания» в Меппинг_опу/Меппинг_бб).
     _apply_company_reference_scope(context)
+
+    # Производные от справочников данные в context.data (сопоставление счетов
+    # ОСВ со справочником) — иначе шаги 4/11 продолжат работать по старому
+    # Меппинг_бб и упадут с позициями, которые пользователь уже исправил.
+    _refresh_derived_reference_data(context)
 
     logger.info(
         "[RESUME] Справочники перечитаны: листов {}, допусков {}",

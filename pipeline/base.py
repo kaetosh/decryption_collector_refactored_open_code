@@ -764,6 +764,199 @@ class Step(ABC):
         return series.isna() | cleaned.fillna('').isin(['', unspecified])
 
     @staticmethod
+    def _raise_balance_mapping_error(
+        osv_code: str,
+        matched_prefix: str,
+        matched_codes: list,
+        osv_df: Optional[pd.DataFrame] = None,
+    ) -> None:
+        """
+        Жёсткая ошибка неоднозначного сопоставления балансового счёта
+        (справочник Меппинг_бб).
+
+        Возникает, когда под найденный уровень-остановку подходит несколько
+        счетов-кандидатов. Типовой случай: счёт из ОСВ и его родительские
+        уровни отсутствуют в справочнике, поиск провалился до уровня, под
+        которым есть несколько субсчетов (например: 68.22.2 -> уровень '68',
+        в справочнике 68.01, 68.02 и др., но нет 68.22). Единственное
+        совпадение (в т.ч. на синтетическом уровне, 04.01 -> '04') ошибкой
+        не является — это штатная подстановка.
+        """
+        matched_depth = len(matched_prefix.split('.'))
+        is_synthetic = (matched_depth == 1)
+        if is_synthetic:
+            reason = (
+                f"счет '{osv_code}' и его родительские уровни отсутствуют "
+                f"в справочнике Меппинг_бб, а под синтетическим уровнем "
+                f"'{matched_prefix}' есть несколько субсчетов "
+                f"— сопоставление неоднозначно"
+            )
+        else:
+            reason = (
+                f"на детальном уровне '{matched_prefix}' найдено несколько "
+                f"счетов-кандидатов — сопоставление неоднозначно"
+            )
+        osv_parts_full = osv_code.split('.')
+        parent_levels = ['.'.join(osv_parts_full[:i]) for i in range(1, len(osv_parts_full))]
+        problem_row = {
+            'счет_осв': osv_code,
+            'причина': ('несколько кандидатов под синтетическим уровнем' if is_synthetic
+                        else 'несколько кандидатов на детальном уровне'),
+            'найденный_уровень_в_справочнике': matched_prefix,
+            'количество_кандидатов': len(matched_codes),
+            'счета_кандидаты': ', '.join(sorted(matched_codes)),
+        }
+        # Добавляем наименование и сальдо счёта из общей ОСВ, чтобы бухгалтер
+        # сразу видел сумму, по которой произошла неоднозначность сопоставления.
+        if osv_df is not None and osv_code in osv_df.index:
+            try:
+                osv_row = osv_df.loc[osv_code]
+                if isinstance(osv_row, pd.DataFrame):
+                    osv_row = osv_row.iloc[0]
+                if 'Наименование' in osv_row.index and pd.notna(osv_row['Наименование']):
+                    problem_row['наименование_счета'] = osv_row['Наименование']
+                saldo_col = 'сальдо, тыс.ед.'
+                if saldo_col not in osv_row.index and 'Сальдо, тыс.ед.' in osv_row.index:
+                    saldo_col = 'Сальдо, тыс.ед.'
+                if saldo_col in osv_row.index:
+                    saldo = osv_row[saldo_col]
+                    problem_row['сальдо, тыс.ед.'] = (
+                        float(saldo) if pd.notna(saldo) else None
+                    )
+            except KeyError:
+                pass
+        problem_data = pd.DataFrame([problem_row])
+        raise ReferenceMismatchError(
+            message=(
+                f"Не удалось сопоставить счет '{osv_code}' из общей ОСВ со "
+                f"справочником Меппинг_бб: {reason}. "
+                f"На уровне '{matched_prefix}' найдено счетов-кандидатов: "
+                f"{len(matched_codes)} ({', '.join(sorted(matched_codes))}). "
+                f"Добавьте счет '{osv_code}' или его родительский уровень "
+                f"({', '.join(parent_levels)}) в Справочники.xlsx "
+                f"(лист 'Меппинг_бб') и повторите запуск."
+            ),
+            problem_data=problem_data,
+            reference_name="Меппинг_бб",
+        )
+
+    def get_partial_account_matches(
+        self, context: 'ProcessingContext'
+    ) -> pd.DataFrame:
+        """
+        Кадр частичных совпадений счетов ОСВ со счетами Меппинг_бб
+        (результат шага 1а, пересобирается при паузе на справочнике).
+
+        Отличие от get_df_from_context: ПУСТОЙ кадр здесь — не ошибка, а
+        штатное состояние «все счета ОСВ есть в справочнике как есть»,
+        сопоставлять нечего. Штатный get_df_from_context такой кадр
+        отвергает, и шаги 4/11 падали бы с вводящей в заблуждение ошибкой
+        «в контексте нет таблицы (пуста)».
+        """
+        df = context.data.get('partially_matching_accounts_df')
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError(
+                "В контексте нет таблицы 'partially_matching_accounts_df' "
+                "(её создаёт Шаг 1а — сопоставление счетов ОСВ со справочником)."
+            )
+        return df
+
+    @staticmethod
+    def build_partial_account_matches(
+        osv_codes: List[str],
+        mapping_df: pd.DataFrame,
+        osv_df: Optional[pd.DataFrame] = None,
+    ) -> pd.DataFrame:
+        """
+        Сопоставляет счета ОСВ со счетами справочника Меппинг_бб (логика
+        префиксов) и возвращает ТОЛЬКО частичные совпадения.
+
+        Полное совпадение (счёт есть в справочнике как есть) в отчёт не
+        попадает: менять в нём нечего. Частичное — это когда счёта из ОСВ
+        в справочнике нет, но найден единственный родительский уровень
+        ('68.22.2' -> '68'); его подставляет ReceivableClassifier
+        .map_accounts_to_mapping. Под уровнем с несколькими кандидатами —
+        жёсткая ошибка (_raise_balance_mapping_error): произвольно выбрать
+        нельзя, это ошибка справочника.
+
+        Единая точка правила: её зовут и шаг 1а (формирование списка
+        выгрузок), и executors.refresh_references (пересборка после паузы на
+        неактуальном справочнике — без неё шаги 4/11 сопоставляли бы счета
+        по старому Меппинг_бб и падали бы с теми же позициями после того,
+        как пользователь справочник обновил).
+
+        Args:
+            osv_codes: счета из ОСВ (обычно ненулевые остатки общей ОСВ).
+            mapping_df: актуальный Меппинг_бб (уже «взгляд компании»).
+            osv_df: кадр ОСВ с индексом-счётом — необязателен, добавляет в
+                problem_data неоднозначности наименование и сальдо счёта.
+
+        Returns:
+            DataFrame с колонками 'Счет из ОСВ' и 'Совпадающие счета из
+            справочника' (может быть пустым — если все счета сопоставлены
+            напрямую; пустой кадр читать можно, см.
+            get_partial_account_matches).
+        """
+        mapping_codes_set = set(mapping_df['счет'].unique())
+
+        # Словарь префиксов справочника: '68.22' -> ['68.22', ...], '68' -> [...]
+        prefix_dict: Dict[str, list] = {}
+        for code in mapping_codes_set:
+            parts = code.split('.')
+            for i in range(1, len(parts) + 1):
+                prefix_dict.setdefault('.'.join(parts[:i]), []).append(code)
+
+        stats = {'total': 0, 'full': 0, 'partial': 0, 'missing': 0}
+        unmatched_details: List[str] = []
+        partial_matches: List[dict] = []
+
+        for osv_code in osv_codes:
+            stats['total'] += 1
+            if osv_code in mapping_codes_set:
+                stats['full'] += 1
+                continue
+
+            # Поиск по префиксам от длинного к короткому
+            matched_codes = []
+            matched_prefix = None
+            osv_parts = osv_code.split('.')
+            for depth in range(len(osv_parts), 0, -1):
+                prefix = '.'.join(osv_parts[:depth])
+                if prefix in prefix_dict:
+                    matched_codes = prefix_dict[prefix]
+                    matched_prefix = prefix
+                    break
+
+            if matched_codes:
+                # Проверка: должно быть ровно одно совпадение. Единственное
+                # совпадение (в т.ч. на синтетическом уровне, 04.01 -> '04') —
+                # штатная подстановка.
+                if len(matched_codes) > 1:
+                    Step._raise_balance_mapping_error(
+                        osv_code, matched_prefix, matched_codes, osv_df,
+                    )
+
+                stats['partial'] += 1
+                partial_matches.append({
+                    'Счет из ОСВ': osv_code,
+                    'Совпадающие счета из справочника': matched_codes[0]
+                })
+            else:
+                stats['missing'] += 1
+                unmatched_details.append(osv_code)
+
+        logger.debug(
+            "Статистика меппинга счетов - без совпадений: {} {}",
+            stats['missing'],
+            unmatched_details if unmatched_details else '',
+        )
+
+        return pd.DataFrame(
+            partial_matches,
+            columns=['Счет из ОСВ', 'Совпадающие счета из справочника'],
+        )
+
+    @staticmethod
     def _distribute_vat_by_rows(
         rows: pd.DataFrame,
         vat_map: pd.Series,
