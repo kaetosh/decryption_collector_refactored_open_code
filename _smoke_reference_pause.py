@@ -29,6 +29,15 @@
   - ERROR «[STOP] Обработка остановлена» не попадает в сводку
     предупреждений, если прогон продолжился, и остаётся при реальном стопе.
 
+Актуальность обновлённого справочника (регресс ТокПФ 14.10.2026):
+  - повтор шага после паузы видит правку бухгалнера (шаг 5 читал меппинг из
+    context.references, а шаги 4/11 — из снимка context.data['mapping'],
+    сделанного шагом 1а до паузы, и падали с теми же позициями заново);
+  - сопоставление счетов ОСВ со справочником пересобирается при паузе;
+  - неоднозначность в обновлённом справочнике — честная ошибка, а не тихая;
+  - пустой кадр частичных совпадений — штатное состояние, а не ошибка;
+  - инвариант по исходникам: шаги не берут справочники из context.data.
+
 Изоляция: реальные _INPUT_DATA / _REFERENCE_DATA не затрагиваются —
 refresh_references подменяется, пауза — подменяется; тестируется контракт
 декоратора, а не файловый ввод-вывод. Файлы диагностики пишутся в
@@ -745,6 +754,354 @@ def test_snapshots_skipped_when_pause_disabled() -> None:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Актуальность справочника после паузы (регресс ТокПФ 14.10.2026)
+#
+# Шаг 5 читал меппинг баланса из context.references и после паузы видел
+# правку бухгалтера, а шаг 11 (и шаг 4) — из снимка context.data['mapping'],
+# сделанного шагом 1а ДО паузы. Пользователь обновлял Меппинг_бб, а прогон
+# снова останавливался на тех же позициях; полный перезапуск помогал, потому
+# что шаг 1а перечитывал справочник заново.
+# ─────────────────────────────────────────────────────────────────────────────
+
+UNSPECIFIED = "не_указано"
+DEBIT = "Дебиторская задолженность"
+CREDIT = "Кредиторская задолженность"
+
+
+def balance_mapping(rows: list[dict]) -> pd.DataFrame:
+    """Меппинг_бб с полным набором ключевых колонок (как его ждёт resolve_company_view)."""
+    return pd.DataFrame(rows).astype("string").assign(счет_фо="320010101")
+
+
+def mapping_row(account: str, sub: str, debt: str, subtype: str) -> dict:
+    return {
+        "счет": account,
+        "субконто": sub,
+        "компания": "все",
+        "вид_задолженности": debt,
+        "подвид_задолженности": subtype,
+        "группа_ос_аренды_лизинга": UNSPECIFIED,
+        "долгая_короткая_часть": UNSPECIFIED,
+        "сегмент_биоактивов_для_01_02": UNSPECIFIED,
+        "вид_связи": "3 лица",
+        "инвест_договор": "нет",
+    }
+
+
+def summary_osv(rows: list[dict]) -> pd.DataFrame:
+    """Сводная ОСВ с целочисленным нулевым итогом (сходимость баланса — допуск шага)."""
+    df = pd.DataFrame(rows)
+    for col in ("счет", "субконто", "вид_задолженности"):
+        df[col] = df[col].astype("string")
+    return df
+
+
+def company_directory(company: str, period: str) -> pd.DataFrame:
+    """КомпанииГруппы с одной строкой — refresh_references повторяет валидацию компании."""
+    from pipeline.constants import ColumnNames
+
+    return pd.DataFrame([{
+        ColumnNames.SHORT_COMPANY_NAME: company,
+        ColumnNames.SEGMENT: "Собственность",
+        ColumnNames.PERIOD_TYPE: "8 мес",
+        ColumnNames.PERIOD_REPORT: period,
+        ColumnNames.CURRENCY: "RUB",
+    }]).astype("string")
+
+
+@contextmanager
+def resume_after_reference_update(updated_references: dict):
+    """Пауза, Enter и НАСТОЯЩИЙ refresh_references с подменённой загрузкой файла.
+
+    Подменяется только чтение Справочники.xlsx и лист «Параметры»: сам
+    refresh_references (включая пересборку производных от справочника данных)
+    выполняется по-настоящему.
+    """
+    with patch("pipeline.executors._stdin_is_tty", return_value=True), \
+            patch("pipeline.executors.wait_for_reference_update", return_value=True), \
+            patch("pipeline.executors._load_all_references", return_value=updated_references), \
+            patch("pipeline.executors.load_params", return_value={"tolerance_balance": 5000}):
+        yield
+
+
+def test_retried_step_sees_updated_mapping() -> None:
+    """Повтор шага после паузы видит обновлённый Меппинг_бб (регресс ТокПФ).
+
+    Сценарий 1С: субконто «услуги охраны» по 60.01/60.02 классифицирован как
+    дебиторская задолженность (остаток с минусом по кредиту), а в Меппинг_бб
+    такой комбинации нет — шаг 5 падает MissingSubtypeError. Бухгалтер
+    добавляет строки и жмёт Enter: повтор должен пройти.
+    """
+    from pipeline.steps.step_05_add_debt_subtype import Step5AddReceivableSubtypeStep
+
+    stale = balance_mapping([
+        mapping_row("60.01", "услуги охраны", CREDIT, "Торговая КЗ"),
+        mapping_row("60.02", "услуги охраны", CREDIT, "Торговая КЗ"),
+        mapping_row("60.01", "поставщик ООО", CREDIT, "Торговая КЗ"),
+    ])
+    fixed = balance_mapping([
+        mapping_row("60.01", "услуги охраны", DEBIT, "Торговая ДЗ"),
+        mapping_row("60.02", "услуги охраны", DEBIT, "Торговая ДЗ"),
+        *[
+            mapping_row(a, s, d, p)
+            for a, s, d, p in (
+                ("60.01", "услуги охраны", CREDIT, "Торговая КЗ"),
+                ("60.02", "услуги охраны", CREDIT, "Торговая КЗ"),
+                ("60.01", "поставщик ООО", CREDIT, "Торговая КЗ"),
+            )
+        ],
+    ])
+    osv = summary_osv([
+        {"счет": "60.01", "субконто": "услуги охраны", "вид_задолженности": DEBIT, "сальдо, тыс.ед.": 750.0},
+        {"счет": "60.02", "субконто": "услуги охраны", "вид_задолженности": DEBIT, "сальдо, тыс.ед.": 7640.2},
+        {"счет": "60.01", "субконто": "поставщик ООО", "вид_задолженности": CREDIT, "сальдо, тыс.ед.": -8390.2},
+    ])
+
+    references = {
+        "компании_группы": company_directory("Тест", "202608"),
+        "меппинг_баланс": stale,
+        "меппинг_опу": pd.DataFrame(),
+    }
+    updated = dict(references, меппинг_баланс=fixed)
+
+    context = make_context()
+    context.summary_osv_df = osv
+    context.references = references
+    context.data["osv_account_codes"] = ["60.01", "60.02"]
+    step = Step5AddReceivableSubtypeStep()
+
+    with temp_run_dir(), resume_after_reference_update(updated):
+        step.execute(context)
+
+    subtypes = {
+        (account, sub): subtype
+        for account, sub, subtype in zip(
+            context.summary_osv_df["счет"].tolist(),
+            context.summary_osv_df["субконто"].tolist(),
+            context.summary_osv_df["подвид_задолженности"].tolist(),
+        )
+    }
+    check(
+        subtypes.get(("60.01", "услуги охраны")) == "Торговая ДЗ"
+        and subtypes.get(("60.02", "услуги охраны")) == "Торговая ДЗ",
+        f"повтор шага увидел добавленные бухгалтером подвиды: {subtypes}",
+    )
+    check(
+        "mapping" not in context.data,
+        "меппинг больше не хранится снимком в context.data (иначе он устареет при паузе)",
+    )
+    statuses = [m["status"] for m in context.step_metrics]
+    check(
+        statuses == ["error", "ok"],
+        f"первый провал, затем успешный повтор: {statuses}",
+    )
+    check(
+        not list(get_run_dir().glob("mismatches/mismatch_*.xlsx")),
+        "диагностика первой попытки удалена после успешного повтора",
+    )
+
+
+def test_no_pause_run_is_unaffected() -> None:
+    """Без паузы шаг работает как раньше: свежий меппинг, без лишних пересборок."""
+    from pipeline.steps.step_05_add_debt_subtype import Step5AddReceivableSubtypeStep
+
+    mapping = balance_mapping([
+        mapping_row("60.01", "услуги охраны", DEBIT, "Торговая ДЗ"),
+        mapping_row("60.01", "поставщик ООО", CREDIT, "Торговая КЗ"),
+    ])
+    context = make_context()
+    context.summary_osv_df = summary_osv([
+        {"счет": "60.01", "субконто": "услуги охраны", "вид_задолженности": DEBIT, "сальдо, тыс.ед.": 750.0},
+        {"счет": "60.01", "субконто": "поставщик ООО", "вид_задолженности": CREDIT, "сальдо, тыс.ед.": -750.0},
+    ])
+    context.references = {"компании_группы": company_directory("Тест", "202608"), "меппинг_баланс": mapping}
+    context.data[REFERENCE_PAUSE_ENABLED_KEY] = False
+
+    Step5AddReceivableSubtypeStep().execute(context)
+    check(
+        [m["status"] for m in context.step_metrics] == ["ok"],
+        "без паузы шаг проходит с первого раза и без повторов",
+    )
+
+
+def test_partial_matches_rebuilt_on_resume() -> None:
+    """После паузы сопоставление счетов ОСВ пересобрано по новому Меппинг_бб.
+
+    Шаги 4/11 читают результат сопоставления из context.data. Пока он был
+    снимком шага 1а, правка справочника до них не доходила: счёт, добавленный
+    бухгалтером, так и подставлялся бы по старому родительскому уровню.
+    """
+    osv_codes = ["68.22.2", "60.01"]
+    stale_mapping = balance_mapping([
+        mapping_row("68", "договор", UNSPECIFIED, UNSPECIFIED),
+        mapping_row("60.01", "услуги охраны", DEBIT, "Торговая ДЗ"),
+    ])
+    fixed_mapping = balance_mapping([
+        mapping_row("68.22.2", "договор", UNSPECIFIED, UNSPECIFIED),  # счёт появился как есть
+        mapping_row("60.01", "услуги охраны", DEBIT, "Торговая ДЗ"),
+    ])
+
+    references = {
+        "компании_группы": company_directory("Тест", "202608"),
+        "меппинг_баланс": stale_mapping,
+        "меппинг_опу": pd.DataFrame(),
+    }
+    updated = dict(references, меппинг_баланс=fixed_mapping)
+
+    context = make_context()
+    context.references = references
+    context.data["osv_account_codes"] = osv_codes
+    # Что записал бы шаг 1а до паузы:
+    context.data["partially_matching_accounts_df"] = Step.build_partial_account_matches(
+        osv_codes, stale_mapping,
+    )
+    before = dict(zip(
+        context.data["partially_matching_accounts_df"]["Счет из ОСВ"],
+        context.data["partially_matching_accounts_df"]["Совпадающие счета из справочника"],
+    ))
+    check(
+        before == {"68.22.2": "68"},
+        f"до паузы 68.22.2 сопоставлен с родителем: {before}",
+    )
+
+    from pipeline.executors import refresh_references
+
+    with temp_run_dir(), resume_after_reference_update(updated):
+        refresh_references(context)
+
+    after_df = context.data["partially_matching_accounts_df"]
+    check(
+        after_df.empty,
+        "добавленный бухгалтером счёт 68.22.2 перестал быть частичным совпадением",
+    )
+    check(
+        list(after_df.columns) == ["Счет из ОСВ", "Совпадающие счета из справочника"],
+        "пересобранный кадр сохраняет колонки (пустой кадр читается шагами 4/11)",
+    )
+
+
+def test_ambiguity_in_updated_mapping_stops_honestly() -> None:
+    """Неоднозначность в ОБНОВЛЁННОМ справочнике — честная ошибка, а не тихий сюрприз.
+
+    Ошибку поднимает пересборка сопоставления внутри refresh_references.
+    Это ReferenceMismatchError — тот же класс, что и у шага, поэтому
+    декоратор превращает её в понятный [STOP] с problem_data, а не в паузу
+    и не в тихую подстановку произвольного счёта.
+    """
+    from pipeline.executors import refresh_references
+
+    osv_codes = ["68.22.2"]
+    stale_mapping = balance_mapping([mapping_row("68", "договор", UNSPECIFIED, UNSPECIFIED)])
+    broken_mapping = balance_mapping([
+        mapping_row("68.01", "договор", UNSPECIFIED, UNSPECIFIED),
+        mapping_row("68.02", "договор", UNSPECIFIED, UNSPECIFIED),
+    ])
+    references = {
+        "компании_группы": company_directory("Тест", "202608"),
+        "меппинг_баланс": stale_mapping,
+        "меппинг_опу": pd.DataFrame(),
+    }
+    context = make_context()
+    context.references = references
+    context.data["osv_account_codes"] = osv_codes
+    context.data["partially_matching_accounts_df"] = Step.build_partial_account_matches(
+        osv_codes, stale_mapping,
+    )
+
+    with temp_run_dir(), resume_after_reference_update(dict(references, меппинг_баланс=broken_mapping)):
+        try:
+            refresh_references(context)
+            raised = None
+        except ReferenceMismatchError as exc:
+            raised = exc
+
+    check(raised is not None, "неоднозначность под уровнем '68' поднимает ошибку справочника")
+    check(
+        type(raised) is ReferenceMismatchError,
+        f"именно ReferenceMismatchError — декоратор даст [STOP], а не паузу: {type(raised)}",
+    )
+    check(
+        getattr(raised, "reference_name", None) == "Меппинг_бб",
+        f"в ошибке назван справочник Меппинг_бб (факт: {getattr(raised, 'reference_name', None)})",
+    )
+    problem_data = getattr(raised, "problem_data", None)
+    check(
+        isinstance(problem_data, pd.DataFrame) and "68.22.2" in problem_data["счет_осв"].tolist(),
+        f"problem_data указывает проблемный счёт: {None if problem_data is None else problem_data.to_dict('records')}",
+    )
+
+
+def test_empty_partial_matches_are_readable() -> None:
+    """Пустой кадр частичных совпадений — штатное состояние, а не ошибка контекста.
+
+    Все счета ОСВ есть в справочнике как есть — сопоставлять нечего. Раньше
+    шаги 4/11 брали кадр через get_df_from_context, который пустой кадр
+    отвергал, и прогон компании без частичных совпадений падал с вводящей в
+    заблуждение ошибкой «в контексте нет таблицы (пуста)».
+    """
+    from pipeline.classifiers import ReceivableClassifier
+
+    empty = Step.build_partial_account_matches(["60.01"], balance_mapping([
+        mapping_row("60.01", "услуги охраны", DEBIT, "Торговая ДЗ"),
+    ]))
+    context = make_context()
+    context.data["partially_matching_accounts_df"] = empty
+
+    read = _FailsNSteps(fails=0).get_partial_account_matches(context)
+    check(read.empty, "пустой кадр частичных совпадений читается, а не отвергается")
+
+    accounts = pd.DataFrame({"счет": pd.Series(["60.01"], dtype="string")})
+    mapped = ReceivableClassifier.map_accounts_to_mapping(accounts, read)
+    check(
+        mapped["счет"].tolist() == ["60.01"],
+        f"пустое сопоставление ничего не подменяет: {mapped['счет'].tolist()}",
+    )
+
+    missing_context = make_context()
+    try:
+        _FailsNSteps(fails=0).get_partial_account_matches(missing_context)
+        raised = None
+    except ValueError as exc:
+        raised = exc
+    check(
+        raised is not None and "Шаг 1а" in str(raised),
+        f"отсутствие кадра (шаг 1а не отработал) — внятная ошибка: {raised}",
+    )
+
+
+def test_steps_do_not_cache_reference_in_context_data() -> None:
+    """Инвариант: шаги не читают справочники из снимков в context.data.
+
+    Снимок reference в context.data не обновляется при паузе — это и был баг
+    ТокПФ. Проверка по исходникам шагов, а не по кадру в памяти: вернуть
+    чтение `context.data['mapping']` можно молча, и тесты поведения это
+    поймают только в том прогоне, где справочник правят по ходу.
+    """
+    import re
+
+    root = Path(__file__).parent
+    # Обе формы прошлого кэша: прямую запись ключа и чтение через
+    # get_df_from_context по тому же ключу.
+    stale_pattern = re.compile(r"""data\[(['"])mapping\1\]|get_df_from_context\([^)]*['"]mapping['"]""")
+    for relative in (
+        "pipeline/steps/step_01a_list_registers.py",
+        "pipeline/steps/step_04_add_debt_type.py",
+        "pipeline/steps/step_11_split_60.py",
+    ):
+        source = (root / relative).read_text(encoding="utf-8")
+        found = stale_pattern.search(source)
+        check(
+            found is None,
+            f"{relative}: меппинг не кэшируется в context.data"
+            + (f" (найдено: {found.group(0)!r})" if found else ""),
+        )
+    check(
+        "context.references['меппинг_баланс']" in (root / "pipeline/steps/step_11_split_60.py").read_text(encoding="utf-8"),
+        "шаг 11 читает меппинг баланса из context.references",
+    )
+
+
 def main() -> None:
     test_pause_and_retry_step()
     test_context_rollback_before_retry()
@@ -766,6 +1123,12 @@ def main() -> None:
     test_pause_text_points_at_right_file()
     test_reason_prefix_by_error_type()
     test_snapshots_skipped_when_pause_disabled()
+    test_retried_step_sees_updated_mapping()
+    test_no_pause_run_is_unaffected()
+    test_partial_matches_rebuilt_on_resume()
+    test_ambiguity_in_updated_mapping_stops_honestly()
+    test_empty_partial_matches_are_readable()
+    test_steps_do_not_cache_reference_in_context_data()
 
     total = PASSED + FAILED
     label = "пауза при неактуальном справочнике (PAUSE_ON_REFERENCE_ERROR)"

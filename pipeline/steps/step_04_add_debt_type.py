@@ -19,10 +19,14 @@ class Step4AddReceivableTypeStep(Step):
         logger.debug("Классификация задолженности")
         
         osv_all_df = context.summary_osv_df.copy()
-        partially_matching_accounts_df = self.get_df_from_context(
-            context, 'partially_matching_accounts_df'
-        )
-        mapping_df = self.get_df_from_context(context, 'mapping')
+        # Сопоставление счетов ОСВ из шага 1а (после паузы пересобрано по
+        # обновлённому Меппинг_бб — см. executors._refresh_derived_reference_data).
+        partially_matching_accounts_df = self.get_partial_account_matches(context)
+        # Меппинг берём из context.references, а не из снимка в context.data:
+        # refresh_references обновляет только references, и после паузы на
+        # обновлённом справочнике снимок остался бы старым (шаг 11 падал с
+        # теми же позициями, которые пользователь уже исправил).
+        mapping_df = context.references['меппинг_баланс']
         
         # Используем методы из ReceivableClassifier
         osv_all_df = ReceivableClassifier.map_accounts_to_mapping(osv_all_df, partially_matching_accounts_df)

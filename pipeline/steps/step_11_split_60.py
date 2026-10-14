@@ -436,10 +436,14 @@ class Step11Split60AccountDebtByOSStatusStep(Step):
             return context
         
         # 2. Получение данных из контекста
-        partially_matching_accounts_df = self.get_df_from_context(
-            context, 'partially_matching_accounts_df'
-        )
-        mapping_df = self.get_df_from_context(context, 'mapping')
+        # Сопоставление счетов ОСВ из шага 1а (после паузы пересобрано по
+        # обновлённому Меппинг_бб — см. executors._refresh_derived_reference_data).
+        partially_matching_accounts_df = self.get_partial_account_matches(context)
+        # Меппинг берём из context.references, а не из снимка в context.data:
+        # refresh_references обновляет только references, и после паузы на
+        # обновлённом справочнике снимок остался бы старым — шаг 11 падал с
+        # теми же позициями, которые пользователь уже исправил в Меппинг_бб.
+        mapping_df = context.references['меппинг_баланс']
         
         # 3. Классификация задолженности (используем ReceivableClassifier)
         df = ReceivableClassifier.map_accounts_to_mapping(df, partially_matching_accounts_df)
