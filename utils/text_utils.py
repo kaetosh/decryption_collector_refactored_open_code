@@ -124,19 +124,25 @@ def _clean_text_optimized(text: str) -> str:
 _cleaning_cache: Dict[str, str] = {}
 
 
-def _clean_company_name(company_name: str) -> str:
+def clean_company_name(company_name: str) -> str:
     """
     Нормализует название компании для сравнения.
 
-    Использует кэширование для производительности.
+    Используется кэширование для производительности.
     Убирает ОПФ, стоп-слова, лемматизирует и сортирует слова.
 
     Настраивается через константы в config/settings.py.
 
+    Публичная функция: ею пользуется не только find_similar_companies, но и
+    сверка исключений (лист «ИсключенияПохожих», шаг 11а). Единая точка
+    нормализации обязательна — иначе правило исключения сравнивалось бы с
+    контрагентом по другой форме, чем сам fuzzy-поиск, и молча не срабатывало
+    бы на «РЕСУРС ПО ООО» (нормализованное «ресурс»).
+
     Examples:
-        >>> _clean_company_name("ООО Рыба Мясо")
+        >>> clean_company_name("ООО Рыба Мясо")
         'мясо рыба'
-        >>> _clean_company_name("Рыба мясо ООО")
+        >>> clean_company_name("Рыба мясо ООО")
         'мясо рыба'  # Тот же результат — для fuzzy matching
     """
     import pandas as pd
@@ -213,8 +219,8 @@ def find_similar_companies(
     df_a = data_a_clean.to_frame(name='original_a').copy()
     df_b = data_b_clean.to_frame(name='original_b').copy()
     
-    df_a['cleaned_a'] = df_a['original_a'].apply(_clean_company_name)
-    df_b['cleaned_b'] = df_b['original_b'].apply(_clean_company_name)
+    df_a['cleaned_a'] = df_a['original_a'].apply(clean_company_name)
+    df_b['cleaned_b'] = df_b['original_b'].apply(clean_company_name)
     
     # Создаём словарь для быстрого поиска оригинальных названий
     b_cleaned_to_original = defaultdict(list)

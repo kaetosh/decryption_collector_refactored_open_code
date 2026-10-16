@@ -66,6 +66,7 @@ from pipeline.step_config import (
     OpuReportConstants,
     ReconciliationConstants,
     ReportLayoutConstants,
+    SimilarityExclusionConstants,
 )
 from utils.currency_utils import needs_conversion
 
@@ -381,6 +382,45 @@ def _manual_corrections_text(context: Any) -> str:
     return "; ".join(parts)
 
 
+def _similarity_exclusions_text(context: Any) -> str:
+    """Исключения ложных срабатываний fuzzy-матчинга контрагентов (шаг 11а).
+
+    Сводку заполняет шаг 11а (pipeline/steps/step_11a_check_contractor_
+    similarity.py) из листа «ИсключенияПохожих» Справочников.xlsx.
+
+    Зачем получателю видеть это на титуле: предупреждение «найдено N
+    потенциальных совпадений контрагентов со своими компаниями» — сигнал
+    бухгалтеру проверить, не пропущено ли аффилированное лицо. Если часть
+    сигнала заведомо ложная и снята справочником, об этом надо сказать явно:
+    иначе титул молчит, а бухгалтер решает, что проверять нечего.
+
+    Исключение убирает ТОЛЬКО предупреждение — вид связи и цифры отчёта не
+    меняются, поэтому строка не может читаться как «расчёты исправлены».
+    """
+    SE = SimilarityExclusionConstants
+    summary = (context.data or {}).get(SE.SUMMARY_KEY)
+    sheet = summary.get(SE.SUMMARY_SHEET, SE.SHEET_NAME) if summary else SE.SHEET_NAME
+
+    if not summary:
+        return f"не применялись (лист «{sheet}» в Справочники.xlsx нет или он пуст)"
+
+    pairs = int(summary.get(SE.SUMMARY_PAIRS_EXCLUDED) or 0)
+    contractors = int(summary.get(SE.SUMMARY_CONTRACTORS_EXCLUDED) or 0)
+    applied = int(summary.get(SE.SUMMARY_RULES_APPLIED) or 0)
+    unmatched = int(summary.get(SE.SUMMARY_RULES_UNMATCHED) or 0)
+
+    parts = [
+        f"применено — {applied} правил, исключено {pairs} совпадений "
+        f"({contractors} контрагентов)"
+    ]
+    if unmatched:
+        parts.append(
+            f"НЕ СРАБОТАЛО {unmatched} правил — проверьте написание, "
+            f"см. лог прогона"
+        )
+    return "; ".join(parts)
+
+
 def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str, str]]:
     """Сводится ли отчёт, прошла ли сверка выгрузок, сколько было предупреждений."""
     rows = [("Увязка ОПУ и баланса (ЧП = НРП)", pnl_balance_status_text(context))]
@@ -404,6 +444,7 @@ def _status_rows(context: Any, warnings: Optional[list[str]]) -> list[tuple[str,
     rows.append(("Предупреждений за прогон", warnings_text))
     rows.append(("Индивидуальный меппинг компании", _reference_scope_text(context)))
     rows.append(("Ручные корректировки признаков", _manual_corrections_text(context)))
+    rows.append(("Исключения похожих контрагентов", _similarity_exclusions_text(context)))
     rows.append(("Актуальность курса валюты", _currency_rate_status_text(context)))
     pause_count = int((context.data or {}).get(REFERENCE_PAUSE_COUNT_KEY, 0))
     if pause_count:

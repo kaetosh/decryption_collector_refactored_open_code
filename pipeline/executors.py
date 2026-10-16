@@ -25,6 +25,7 @@ from pipeline.step_config import (
     ManualCorrectionsConstants,
     OpuReportConstants,
     PlanAccountsConstants,
+    SimilarityExclusionConstants,
 )
 from config.loader import load_params
 from config.settings import (
@@ -243,6 +244,26 @@ REFERENCE_REGISTRY: dict[str, ReferenceSpec] = {
     "вид_связи_ка": ReferenceSpec(
         sheet_name="ВидСвязиКА",
         strings=("ВидСвязиКА", ColumnNames.SEGMENT, "ВариантыНазвания"),
+    ),
+    # Исключения ложных срабатываний fuzzy-матчинга контрагентов (шаг 11а).
+    # Листа может не быть — это штатный случай: фича выключена, шаг работает
+    # как раньше. required=False, а usecols по ИМЕНАМ — добавление колонок
+    # в лист не должно ломать разбор (см. REFERENCE_CONFIGS).
+    "исключения_похожих": ReferenceSpec(
+        sheet_name=SimilarityExclusionConstants.SHEET_NAME,
+        strings=(
+            SimilarityExclusionConstants.COL_CONTRACTOR,
+            SimilarityExclusionConstants.COL_LIKE_COMPANY,
+            SimilarityExclusionConstants.COL_COMPANY,
+            SimilarityExclusionConstants.COL_COMMENT,
+        ),
+        usecols=(
+            SimilarityExclusionConstants.COL_CONTRACTOR,
+            SimilarityExclusionConstants.COL_LIKE_COMPANY,
+            SimilarityExclusionConstants.COL_COMPANY,
+            SimilarityExclusionConstants.COL_COMMENT,
+        ),
+        required=False,
     ),
     "прочие_доходы_ндс": ReferenceSpec(
         sheet_name="ПрочиеДоходыНДС",
