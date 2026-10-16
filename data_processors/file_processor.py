@@ -71,7 +71,17 @@ class FileProcessor(ABC):
         }
 
         # --- Читаем файл через openpyxl ---
-        workbook = openpyxl.load_workbook(file_like_object)
+        # data_only=True: читаем кэшированное значение формулы, а не её текст.
+        # Выгрузки 1С формул не содержат, но файлы, правленые в Excel руками
+        # (типовой кейс — «Итого» не сходится с субконто, и бухгалтер вписывает
+        # формулу вида =N9-N10), содержат: openpyxl без data_only отдаёт строку
+        # '=N9-N10', и pd.to_numeric(errors='coerce') молча роняет её в NaN —
+        # сумма исчезает из расчёта без единого предупреждения. Регресс МЭЗ
+        # 15.10.2026: реконциляция по счёту 14 увидела −945,52 тыс. вместо
+        # −250 655,12 тыс., а в Excel та же ячейка отображала правильное число.
+        # Кэш ставит Excel при сохранении; у файлов, записанных не Excel,
+        # формат формул не встречается.
+        workbook = openpyxl.load_workbook(file_like_object, data_only=True)
         sheet = workbook.active
 
         max_row = sheet.max_row

@@ -1078,3 +1078,20 @@
   - `pipeline/steps/step_17_add_other_income_and_expenses.py` (GROUP_COLS → константа, _prepare_fx_columns, _split_fx_difference_rows, _merge_with_main_df + context)
   - `pipeline/steps/step_19_build_opu.py` (_drop_zero_amount_rows: FX-строки выживают через проверку доход_расход != FX_DIFFERENCE_LABEL)
 - **Итог:** реализовано полностью. В кейсе: осн. 1,17833/31,382816389 + «Курсовые разницы» 0/77,593048.
+
+---
+
+### ✅ Чтение формул и внутренняя сверка в реконциляции (шаг 1c)
+
+- **Дата:** сессия 16.10.2026 — **завершена**
+- **Симптом:** прогон МЭЗ упёрся в расхождение реконциляции по счёту 14 (−249 709,60 тыс. при пороге 1 050). В выгрузке `МЭЗ_осв_14_2025_.xlsx` ячейка конечного сальдо была формулой `=N9-N10`. Программа читала xlsx через `openpyxl.load_workbook` без `data_only`, получала строку-формулу, `pd.to_numeric(errors='coerce')` молча роняла её в `NaN`, и сумма 249,7 млн исчезала из расчёта. В Excel та же ячейка отображала правильное число — поломка была невидима глазом.
+- **Причина:** два дефекта:
+  1. `FileProcessor._preprocessor_openpyxl` читал формулы как текст (`data_only=False`), а не кэшированные значения.
+  2. `DataLoader.load_account_osv()` отбрасывала check-таблицу обработчика («Итого» против суммы субконто) — косячная расшифровка всплывала только косвенно, с подсказкой про «перезакрытие периода».
+- **Решение:**
+  1. `data_processors/file_processor.py` — `openpyxl.load_workbook(file_like_object, data_only=True)` — читаем кэш формулы, который Excel сохраняет при сохранении файла.
+  2. `io_module/data_io.py` — `load_account_osv()` возвращает `Tuple[pd.DataFrame, pd.DataFrame]` (данные + check_df).
+  3. `pipeline/step_config.py` — новая константа `ReconciliationConstants.INTERNAL_CONVERGENCE_TOLERANCE_RUB = 1.0`.
+  4. `pipeline/steps/step_01c_reconcile_totals.py` — метод `_warn_internal_mismatches()`: WARNING с именем файла и видом разницы, если «Итого» не сходится с субконто на > 1 рубль; при павшей реконциляции срез добавляется в `problem_data` `ConvergenceError`. Начальное сальдо в реконциляции не участвует (сравниваются только конечные остатки).
+- **Проверка:** `_smoke_01c_reconcile.py` — чтение кэша формулы на реальном файле МЭЗ (N11 = 249 709 601,37), unit-тесты `_warn_internal_mismatches` (150 руб. ловит, 1 рубль игнорируется, 0/пустой/None/незнакомый формат — нет), интеграция `_process` (ок / ConvergenceError / оба типа проверки в problem_data / WARNING в лог).
+- **Файлы:** `data_processors/file_processor.py`, `io_module/data_io.py`, `pipeline/step_config.py`, `pipeline/steps/step_01c_reconcile_totals.py`, `_smoke_01c_reconcile.py`, `AGENTS.md`, `TASKS.md`.

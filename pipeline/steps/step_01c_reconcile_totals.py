@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 """
 Шаг 1c: Сверка остатков и оборотов между общей ОСВ и выгрузками (реконциляция)
 Оптимизированная версия с векторизацией (how='inner' сохранен по бизнес-требованиям)
 """
 import pandas as pd
 from loguru import logger
+from config.defaults import format_amount
 from pipeline.base import Step, ProcessingContext
 from io_module import DataLoader
 from utils import (
@@ -142,7 +142,16 @@ class Step1cReconcileTotalsStep(Step):
         # ==========================================
         # 3. Подготовка данных: ОСВ по счетам
         # ==========================================
-        osv_all_df = DataLoader.load_account_osv()
+        osv_all_df, osv_check_df = DataLoader.load_account_osv()
+
+        # Внутренняя сверка каждого файла: «Итого» против суммы его субконто.
+        # Раньше check-таблица отбрасывалась при загрузке, и косячная
+        # расшифровка (реальный кейс МЭЗ, счёт 14: детализация 9 060 563 при
+        # итоге 250 655 119) всплывала только косвенно — непонятным
+        # расхождением с Общей ОСВ с подсказкой про «перезакрытие периода».
+        # WARNING не останавливает прогон: сходиться может быть с чем угодно,
+        # но бухгалтер видит имя файла и природу расхождения сразу.
+        internal_mismatches = self._warn_internal_mismatches(osv_check_df)
         
         accounts_from_general_osv = context.data.get('accounts_from_general_osv', [])
         
@@ -321,6 +330,12 @@ class Step1cReconcileTotalsStep(Step):
                 dfs_to_combine.append(discrepancies_balance)
             if has_turnover_error:
                 dfs_to_combine.append(discrepancies_turnover)
+            # Срез внутренне-несходимых файлов: получатель mismatch-файла
+            # должен видеть не только «где разошлось с Общей ОСВ», но и
+            # «какой файл не сходится сам с собой» — иначе искать причину
+            # приходится вслепую по колонке diff.
+            if not internal_mismatches.empty:
+                dfs_to_combine.append(internal_mismatches)
                 
             combined_problem_data = pd.concat(dfs_to_combine, ignore_index=True)
             
@@ -343,3 +358,68 @@ class Step1cReconcileTotalsStep(Step):
             'tolerance': context.tolerance_params['tolerance_reconciliation'],
         }
         return context
+
+    def _warn_internal_mismatches(self, check_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Ловит файлы ОСВ, где строка «Итого» не сходится с суммой его субконто.
+
+        Обработчики уже считают эту разницу (check-таблица,
+        osv_account._create_check_tables), но раньше она отбрасывалась при
+        загрузке — косячная расшифровка всплывала только косвенно:
+        расхождением с Общей ОСВ и подсказкой про «перезакрытие периода»,
+        хотя период закрывался корректно и сломан был один файл (реальный
+        кейс МЭЗ 15.10.2026, счёт 14: субконто 9 060 563 руб. при «Итого»
+        250 655 119 руб.).
+
+        Проверка НЕ останавливает прогон: шаг 1c и так падает при
+        расхождении с Общей ОСВ, а здесь добавляется имя файла и природа
+        проблемы — чтобы править выгрузку, а не гадать по diff-колонке.
+
+        Returns:
+            Срез строк check_df с превышениями (в рублях) для problem_data
+            ConvergenceError — получатель mismatch-файла видит источник;
+            пустой кадр, если всё сходится. WARNING пишется независимо от
+            исхода реконциляции: файл может не сходиться сам с собой и при
+            совпадении итогов с Общей ОСВ.
+        """
+        if check_df is None or check_df.empty:
+            return pd.DataFrame()
+
+        # (колонка check-таблицы, человекочитаемое поле) — порядок как в отчёте
+        diff_cols = [
+            ('Сальдо_начало_разница', 'сальдо на начало'),
+            ('Оборот_разница', 'обороты'),
+            ('Сальдо_конец_разница', 'сальдо на конец'),
+        ]
+        present = [(col, label) for col, label in diff_cols if col in check_df.columns]
+        if not present or 'Исх.файл' not in check_df.columns:
+            # Незнакомый формат check-таблицы — молчим, реконциляция от этого
+            # не зависит. Ругаться на структуру чужого файла здесь нельзя:
+            # это не валидация входа, а дополнительная диагностика.
+            return pd.DataFrame()
+
+        tol = ReconciliationConstants.INTERNAL_CONVERGENCE_TOLERANCE_RUB
+        exceeded = pd.Series(False, index=check_df.index)
+        for col, _ in present:
+            exceeded |= pd.to_numeric(check_df[col], errors='coerce').abs().gt(tol).fillna(False)
+
+        problems = check_df.loc[exceeded].copy()
+        if problems.empty:
+            return pd.DataFrame()
+
+        for _, row in problems.iterrows():
+            parts = [
+                f"{label}: разница {format_amount(abs(row[col]))} руб."
+                for col, label in present
+                if pd.notna(row[col]) and abs(row[col]) > tol
+            ]
+            logger.warning(
+                "[!] Файл '{}': «Итого» не сходится с суммой субконто — {}. "
+                "Проверьте выгрузку или правку файла (значение, а не формулу).",
+                row['Исх.файл'],
+                '; '.join(parts),
+            )
+
+        problems['Тип_проверки'] = 'Внутренняя сверка файла (Итого vs субконто)'
+        cols = ['Исх.файл'] + [col for col, _ in present] + ['Тип_проверки']
+        return problems[cols].reset_index(drop=True)

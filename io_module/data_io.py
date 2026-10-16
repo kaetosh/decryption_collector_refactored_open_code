@@ -396,14 +396,18 @@ class DataLoader:
         return df
     
     @staticmethod
-    def load_account_osv() -> pd.DataFrame:
+    def load_account_osv() -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Загружает и объединяет все ОСВ по счетам из INPUT_DATA.
         
         Это высокоуровневый метод — сам находит файлы в папке.
         
         Returns:
-            Сводный DataFrame по всем ОСВ
+            Кортеж (сводный_df, check_df): данные и контрольные таблицы
+            обработчиков («Итого» против суммы субконто по каждому файлу).
+            check_df может быть пустой — её читает шаг 1c для WARNING о
+            внутренней несходимости выгрузки; раньше она отбрасывалась
+            вызывающим кодом и сигнал о косячной расшифровке терялся.
         """
         logger.debug("Загрузка сводной ОСВ по счетам")
         
@@ -418,13 +422,13 @@ class DataLoader:
         logger.debug("Найдено {} файлов ОСВ", len(osv_files))
         
         # Обработка
-        df, _ = DataLoader._process_with_handler(ACCOUNTS_OSV_DIR, 'accountosv')
+        df, check_df = DataLoader._process_with_handler(ACCOUNTS_OSV_DIR, 'accountosv')
         
         if df.empty:
             raise InputDataError("Сводная ОСВ не содержит данных")
         
         logger.debug("Загружена сводная ОСВ: {} строк, {} столбцов", len(df), len(df.columns))
-        return df
+        return df, check_df
     
     @staticmethod
     def load_general_osv() -> Tuple[pd.DataFrame, str]:
