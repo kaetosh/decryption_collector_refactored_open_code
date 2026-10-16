@@ -15,8 +15,9 @@ from config.settings import (OSV_GENERAL_DIR,
                               REFERENCE_DATA_FILE,
                               ACCOUNTS_OSV_LEASE_DIR,
                               ACCOUNT_CARDS_DIR,
+                              STRICT_TRANSACTION_REPORT_LOAD,
                               to_relative)
-from io_module.output_manager import get_output_dir
+from io_module.output_manager import get_output_dir, get_run_id
 from io_module.report_cover import (
     SHEET_BALANCE,
     SHEET_BALANCE_SOURCE,
@@ -127,7 +128,8 @@ class DataLoader:
     @staticmethod
     def _process_with_handler(
         input_path: Path, 
-        type_register: str
+        type_register: str,
+        strict_on_errors: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Обрабатывает файл(ы) через FileHandler и возвращает результат.
@@ -135,6 +137,13 @@ class DataLoader:
         Args:
             input_path: Путь к файлу или папке
             type_register: Тип регистра ('accountosv', 'generalosv', 'analisys', 'posting')
+            strict_on_errors: Если True, любой непрочитанный файл ОСТАНАВЛИВАЕТ
+                обработку (InputDataError с именами файлов и причинами), а не
+                превращается в предупреждение. Нужен там, где файл — источник
+                данных, а потеря молча делает результат неверным (см.
+                STRICT_TRANSACTION_REPORT_LOAD). По умолчанию False — прежнее
+                поведение: ошибки копятся в not_correct_files, а поднимаются
+                лишь когда не удалось обработать НИ ОДНОГО файла.
             
         Returns:
             Кортеж (df, check_df)
@@ -149,13 +158,34 @@ class DataLoader:
             raise InputDataError(f"FileHandler не вернул результат для '{type_register}'")
         
         df, check_df = result[type_register]
-        
+
+        # Строки, исключённые при разборе отчётов по проводкам, — в Excel.
+        DataLoader._save_txt_problem_rows(handler)
+
         # Логируем проблемные файлы
         if handler.not_correct_files:
+            details = "\n".join(
+                f"  - {name}: {error}"
+                for name, error in handler.not_correct_files.items()
+            )
+            if strict_on_errors:
+                # Стоп вместо предупреждения. FileHandler копит ошибку каждого
+                # файла, а раньше до вызывающего кода доходил только случай
+                # «упали ВСЕ файлы»: 9 корректных файлов из 10 давали непустой
+                # сводный кадр, упавший десятый молча выпадал из расчёта, и
+                # на выходе собирался внешне корректный, а по сути неверный
+                # отчёт (реальный кейс РЗК, счёт 26 — расхождение увязки
+                # ЧП = НРП на 290 957 тыс.ед.).
+                raise InputDataError(
+                    f"Не удалось прочитать {len(handler.not_correct_files)} файл(ов) "
+                    f"из папки {to_relative(input_path)}.\n{details}\n"
+                    f"Данные по этим счетам в отчёт не попадут — расхождение "
+                    f"будет молчаливым. Перевыгрузите их из 1С и повторите прогон."
+                )
             logger.warning(
                 "Проблемы при обработке {} файл(ов):\n{}",
                 len(handler.not_correct_files),
-                "\n".join(f"  - {name}: {error}" for name, error in handler.not_correct_files.items()),
+                details,
             )
 
         # Если обработка не дала ни одной строки и при этом были ошибки —
@@ -169,6 +199,64 @@ class DataLoader:
             )
 
         return df, check_df
+
+    @staticmethod
+    def _save_txt_problem_rows(handler) -> None:
+        """Пишет в mismatches/ Excel со строками, исключёнными при разборе TXT.
+
+        Зачем файл, если о потере и так сказано в логе: номер строки в блокноте
+        не найти — в TXT нет нумерации, а «открыть и посмотреть» без подсказки
+        бесполезно на файле в 35 000 строк. Поэтому главная колонка —
+        «что_искать»: готовый фрагмент строки для поиска Ctrl+F, после
+        которого нужная проводка находится за секунды.
+
+        Колонки: файл, строка (номер в файле, для сверки с журналом),
+        причина, что_искать (для Ctrl+F), строка_файла (сама строка, табы
+        показаны стрелкой — в Excel иначе не видны).
+
+        Пишется ОДИН файл на прогон, а не по файлу на каждую выгрузку: за
+        прогон обычно страдает один отчёт по проводкам, а десяток файлов в
+        mismatches/ только мешает увидеть главное. Ошибка записи не должна
+        ронять прогон — это диагностика, а не условие работы (проблемные строки
+        останутся видны и в счётчике в логе).
+        """
+        if not getattr(handler, 'problem_rows', None):
+            return
+
+        frames = [
+            {'файл': file_name, **row}
+            for file_name, rows in handler.problem_rows.items()
+            for row in rows
+        ]
+        if not frames:
+            return
+
+        try:
+            df = pd.DataFrame(frames).sort_values(
+                ['файл', 'строка']
+            ).reset_index(drop=True)
+            path = get_output_dir('mismatches') / (
+                f"txt_problem_rows_{get_run_id()}.xlsx"
+            )
+            with pd.ExcelWriter(path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Проблемные строки', index=False)
+            logger.warning(
+                "[!] Из отчётов по проводкам исключено {} строк (лишняя "
+                "табуляция). Суммы за вычетом этих проводок будут различаться "
+                "с ОСВ — строки и подсказки для поиска в файле: {}",
+                len(df),
+                to_relative(path),
+            )
+        except Exception as error:
+            # Диагностика не должна быть причиной остановки: строки потеряны
+            # в любом случае, а вот прогон из-за неудачной записи отчёта
+            # остановился бы зря.
+            logger.warning(
+                "[!] Не удалось сохранить файл с проблемными строками отчётов "
+                "по проводкам: {}. Сами строки исключены из разбора — см. "
+                "счётчик исключённых строк в сообщениях выше.",
+                error,
+            )
     
     @staticmethod
     def _find_single_file(
@@ -386,8 +474,15 @@ class DataLoader:
         
         logger.debug("Найдено {} файлов отчеты по проводкам", len(transaction_report_files))
         
-        # Обработка
-        df, _ = DataLoader._process_with_handler(ACCOUNT_CARDS_DIR, 'posting')
+        # Обработка. strict_on_errors — по STRICT_TRANSACTION_REPORT_LOAD:
+        # непрочитанный отчёт по проводкам означает потерянные проводки, а
+        # «немного менее точный» отчёт тут обманчив (см. комментарий в
+        # config/settings.py и регресс РЗК от 16.10.2026).
+        df, _ = DataLoader._process_with_handler(
+            ACCOUNT_CARDS_DIR,
+            'posting',
+            strict_on_errors=STRICT_TRANSACTION_REPORT_LOAD,
+        )
         
         if df.empty:
             raise InputDataError("Сводный Отчет по проводкам не содержит данных")

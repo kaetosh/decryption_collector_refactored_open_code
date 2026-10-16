@@ -41,6 +41,11 @@ class FileHandler:
     def __init__(self):
         self.not_correct_files: Dict[str, str] = {}
         self.type_register: str = ""
+        # Исключённые при разборе строки отчётов по проводкам:
+        # {имя файла: [описание строки, ...]}. Наполняется обработчиком TXT
+        # (PostingTXTFileProcessor.problem_rows) и поднимается наверх в
+        # DataLoader._process_with_handler, который пишет по ним Excel.
+        self.problem_rows: Dict[str, List[dict]] = {}
 
     def handle_input(
         self, 
@@ -114,6 +119,9 @@ class FileHandler:
                         
                 except Exception as e:
                     self.not_correct_files[file_name] = str(e)
+                    logger.opt(exception=True).debug(
+                        "Трейсбек ошибки обработки {}", file_name
+                    )
         
         # =========================================================================
         # 2. ОБРАБОТКА TXT ФАЙЛОВ (с расширенной диагностикой)
@@ -134,6 +142,16 @@ class FileHandler:
                     
                     processor = txt_processor_class()
                     result_df, check_df = processor.process_file(file_path, file_path.name)
+
+                    # Строки, исключённые при разборе (лишняя табуляция, которую
+                    # не удалось привести к структуре). Отдельным файлом в
+                    # not_correct_files не идут: файл-то прочитан, потеряны
+                    # единичные проводки. Но молчать о потере нельзя — отчёт
+                    # разойдётся с ОСВ на эти суммы, поэтому собираем строки
+                    # для диагностического Excel.
+                    file_problem_rows = getattr(processor, 'problem_rows', ())
+                    if file_problem_rows:
+                        self.problem_rows[file_path.name] = list(file_problem_rows)
 
                     # ★ ИСПРАВЛЕНИЕ: пустой результат от процессора (не исключение) —
                     # добавляем пустой DataFrame в results_collector без добавления
@@ -165,8 +183,17 @@ class FileHandler:
                         type(e).__name__,
                         e,
                     )
-                    import traceback
-                    logger.error(traceback.format_exc())
+                    # Трейсбек — на уровне DEBUG, а не ERROR (регресс 16.10.2026).
+                    # Сводка предупреждений собирает записи уровня WARNING и выше
+                    # (logging_handling/logger_config.py, sink level='WARNING'),
+                    # обрезает их до 200 символов и печатает в том числе на
+                    # титульном листе отчёта. На ERROR сырой стек Python попадал
+                    # туда и пугал бухгалтера, хотя не означал ничего, кроме уже
+                    # прочитанного сообщения выше. В app.log он остаётся целиком
+                    # (файловый sink работает на DEBUG).
+                    logger.opt(exception=True).debug(
+                        "Трейсбек ошибки обработки {}", file_path.name
+                    )
                     self.not_correct_files[file_path.name] = str(e)
         
         # =========================================================================

@@ -287,8 +287,11 @@ def normalize_ragged_tab_rows(file_path, header_row,
     в лог вместе с их номерами.
 
     Returns:
-        Tuple[StringIO, int, int]: буфер, число исправленных строк,
-        число строк, исключённых из разбора.
+        Tuple[StringIO, int, int, List[dict]]: буфер, число исправленных строк,
+        число строк, исключённых из разбора, и список этих строк с подсказками
+        для поиска (см. _describe_problem_row). Четвёртый элемент нужен
+        бухгалтерии: номера строки в блокноте нет, а «ищите вручную» без
+        указания что искать — не помощь, а отписка.
     """
     file_path = Path(file_path)
 
@@ -309,7 +312,7 @@ def normalize_ragged_tab_rows(file_path, header_row,
         with open(file_path, 'r', encoding=encoding, errors=errors) as f:
             buff.write(f.read())
         buff.seek(0)
-        return buff, repaired, unresolved
+        return buff, repaired, unresolved, []
 
     spec = _row_validation_spec(hdr_parts)
     # Есть что проверять? Иначе (шапка не распознана) — склеиваем в последнюю
@@ -327,6 +330,7 @@ def normalize_ragged_tab_rows(file_path, header_row,
 
     approximate = 0
     unresolved_lines: List[str] = []
+    problem_rows: List[dict] = []
 
     with open(file_path,'r',encoding=encoding,errors=errors) as f:
         for line_no, raws in enumerate(f, start=1):
@@ -341,6 +345,7 @@ def normalize_ragged_tab_rows(file_path, header_row,
                     unresolved += 1
                     if len(unresolved_lines) < 20:
                         unresolved_lines.append(str(line_no))
+                    problem_rows.append(_describe_problem_row(raws, line_no))
                     continue
                 repaired += 1
                 if approx:
@@ -354,7 +359,58 @@ def normalize_ragged_tab_rows(file_path, header_row,
     buff.seek(0)
     _report_ragged(file_path.name, repaired, approximate, unresolved,
                    unresolved_lines)
-    return buff, repaired, unresolved
+    return buff, repaired, unresolved, problem_rows
+
+
+# Длина подсказки для поиска. Это ПРЕФИКС самого длинного поля строки, то есть
+# подстрока исходной строки — её копируют в «Найти» блокнота, и поиск
+# срабатывает. 120 символов достаточно, чтобы попасть в конкретный документ, и
+# достаточно мало, чтобы поместиться в ячейку Excel и на экран.
+_SEARCH_HINT_MAX_LEN = 120
+
+
+def _describe_problem_row(raw: str, line_no: int) -> dict:
+    """Описание исключённой строки для диагностического Excel.
+
+    Главное здесь — колонка «что искать»: бухгалтер открывает TXT в блокноте,
+    где номеров строк нет, поэтому «исправьте строку 28094» бесполезно.
+    Отдаём готовую строку для поиска Ctrl+F.
+
+    Как строится подсказка: берём САМОЕ ДЛИННОЕ поле разбитой по табу строки.
+    В отчёте по проводках это всегда свободнотекстовое поле (наименование
+    документа, содержание, наименование объекта), а не счёт и не сумма. Оно не
+    содержит табов, поэтому вставляется в «Найти» как есть.
+
+    Инвариант, который обязан выполняться всегда: подсказка — ПОДСТРОКА исходной
+    строки, иначе Ctrl+F её не найдёт. Поэтому берём самое длинное поле даже
+    тогда, когда оно короткое, и НЕ подставляем вместо него строку с
+    показанными табами: табы, превращённые в «→», подстрокой файла уже не
+    являются (регрессия на синтетической строке из одних коротких полей).
+    Разбивка строки может быть неверной — отсюда «подсказка», а не «точное
+    содержимое»: даже если позиция не та, префикс длинного поля почти
+    наверняка найдётся, а найденная строка уже покажет, где правда.
+    """
+    fields = [f.strip() for f in raw.rstrip('\n\r').split('\t')]
+    longest = max(fields, key=len, default='')
+    if not longest:
+        # Совсем пустая строка — искать нечем, отдаём исходник как есть.
+        hint = raw.rstrip('\n\r')
+    else:
+        hint = longest[:_SEARCH_HINT_MAX_LEN]
+    return {
+        'строка': line_no,
+        'причина': (
+            'лишняя табуляция, структуру строки привести не удалось — '
+            'строка исключена из разбора'
+        ),
+        'что_искать': hint,
+        'строка_файла': _show_tabs(raw.rstrip('\n\r')),
+    }
+
+
+def _show_tabs(text: str) -> str:
+    """Показывает невидимые табы — в Excel они иначе выглядят как пробелы."""
+    return text.replace('\t', ' → ')
 
 
 def _report_ragged(file_name: str, repaired: int, approximate: int,

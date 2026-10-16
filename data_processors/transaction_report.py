@@ -11,6 +11,8 @@ Created on Mon Aug 25 12:20:46 2025
 
 @author: a.karabedyan
 """
+import csv
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -32,6 +34,11 @@ class PostingTXTFileProcessor(FileProcessor):
     """Базовый обработчик TXT-выгрузок отчётов по проводкам (загрузка файла)."""
 
     HEADER_KEYWORD = 'дата'
+    # Строки, исключённые из разбора при загрузке последнего файла (см.
+    # _load_txt_file). Значение по умолчанию — пусто: атрибут читает FileHandler
+    # у любого процессора отчётов по проводкам, в том числе у того, кому файл
+    # не достался вовсе. Присваивается новый список, сам класс не мутируется.
+    problem_rows: tuple = ()
 
     # =========================================================================
     # ЗАГРУЗКА ФАЙЛА
@@ -91,12 +98,16 @@ class PostingTXTFileProcessor(FileProcessor):
         # свободно-текстовых полей (иначе pd.read_csv падает с ParserError).
         # Позиция разрыва определяется по данным — см. normalize_ragged_tab_rows.
 
-        df_source, repaired, unresolved = normalize_ragged_tab_rows(
+        df_source, repaired, unresolved, problem_rows = normalize_ragged_tab_rows(
             file_path,
             header_row,
             encoding=encoding,
             errors=encoding_errors,
         )
+        # Список исключённых строк поднимается наверх до FileHandler, а оттуда
+        # — в диагностический Excel (см. DataLoader._process_with_handler):
+        # бухгалтеру нужен не номер строки (в блокноте его нет), а что искать.
+        self.problem_rows = problem_rows
         if unresolved > 0:
             logger.warning(
                 "[!] Отчёт по проводкам {}: {} строк исключено из разбора "
@@ -110,6 +121,31 @@ class PostingTXTFileProcessor(FileProcessor):
             df = pd.read_csv(
                 df_source,
                 sep='\t',
+                # Выгрузка 1С — «текстовый формат»: поля НЕ экранируются кавычками.
+                # Но иногда 1С всё-таки оборачивает значение в кавычки — и
+                # делает это НЕСИММЕТРИЧНО: открывающая есть, закрывающая
+                # потерялась. Реальный кейс РЗК_отчпровод_26_9мес2026_.txt
+                # (16.10.2026), поле «Субконто Кт» строки 28268:
+                #   "Ноутбук Lenovo V15 G3 IAP ... 15.6"" TN FHD (1920x1080) g
+                # — три кавычки на нечёт, закрывающей нет.
+                # При значении по умолчанию quotechar='"' токенизатор C-движка
+                # на открывающей кавычке переходит в режим «внутри строки»,
+                # и табы следующих строк перестают быть разделителями, пока
+                # какая-нибудь более поздняя кавычка не закроет строку.
+                # Накапливаются поля — из строк по 12 получается запись на 19,
+                # и read_csv падает с ParserError. Минимальный
+                # воспроизводитель — шапка плюс одна такая строка:
+                # «EOF inside string starting at row 1».
+                #
+                # Это НЕ тот же механизм, что normalize_ragged_tab_rows:
+                # там лишние ТАБЫ видны на уровне Python (row.count('\t') >
+                # expected_tabs) и склеиваются; здесь на уровне Python все
+                # строки корректны, а портит их разбор внутри pandas.
+                # Лечить кавычки склейкой табов нельзя — нечего склеивать.
+                #
+                # Проверено: с QUOTE_NONE данные всех 10 файлов совпали с
+                # эталоном (простой split по табу) в 2 552 616 ячейках.
+                quoting=csv.QUOTE_NONE,
                 encoding=encoding,
                 encoding_errors=encoding_errors,
                 skiprows=range(header_row),
@@ -128,16 +164,23 @@ class PostingTXTFileProcessor(FileProcessor):
             # выглядит как «[!] Неожиданная ошибка» с трейсбеком.
             #
             # normalize_ragged_tab_rows уже приводит каждую «рваную» строку
-            # к числу колонок шапки, поэтому сюда попадают только те выгрузки,
-            # где структура сломана иначе (например, строки шапки отличаются
-            # от последующих по числу колонок). Сообщение называет файл и
-            # причину — бухгалтеру нужно перевыгрузить данные из 1С.
+            # к числу колонок шапки, а quoting=QUOTE_NONE снимает порчу от
+            # непарных кавычек, поэтому сюда попадают только выгрузки, где
+            # структура сломана иначе (например, строки шапки отличаются от
+            # последующих по числу колонок).
+            #
+            # Порядок изложения — «что произошло» и «что делать» ПЕРВЫМИ,
+            # служебный текст pandas в конце (регресс 16.10.2026): строка из
+            # traceback и сообщение вида «Error tokenizing data. C error:
+            # Expected 12 fields in line 28094, saw 19» начинали разбор
+            # сообщения, хотя для бухгалтерия ничего не объясняли. Номер
+            # строки из текста pandas к тому же указывает не туда — при порче
+            # от кавычек он считается по пересобранному потоку, а не по файлу.
             raise InputDataError(
-                f"Отчёт по проводкам {file_path.name}: нарушена структура файла "
-                f"— не удалось разобрать строки (ошибка pandas: {error}). "
-                f"Число колонок в строках отличается от шапки. Перевыгрузите "
-                f"отчёт из 1С, не добавляя табуляцию в наименования и "
-                f"содержание проводок."
+                f"Отчёт по проводкам {file_path.name}: не удалось прочитать файл "
+                f"— число колонок в строках не совпадает с шапкой. Перевыгрузите "
+                f"отчёт из 1С, не добавляя табуляцию в наименования и содержание "
+                f"проводок. Подробности разбора (служебное): {error}"
             ) from error
 
         return df
@@ -305,7 +348,23 @@ class Posting_UPPFileProcessor(PostingTXTFileProcessor):
         logger.debug('# 1. Загрузка')
         
         if df.empty:
-            raise InputDataError(f"Файл {file_path.name} пустой после загрузки")
+            # Отчёт без единой проводки — НЕ поломка выгрузки: так выглядит
+            # счёт без оборотов за период (штатный случай, бухгалтерия всё
+            # равно выгружает файл). Раньше здесь бросалось InputDataError,
+            # и файл попадал в not_correct_files вместе с настоящими сбоями
+            # разбора. Из-за этого STRICT_TRANSACTION_REPORT_LOAD (дефолт
+            # True) останавливал прогон из-за пустого отчёта по счёту без
+            # оборотов — ровно тот случай, который флаг не должен трогать.
+            # Теперь возвращаем пустой результат: FileHandler уже логирует
+            # это предупреждением (см. file_handler.handle_input), а общий
+            # случай «не загрузилось ни одной строки» ловит
+            # load_transaction_report.
+            logger.warning(
+                "[!] Отчёт по проводкам {} не содержит ни одной строки — "
+                "по этому счёту нет оборотов за период.",
+                file_path.name,
+            )
+            return pd.DataFrame(), pd.DataFrame()
         
         df = self._process_dataframe_optimized(df)
         logger.debug('# 2. Базовая обработка')
@@ -542,7 +601,18 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
         df.dropna(axis=1, how='all', inplace=True)
 
         if df.empty:
-            raise InputDataError('Отчет по проводкам 1с пустой, обработка невозможна.')
+            # Пустой результат после обработки — не фатальная ошибка, а
+            # warning + пустой DataFrame. Так же поступает УПП-вариант
+            # (_finalize_result выше). Раньше здесь бросалось InputDataError,
+            # и отчёт по счёту без оборотов попадал в not_correct_files вместе
+            # с настоящими сбоями разбора — а вместе с новым
+            # STRICT_TRANSACTION_REPORT_LOAD останавливал бы прогон.
+            logger.warning(
+                "[!] Отчёт по проводкам {} пустой после обработки — "
+                "по этому счёту нет оборотов за период.",
+                file_path.name,
+            )
+            return pd.DataFrame()
 
         df.insert(0, 'Имя_файла', file_path.name)
 
@@ -560,7 +630,14 @@ class Posting_NonUPPFileProcessor(PostingTXTFileProcessor):
         logger.debug('# 1. Загрузка')
 
         if df.empty:
-            raise InputDataError(f"Файл {file_path.name} пустой после загрузки")
+            # Пустой отчёт = нет оборотов по счёту, а не поломка выгрузки.
+            # См. пояснение в Posting_UPPFileProcessor.process_file.
+            logger.warning(
+                "[!] Отчёт по проводкам {} не содержит ни одной строки — "
+                "по этому счёту нет оборотов за период.",
+                file_path.name,
+            )
+            return pd.DataFrame(), pd.DataFrame()
 
         df = self._process_dataframe_optimized(df)
         logger.debug('# 2. Базовая обработка')

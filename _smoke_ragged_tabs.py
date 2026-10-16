@@ -98,7 +98,7 @@ def build_file(lines, tmpdir, name='test_отчпровод_26_.txt'):
 def run(lines, tmpdir, name='test_отчпровод_26_.txt'):
     """Прогоняет нормализацию и возвращает (текст, repaired, unresolved)."""
     path = build_file(lines, tmpdir, name)
-    buff, repaired, unresolved = normalize_ragged_tab_rows(
+    buff, repaired, unresolved, _problems = normalize_ragged_tab_rows(
         path, header_row=0, encoding='utf-8'
     )
     return buff.getvalue(), repaired, unresolved
@@ -310,7 +310,7 @@ def main():
     import pandas as pd
     path = build_file([HEADER_LINE] + bulk_good + [ragged_stb], tmpdir,
                       'stb_отчпровод_26_.txt')
-    buff, _, _ = normalize_ragged_tab_rows(path, header_row=0, encoding='utf-8')
+    buff, _, _, _ = normalize_ragged_tab_rows(path, header_row=0, encoding='utf-8')
     try:
         df = pd.read_csv(buff, sep=TAB, encoding='utf-8', skiprows=range(0),
                          header=0, skip_blank_lines=False, decimal=',',
@@ -379,7 +379,9 @@ def main():
           'строка осталась в буфере и уронит разбор')
     path = build_file([HEADER_LINE] + bulk_good + [hopeless], tmpdir,
                       'hopeless_отчпровод_.txt')
-    buff, _, _ = normalize_ragged_tab_rows(path, header_row=0, encoding='utf-8')
+    buff, _, _, problems = normalize_ragged_tab_rows(
+        path, header_row=0, encoding='utf-8'
+    )
     try:
         pd.read_csv(buff, sep=TAB, encoding='utf-8', skiprows=range(0), header=0,
                     skip_blank_lines=False, decimal=',', low_memory=False)
@@ -389,6 +391,107 @@ def main():
         ok = False
         detail = f'{type(exc).__name__}'
     check('Безнадёжная строка: файл всё равно читается', ok, detail)
+
+    # --- 12. Незакрытая кавычка (регресс РЗК 16.10.2026, счёт 26) ---
+    # Строки корректны по числу табов, поэтому normalize_ragged_tab_rows
+    # ничего в них не находит. Портит их разбор внутри pandas: поле, которое
+    # 1С обернула в кавычки БЕЗ закрывающей, уводит токенизатор в режим
+    # «внутри строки», и табы следующих строк перестают быть разделителями.
+    import csv as _csv
+    import pandas as _pd
+
+    # Точная форма из реальной выгрузки (поле «Субконто Кт», строка 28268):
+    # открывающая кавычка, внутри экранированная пара 15.6"" , закрывающей нет.
+    # Кавычек нечёт — в этом вся поломка.
+    broken_sub = ('"' + 'Ноутбук Lenovo V15 G3 IAP Core i3 1215U 8Gb SSD512Gb '
+                  'Intel UHD Graphics 15.6"" TN FHD (1920x1080) g')
+    check('РЗК 26: в проблемном поле кавычек нечёт (это и есть поломка)',
+          broken_sub.count('"') % 2 == 1, f'{broken_sub.count(chr(34))}')
+
+    # Важно: битая строка РОВНО ОДНА. Две такие строки «закрывают» друг друга —
+    # вторая открывающая кавычка закрывает первую, и файл не падает. В реальном
+    # файле после битой строки закрывающая кавычка нашлась намного позже,
+    # поэтому токенизатор «съел» сотни строк до неё.
+    quote_rows = [TAB.join(['', '31.01.2026 23:59:59', 'Регламентная запись',
+                            'Оснащение', '26.01', '', '02.01', '', '1 000,00',
+                            'Б-Д', broken_sub, 'Регистр'])]
+    for i in range(20):
+        quote_rows.append(
+            TAB.join(['', '31.01.2026 23:59:59', 'Регламентная запись',
+                      f'Оснащение N{i}', '26.01', '', '02.01', '', '1 000,00',
+                      'Б-Д', f'Компания {i}', 'Регистр'])
+        )
+    check('РЗК 26: строки поровну разбиты по табу (склеек нет)',
+          all(r.count(TAB) == 11 for r in quote_rows),
+          f'{[r.count(TAB) for r in quote_rows][:5]}')
+
+    quote_path = build_file([HEADER_LINE] + quote_rows, tmpdir,
+                            'rzk_отчпровод_26_.txt')
+    buff, rep_q, unres_q, _ = normalize_ragged_tab_rows(
+        quote_path, header_row=0, encoding='utf-8'
+    )
+    check('РЗК 26: нормализация не считает кавычки рваными строками',
+          rep_q == 0 and unres_q == 0, f'repaired={rep_q} unresolved={unres_q}')
+
+    def _read_quoted(quoting_kw):
+        b, _, _, _ = normalize_ragged_tab_rows(
+            quote_path, header_row=0, encoding='utf-8'
+        )
+        return _pd.read_csv(b, sep=TAB, encoding='utf-8', skiprows=range(0),
+                            header=0, skip_blank_lines=False, decimal=',',
+                            low_memory=False, **quoting_kw)
+
+    try:
+        _read_quoted({})
+        before = 'файл прочитан'
+    except Exception as exc:  # noqa: BLE001 — именно это и проверяем
+        before = f'{type(exc).__name__}: {str(exc)[:45]}'
+    check('РЗК 26: БЕЗ quoting файл падает (это и был регресс)',
+          before != 'файл прочитан', before)
+
+    df_q = _read_quoted({'quoting': _csv.QUOTE_NONE})
+    check('РЗК 26: С quoting=QUOTE_NONE файл читается',
+          len(df_q) > 0, f'строк={len(df_q)}')
+    check('РЗК 26: прочитаны все строки файла',
+          len(df_q) == len(quote_rows),
+          f'прочитано {len(df_q)} из {len(quote_rows)}')
+
+    # Главный критерий: наименование дошло ЦЕЛИКОМ — вместе с кавычками и
+    # не потеряв ни хвоста, ни соседних полей (порча была именно в сдвиге).
+    sub_col = [c for c in df_q.columns if str(c).strip() == 'Субконто Кт']
+    got = str(df_q[sub_col[0]].iloc[0]) if sub_col else ''
+    check('РЗК 26: наименование с незакрытой кавычкой не разорвано',
+          got == broken_sub, f'{got!r}')
+    check('РЗК 26: соседние поля не сдвинулись (Дт и Сумма на своих местах)',
+          str(df_q[[c for c in df_q.columns if str(c).strip() == 'Дт'][0]].iloc[0]).strip() == '26.01'
+          and float(str(df_q[[c for c in df_q.columns if str(c).strip() == 'Сумма'][0]].iloc[0])
+                    .replace('\xa0', '').replace(' ', '').replace(',', '.')) == 1000.0,
+          'поля съехали вместе с наименованием')
+
+    # --- 13. Диагностика исключённых строк: что искать в блокноте ---
+    # Номера строки в TXT нет, поэтому колонка «что_искать» обязана быть
+    # подстрокой исходной строки — иначе Ctrl+F её не найдёт.
+    check('Диагностика: безнадёжная строка попала в список проблемных',
+          len(problems) == 1, f'{problems}')
+    if problems:
+        prob = problems[0]
+        check('Диагностика: указан номер строки файла',
+              isinstance(prob.get('строка'), int), f'{prob.get("строка")!r}')
+        hint = prob.get('что_искать', '')
+        check('Диагностика: «что_искать» непустое', bool(hint), f'{hint!r}')
+        check('Диагностика: «что_искать» — подстрока исходной строки',
+              hint in hopeless, f'{hint!r}')
+        check('Диагностика: в подсказке нет табов (вставка в «Найти»)',
+              TAB not in hint, f'{hint!r}')
+        check('Диагностика: причина объяснена',
+              'табуляция' in prob.get('причина', ''), f'{prob.get("причина")!r}')
+        check('Диагностика: «строка_файла» показывает табы стрелкой',
+              '→' in prob.get('строка_файла', ''),
+              f'{prob.get("строка_файла", "")!r}')
+
+    # Подсказка берётся из самого длинного поля — наименования, а не счёта.
+    check('Диагностика: подсказка взята из наименования, а не из счёта',
+          hint != 'НЕ СЧЕТ', f'{hint!r}')
 
     print()
     total = PASSED + FAILED
