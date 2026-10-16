@@ -10,7 +10,7 @@ from loguru import logger
 from time import time
 
 from pipeline.base import Step, ProcessingContext
-from pipeline.errors import InputDataError, ReferenceMismatchError
+from pipeline.errors import InputDataError
 from io_module import DataLoader
 from utils import find_register_file, set_header_from_row, refresh_rub_equivalent
 from config.settings import SPECIAL_REPORTS_DIR, to_relative
@@ -22,6 +22,10 @@ from io_module.output_manager import get_output_dir, get_run_id
 LONG_SHORT_SUBCONTO_COL = 'Субконто1'
 LONG_SHORT_TOTAL_COL = 'Итого'
 LONG_SHORT_ITOGO_VALUE = 'Итого'
+
+# Имя «справочника» для диагностики рекласса 97 — попадает в имя файла
+# mismatch_step_7_<слаг>_... и в текст WARNING
+OSV_SUBKONTO_REFERENCE_NAME = 'Сводная ОСВ (допсубконто)'
 
 # Константы для отчета расшифровки 1450/1550/1230
 LEASE_REPORT_COLUMNS = {
@@ -453,11 +457,13 @@ class Step7AddLongShortTermColumnStep(Step):
         Обрабатывает рекласс долгие/короткие по 97 счету (кроме аренды/лизинга).
 
         Спецотчет необязательный: при ошибке обработки найденного файла
-        (нет строки 'Субконто1', значения нет в сводной ОСВ и т.п.) рекласс
-        пропускается с WARNING — расшифровка собирается без этой детализации
-        (см. _run_optional_special_report). Под защитой — только подготовка
-        (загрузка/очистка/валидация): применение рекласса мутирует osv_all_df
-        in-place, поэтому выполняется вне защиты.
+        (нет строки 'Субконто1', нечитаемый файл) рекласс пропускается
+        с WARNING — расшифровка собирается без этой детализации
+        (см. _run_optional_special_report). Отсутствие части РБП в сводной
+        ОСВ ошибкой НЕ считается: они отбрасываются по одной, реклас
+        применяется к совпавшим (см. _drop_missing_osv_values). Под защитой —
+        только подготовка (загрузка/очистка/валидация): применение рекласса
+        мутирует osv_all_df in-place, поэтому выполняется вне защиты.
         """
         file_path = find_register_file(
             folder_path=SPECIAL_REPORTS_DIR,
@@ -495,48 +501,70 @@ class Step7AddLongShortTermColumnStep(Step):
         """
         Загружает и подготавливает рекласс по 97 счету до применения.
 
+        Значения отчёта, которых нет в сводной ОСВ, НЕ отменяют рекласс
+        целиком: они просто выбрасываются, реклас применяется к совпавшим,
+        а пропущенные уходят в диагностику и WARNING (см. _drop_missing_osv_values).
+        Так решается обычная ситуация — сводная ОСВ отбрасывает строки с
+        нулевым остатком (шаг 2), а отчёт 1С их показывает (погашенный РБП).
+
         Raises:
             ValueError: в файле нет строки 'Субконто1'.
-            ReferenceMismatchError: значения Субконто1 отсутствуют
-                в сводной ОСВ (problem_data сохраняется в mismatches/).
         """
         reclass_97_df = DataLoader.load_long_short_register(file_path)
         reclass_97_df = self._clean_reclass_97(reclass_97_df)
-                
-        # Проверка отсутствующих значений
-        missing_values = set(reclass_97_df[LONG_SHORT_SUBCONTO_COL]) - set(osv_all_df['допсубконто'])
-        
-        if missing_values:
-            # ★ Формируем problem_data — строки из отчёта с отсутствующими значениями
-            problem_data = (
-                reclass_97_df[reclass_97_df[LONG_SHORT_SUBCONTO_COL].isin(missing_values)]
-                .copy()
-            )
-            
-            # ★ Выбрасываем ReferenceMismatchError
-            # Мягкий режим (_run_optional_special_report): problem_data
-            # сохраняется в Excel, рекласс пропускается с WARNING.
-            raise ReferenceMismatchError(
-                message=(
-                    f"Найдено {len(missing_values)} отсутствующих значений "
-                    f"Отчета долгие/короткие в сводной ОСВ"
-                ),
-                problem_data=problem_data,
-                reference_name="Сводная ОСВ (допсубконто)",
-                missing_values=sorted(missing_values),
-            )
-        
+
+        reclass_97_df = self._drop_missing_osv_values(reclass_97_df, osv_all_df)
+
         reclass_dict = dict(zip(
             reclass_97_df[LONG_SHORT_SUBCONTO_COL],
             reclass_97_df[LONG_SHORT_TOTAL_COL]
         ))
-        
+
         mask = (
             (osv_all_df['долгая_короткая_часть'] == self.SHORT_TERM) &
             (osv_all_df['допсубконто'].isin(reclass_97_df[LONG_SHORT_SUBCONTO_COL]))
         )
-        
+
         return mask, reclass_dict
+
+    def _drop_missing_osv_values(self, reclass_97_df: pd.DataFrame,
+                                 osv_all_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Убирает из отчёта РБП, которых нет в сводной ОСВ, и пишет по ним
+        WARNING + диагностику.
+
+        Реклас применяется по маске ОСВ (_apply_97_reclass), поэтому РБП,
+        которого в ОСВ нет, и так не участвовал бы в разбивке: отбрасывать
+        весь отчёт из-за него — потеря детализации без причины. Совпавшие
+        значения обрабатываются как обычно.
+
+        Возвращает отчёт без отсутствующих значений (возможно, пустой).
+        """
+        osv_values = set(osv_all_df['допсубконто'])
+        present_mask = reclass_97_df[LONG_SHORT_SUBCONTO_COL].isin(osv_values)
+
+        skipped = reclass_97_df.loc[~present_mask]
+        if skipped.empty:
+            return reclass_97_df
+
+        report_path = self._save_problem_data(skipped, OSV_SUBKONTO_REFERENCE_NAME)
+
+        total_values = len(reclass_97_df)
+        logger.warning(
+            "[!] Рекласс РБП 97.21: в сводной ОСВ нет {} из {} РБП из отчёта — "
+            "они не попадут в разбивку на долгую/короткую часть. Обработано: {}.",
+            len(skipped),
+            total_values,
+            total_values - len(skipped),
+        )
+        # Путь — отдельной строкой: длинный путь вместе со счётчиками не влезает
+        # в 200 символов сводки предупреждений и обрезался бы на титульном листе.
+        logger.warning(
+            "Пропущенные РБП сохранены в: {}",
+            to_relative(report_path) if report_path else 'не сохранён (см. лог)',
+        )
+
+        return reclass_97_df.loc[present_mask]
     
     def _clean_reclass_97(self, df: pd.DataFrame) -> pd.DataFrame:
         """Очищает DataFrame рекласса по 97 счету."""

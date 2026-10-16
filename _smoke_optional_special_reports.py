@@ -10,12 +10,16 @@
    _transform_lease_report даёт InputDataError, но _run_optional_special_report
    возвращает None + WARNING, шаг не падает.
 2. Успешный кейс расшифровки 1450/1550/1230 — трансформация проходит насквозь.
-3. ReferenceMismatchError (рекласс 97: значение Субконто1 отсутствует в ОСВ) ->
-   problem_data сохраняется в mismatches/, результат None, шаг не падает.
-4. Успешный кейс подготовки рекласса 97 -> (mask, reclass_dict).
-5. Флаг SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR=False -> исключение
+3. Рекласс 97 с частично отсутствующими в ОСВ значениями (реклассдолгкорт_97) ->
+   рекласс применяется к совпавшим РБП, отсутствующие отбрасываются по одной:
+   problem_data в mismatches/, WARNING, шаг НЕ падает и НЕ теряет детализацию.
+4. Тот же отчёт, где в ОСВ нет НИ ОДНОГО РБП -> пустая маска, шаг идёт дальше.
+5. Регресс баланса: частичное применение не ломает суммы — по каждому РБП
+   сумма «короткая + долгая» равна исходной.
+6. Успешный кейс подготовки рекласса 97 -> (mask, reclass_dict).
+7. Флаг SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR=False -> исключение
    пробрасывается (прежнее жёсткое поведение).
-6. Успешный processor — результат возвращается как есть.
+8. Успешный processor — результат возвращается как есть.
 
 Запуск: conda run -n fl_acc_card python -u _smoke_optional_special_reports.py
 """
@@ -29,7 +33,7 @@ from loguru import logger
 
 from io_module.output_manager import configure_run, get_output_dir, get_run_dir
 from pipeline.base import Step
-from pipeline.errors import InputDataError, ReferenceMismatchError
+from pipeline.errors import InputDataError
 from pipeline.steps.step_07_add_long_short import Step7AddLongShortTermColumnStep
 
 # --- Подготовка лога для проверок WARNING ---------------------------------
@@ -151,9 +155,9 @@ check(
 )
 
 # ==========================================================================
-# Тест 3: ReferenceMismatchError — рекласс 97, значения нет в ОСВ
+# Тест 3: рекласс 97 — часть РБП отсутствует в ОСВ (частичная обработка)
 # ==========================================================================
-print("\n--- Тест 3: рекласс 97, отсутствующие значения (ReferenceMismatchError) ---")
+print("\n--- Тест 3: рекласс 97, часть значений нет в ОСВ ---")
 reclass_bad = tmp_dir / "ТБ_реклассдолгкорт_97_6мес2026_.xlsx"
 pd.DataFrame([
     ["Титул отчета", None],
@@ -167,23 +171,97 @@ osv_df = pd.DataFrame({
     "долгая_короткая_часть": ["короткая часть"],
 })
 
-result = step7._run_optional_special_report(
-    label="Рекласс РБП 97.21 (долгая/короткая часть)",
-    report_file=reclass_bad.name,
-    processor=lambda: step7._prepare_97_reclass(osv_df, reclass_bad),
-)
-check(result is None, "Хелпер вернул None — рекласс 97 пропущен без падения")
+# Прежде здесь ожидался ReferenceMismatchError и полный пропуск отчёта.
+# Теперь совпавшие значения обрабатываются, отсутствующие отбрасываются по одной.
+mask, reclass_dict = step7._prepare_97_reclass(osv_df, reclass_bad)
+check(bool(mask.any()), "Реклас применён к совпавшему РБП (отчёт не отброшен целиком)")
 check(
-    "Спецотчёт 'Рекласс РБП 97.21" in warnings_text(),
-    "WARNING о пропуске рекласса 97 записан в лог",
+    reclass_dict == {"РБП-А": 1.0},
+    f"Словарь рекласса содержит только совпавшее значение (факт: {reclass_dict})",
+)
+check(
+    "в сводной ОСВ нет 1 из 2 РБП из отчёта" in warnings_text(),
+    "WARNING называет число пропущенных и обработанных РБП",
+)
+check(
+    "проверьте файл на полноту" not in warnings_text(),
+    "WARNING «проверьте файл на полноту» не появляется — файл не сломан",
 )
 mismatch_files = list(get_output_dir("mismatches").glob("mismatch_step*.xlsx"))
 check(len(mismatch_files) >= 1, "problem_data сохранён в mismatches/")
+if mismatch_files:
+    saved = pd.read_excel(mismatch_files[-1])
+    check(
+        len(saved) == 1 and saved["Субконто1"].iloc[0] == "РБП-НЕТ-В-ОСВ",
+        f"В диагностику попал только пропущенный РБП (факт: {saved.to_dict('records')})",
+    )
 
 # ==========================================================================
-# Тест 4: успешная подготовка рекласса 97
+# Тест 4: ни одного РБП из отчёта нет в ОСВ — шаг всё равно идёт дальше
 # ==========================================================================
-print("\n--- Тест 4: валидный рекласс 97 ---")
+print("\n--- Тест 4: рекласс 97, в ОСВ нет ни одного РБП ---")
+reclass_none = tmp_dir / "ТБ_реклассдолгкорт_97_чуждой_.xlsx"
+pd.DataFrame([
+    ["Титул отчета", None],
+    ["Субконто1", "Итого"],
+    ["РБП-НЕТ-1", 1000],
+    ["РБП-НЕТ-2", 3000],
+]).to_excel(reclass_none, index=False, header=False)
+
+mask_none, dict_none = step7._prepare_97_reclass(osv_df, reclass_none)
+check(
+    not bool(mask_none.any()) and dict_none == {},
+    "Пустая маска и пустой словарь — шаг продолжает штатно (_process_97_reclass)",
+)
+check(
+    "в сводной ОСВ нет 2 из 2 РБП из отчёта" in warnings_text(),
+    "WARNING сообщает, что не обработано ни одного значения",
+)
+
+# ==========================================================================
+# Тест 5: регресс — частичное применение не ломает суммы (сходимость)
+# ==========================================================================
+print("\n--- Тест 5: суммы РБП после частичного рекласа ---")
+reclass_mixed = tmp_dir / "ТБ_реклассдолгкорт_97_смешанный_.xlsx"
+pd.DataFrame([
+    ["Титул отчета", None],
+    ["Субконто1", "Итого"],
+    ["РБП-А", 4000],
+    ["РБП-Б", 2000],
+    ["РБП-НЕТ-В-ОСВ", 2000],
+]).to_excel(reclass_mixed, index=False, header=False)
+
+osv_saldo = pd.DataFrame({
+    "допсубконто": ["РБП-А", "РБП-Б"],
+    "долгая_короткая_часть": ["короткая часть", "короткая часть"],
+    "сальдо, тыс.ед.": [10.0, 5.0],
+})
+mask_mixed, dict_mixed = step7._prepare_97_reclass(osv_saldo.copy(), reclass_mixed)
+after = step7._apply_97_reclass(osv_saldo.copy(), mask_mixed, dict_mixed)
+
+sums_after = after.groupby("допсубконто", observed=True)["сальдо, тыс.ед."].sum()
+check(
+    round(float(sums_after.get("РБП-А", 0.0)), 2) == 10.0
+    and round(float(sums_after.get("РБП-Б", 0.0)), 2) == 5.0,
+    f"Сумма каждого РБП сохранилась: {sums_after.to_dict()}",
+)
+check(
+    round(float(after['сальдо, тыс.ед.'].sum()), 2) == 15.0,
+    "Общая сумма сальдо не изменилась — баланс сойдётся",
+)
+check(
+    int((after["долгая_короткая_часть"] == "долгая часть").sum()) == 2,
+    "Созданы только две строки «долгая часть» — пропущенный РБП в отчёт не попал",
+)
+check(
+    "РБП-НЕТ-В-ОСВ" not in set(after["допсубконто"]),
+    "РБП, отсутствующий в ОСВ, не создал строк в сводной ОСВ",
+)
+
+# ==========================================================================
+# Тест 6: успешная подготовка рекласса 97
+# ==========================================================================
+print("\n--- Тест 6: валидный рекласс 97 ---")
 reclass_ok = tmp_dir / "ТБ_реклассдолгкорт_97_ок_.xlsx"
 pd.DataFrame([
     ["Титул отчета", None],
@@ -196,9 +274,9 @@ check(bool(mask.any()), "Маска рекласса находит строки
 check(reclass_dict == {"РБП-А": 1.0}, "Словарь рекласса: 1000 ед. -> 1.0 тыс.ед.")
 
 # ==========================================================================
-# Тест 5: жёсткий режим (SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR=False)
+# Тест 7: жёсткий режим (SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR=False)
 # ==========================================================================
-print("\n--- Тест 5: флаг False — прежнее жёсткое поведение ---")
+print("\n--- Тест 7: флаг False — прежнее жёсткое поведение ---")
 import pipeline.base as base_module
 
 base_module.SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR = False
@@ -220,9 +298,9 @@ finally:
     base_module.SKIP_OPTIONAL_SPECIAL_REPORTS_ON_ERROR = True
 
 # ==========================================================================
-# Тест 6: успешный processor — результат возвращается как есть
+# Тест 8: успешный processor — результат возвращается как есть
 # ==========================================================================
-print("\n--- Тест 6: happy path хелпера ---")
+print("\n--- Тест 8: happy path хелпера ---")
 check(
     step7._run_optional_special_report(
         label="Успешный отчёт",

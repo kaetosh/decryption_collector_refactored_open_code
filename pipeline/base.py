@@ -593,33 +593,59 @@ class Step(ABC):
     
     def _save_reference_mismatch_report(self, error: ReferenceMismatchError) -> None:
         """
-        Сохраняет проблемные данные в Excel-файл.
-        Обрабатывает PermissionError — когда файл открыт в Excel.
+        Сохраняет problem_data ошибки в Excel-файл.
+        Делегирует _save_problem_data — общую точку записи диагностики.
         """
         if error.problem_data is None or error.problem_data.empty:
             logger.warning("Нет проблемных данных для сохранения")
             return
-        
+
+        self._save_problem_data(error.problem_data, error.reference_name)
+
+    def _save_problem_data(
+        self,
+        problem_data: pd.DataFrame,
+        reference_name: Optional[str] = None,
+    ) -> Optional[Path]:
+        """
+        Сохраняет кадр проблемных данных в mismatches/ и возвращает путь к файлу.
+
+        Имя файла: mismatch_<шаг>_<справочник>_<run_id>.xlsx — то же, что у
+        _save_reference_mismatch_report. Шаг может звать этот метод и без
+        исключения: частично применимые данные (например, реклас РБП 97.21,
+        где в сводной ОСВ нет части РБП) пишутся той же диагностикой, что и
+        остановка по справочнику, — на титульном листе она читается как
+        «проблемные данные, требуют разбора», а чистится при успешном
+        повторе шага тем же правилом префикса mismatch_.
+
+        Returns:
+            Путь к сохранённому файлу или None, если сохранить не удалось.
+        """
+        if problem_data is None or problem_data.empty:
+            logger.warning("Нет проблемных данных для сохранения")
+            return None
+
         try:
             # Хвост имени файла = идентификатор запуска (совпадает с папкой вывода)
             timestamp = get_run_id()
-            
+
             # ★ КОРОТКОЕ имя шага: только номер (например, "step_14", "step_11a", "step_1a")
             step_slug = self._short_step_slug()
-            
+
             # ★ КОРОТКОЕ имя справочника (обрезка до 30 символов)
-            ref_slug = self._short_slug(error.reference_name or 'unknown', max_len=30)
-            
+            ref_slug = self._short_slug(reference_name or 'unknown', max_len=30)
+
             filename = f"mismatch_{step_slug}_{ref_slug}_{timestamp}.xlsx"
             output_path = get_output_dir("mismatches") / filename
-            
-            error.problem_data.to_excel(output_path, index=False)
+
+            problem_data.to_excel(output_path, index=False)
             _format_diagnostic_sheet(output_path)
-            
+
             logger.info(
                 "[FOLDER] Проблемные данные сохранены в: {}", to_relative(output_path)
             )
-            
+            return output_path
+
         except PermissionError:
             logger.error(
                 "[!] НЕ УДАЛОСЬ сохранить файл '{}': "
@@ -629,10 +655,12 @@ class Step(ABC):
                 "Проблемные данные ({} строк) НЕ были сохранены.",
                 filename,
                 to_relative(output_path.parent),
-                len(error.problem_data),
+                len(problem_data),
             )
         except Exception as save_error:
             logger.error("Не удалось сохранить файл с проблемными данными: {}", save_error)
+
+        return None
 
     @staticmethod
     def _diagnostics_folder() -> Optional[Path]:
